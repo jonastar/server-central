@@ -83,9 +83,13 @@ export class HostAgent {
         if (msg.type === "metrics") {
             // A demoted dummy still streams metrics over its own socket; ignore
             // them so the active agent for this machine is the only source.
-            if (!this.active) return;
+            if (!this.active) {
+                return;
+            }
             this.history.push(msg.snapshot);
-            if (this.history.length > 720) this.history.splice(0, this.history.length - 720);
+            if (this.history.length > 720) {
+                this.history.splice(0, this.history.length - 720);
+            }
             this.onMetrics(this.id, msg.snapshot);
             return;
         }
@@ -174,7 +178,9 @@ export class HostAgent {
 
     async createDir(dirPath: string): Promise<void> {
         const result = await this.exec(`mkdir -p "${dirPath.replace(/"/g, '\\"')}"`);
-        if (result.code !== 0) throw new Error(`mkdir failed: ${result.stderr}`);
+        if (result.code !== 0) {
+            throw new Error(`mkdir failed: ${result.stderr}`);
+        }
     }
 
     async deletePath(targetPath: string): Promise<void> {

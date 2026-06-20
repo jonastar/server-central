@@ -63,12 +63,16 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
     // buffer already holds that file (e.g. a freshly-created unsaved draft).
     useEffect(() => {
         if (!openFilePath) { setFile(null); return; }
-        if (file?.path === openFilePath) return;
+        if (file?.path === openFilePath) {
+            return;
+        }
         let cancelled = false;
         setError(null);
         api("readFile", { serverId, path: openFilePath })
             .then((res) => {
-                if (cancelled) return;
+                if (cancelled) {
+                    return;
+                }
                 setFile({ path: openFilePath, content: res.content, original: res.content, truncated: res.truncated, binary: res.binary });
             })
             .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); });
@@ -81,7 +85,9 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
     }
 
     async function saveFile() {
-        if (!file || file.binary || file.truncated) return;
+        if (!file || file.binary || file.truncated) {
+            return;
+        }
         setSaving(true);
         setError(null);
         try {
@@ -97,7 +103,9 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
 
     async function mkdir() {
         const name = prompt("New folder name:");
-        if (!name) return;
+        if (!name) {
+            return;
+        }
         try {
             await api("createDir", { serverId, path: joinPath(path, name) });
             void load(path);
@@ -108,7 +116,9 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
 
     function newFile() {
         const name = prompt("New file name:");
-        if (!name) return;
+        if (!name) {
+            return;
+        }
         const newPath = joinPath(path, name);
         // Seed the buffer before navigating so the sync effect treats it as an
         // already-open (unsaved) draft rather than fetching a non-existent file.
@@ -118,7 +128,9 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
 
     async function rename(entry: DirEntry) {
         const name = prompt(`Rename "${entry.name}" to:`, entry.name);
-        if (!name || name === entry.name) return;
+        if (!name || name === entry.name) {
+            return;
+        }
         const from = joinPath(path, entry.name);
         const to = joinPath(path, name);
         try {
@@ -131,11 +143,15 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
     }
 
     async function remove(entry: DirEntry) {
-        if (!confirm(`Delete "${entry.name}"?${entry.type === "dir" ? " (must be empty)" : ""}`)) return;
+        if (!confirm(`Delete "${entry.name}"?${entry.type === "dir" ? " (must be empty)" : ""}`)) {
+            return;
+        }
         const target = joinPath(path, entry.name);
         try {
             await api("deletePath", { serverId, path: target });
-            if (file?.path === target) onNavigate({ file: null });
+            if (file?.path === target) {
+                onNavigate({ file: null });
+            }
             void load(path);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

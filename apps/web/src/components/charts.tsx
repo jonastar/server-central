@@ -10,10 +10,14 @@ export interface Series {
 const VIEW_W = 600;
 
 function niceMax(raw: number): number {
-    if (raw <= 0) return 1;
+    if (raw <= 0) {
+        return 1;
+    }
     const exp = Math.pow(10, Math.floor(Math.log10(raw)));
     for (const m of [1, 2, 5, 10]) {
-        if (raw <= m * exp) return m * exp;
+        if (raw <= m * exp) {
+            return m * exp;
+        }
     }
     return 10 * exp;
 }
@@ -91,7 +95,9 @@ export function Sparkline({ points, color = "var(--accent)", height = 28, window
     const t1 = points.at(-1)?.ts ?? Date.now();
     const t0 = t1 - windowMs;
     const visible = points.filter((p) => p.ts >= t0);
-    if (visible.length < 2) return <svg className="sparkline" style={{ height }} />;
+    if (visible.length < 2) {
+        return <svg className="sparkline" style={{ height }} />;
+    }
     return (
         <svg className="sparkline" viewBox={`0 0 ${VIEW_W} ${height}`} preserveAspectRatio="none" style={{ height }}>
             <path d={toPath(visible, t0, t1, max, height)} fill="none" stroke={color} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
@@ -100,8 +106,12 @@ export function Sparkline({ points, color = "var(--accent)", height = 28, window
 }
 
 function loadClass(pct: number): string {
-    if (pct >= 90) return "load-high";
-    if (pct >= 60) return "load-mid";
+    if (pct >= 90) {
+        return "load-high";
+    }
+    if (pct >= 60) {
+        return "load-mid";
+    }
     return "load-low";
 }
 

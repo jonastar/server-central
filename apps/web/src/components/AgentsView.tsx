@@ -5,7 +5,9 @@ import { cx, fmtDateTime, fmtUptime, isAgentOutdated } from "../utils";
 import { StatusDot, EmptyState, ErrorBanner } from "./ui";
 
 function modeBadge(mode: string | undefined) {
-    if (!mode) return <span className="dim">—</span>;
+    if (!mode) {
+        return <span className="dim">—</span>;
+    }
     return <span className={cx("badge", mode === "installed" ? "badge-ok" : "badge-warn")}>{mode}</span>;
 }
 
@@ -17,7 +19,9 @@ export function AgentsView({ servers, onOpenServer }: {
     const [error, setError] = useState<string | null>(null);
 
     async function install(serverId: string) {
-        if (!confirm("Install this agent as a permanent systemd service? It will take over from the live connection.")) return;
+        if (!confirm("Install this agent as a permanent systemd service? It will take over from the live connection.")) {
+            return;
+        }
         setBusyId(serverId);
         setError(null);
         try {
@@ -30,7 +34,9 @@ export function AgentsView({ servers, onOpenServer }: {
     }
 
     async function update(serverId: string) {
-        if (!confirm("Update this agent to the latest version? It will download the new binary and restart.")) return;
+        if (!confirm("Update this agent to the latest version? It will download the new binary and restart.")) {
+            return;
+        }
         setBusyId(serverId);
         setError(null);
         try {

@@ -13,15 +13,21 @@ export function useHashRoute(): [Route, (route: Route) => void] {
         const onHashChange = () => setRoute(hashToRoute(location.hash));
         window.addEventListener("hashchange", onHashChange);
         // Normalize an empty/garbage hash to the canonical dashboard hash once.
-        if (!location.hash) location.replace(routeToHash(route));
+        if (!location.hash) {
+            location.replace(routeToHash(route));
+        }
         return () => window.removeEventListener("hashchange", onHashChange);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const navigate = useCallback((next: Route) => {
         const hash = routeToHash(next);
-        if (hash === location.hash) setRoute(next);
-        else location.hash = hash; // fires hashchange → setRoute
+        if (hash === location.hash) {
+            setRoute(next);
+        }
+        else {
+            location.hash = hash; // fires hashchange → setRoute
+        }
     }, []);
 
     return [route, navigate];

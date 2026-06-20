@@ -31,7 +31,9 @@ async function readOsRelease(): Promise<string> {
     try {
         const text = await fs.readFile("/etc/os-release", "utf8");
         const m = text.match(/^PRETTY_NAME="?([^"\n]*)"?$/m);
-        if (m?.[1]) return m[1];
+        if (m?.[1]) {
+            return m[1];
+        }
     } catch { /* fall through */ }
     return `${os.type()} ${os.release()}`;
 }
@@ -39,7 +41,9 @@ async function readOsRelease(): Promise<string> {
 function primaryIp(): string {
     for (const ifaces of Object.values(os.networkInterfaces())) {
         for (const iface of ifaces ?? []) {
-            if (!iface.internal && iface.family === "IPv4") return iface.address;
+            if (!iface.internal && iface.family === "IPv4") {
+                return iface.address;
+            }
         }
     }
     return "127.0.0.1";
@@ -99,7 +103,9 @@ export class Agent {
     }
 
     stopMetrics(): void {
-        if (this.metricsTimer) clearInterval(this.metricsTimer);
+        if (this.metricsTimer) {
+            clearInterval(this.metricsTimer);
+        }
         this.metricsTimer = null;
     }
 
@@ -191,7 +197,9 @@ export class Agent {
 
             case "installService": {
                 try {
-                    if (!this.onInstallService) throw new Error("This agent cannot install itself");
+                    if (!this.onInstallService) {
+                        throw new Error("This agent cannot install itself");
+                    }
                     await this.onInstallService(msg.agentToken);
                     this.transport.send({ type: "installServiceResponse", requestId: msg.requestId });
                 } catch (e) {
@@ -202,7 +210,9 @@ export class Agent {
 
             case "updateService": {
                 try {
-                    if (!this.onUpdateService) throw new Error("This agent cannot update itself");
+                    if (!this.onUpdateService) {
+                        throw new Error("This agent cannot update itself");
+                    }
                     await this.onUpdateService(msg.version);
                     this.transport.send({ type: "updateServiceResponse", requestId: msg.requestId });
                 } catch (e) {
@@ -225,9 +235,13 @@ export class Agent {
                 this.runExec("df -kP 2>/dev/null").then((r) => r.stdout),
             ]);
             const snapshot = this.collector.ingest({ stat, mem, net, disk, df });
-            if (!snapshot) return;
+            if (!snapshot) {
+                return;
+            }
             this.history.push(snapshot);
-            if (this.history.length > HISTORY_MAX) this.history.splice(0, this.history.length - HISTORY_MAX);
+            if (this.history.length > HISTORY_MAX) {
+                this.history.splice(0, this.history.length - HISTORY_MAX);
+            }
             this.transport.send({ type: "metrics", snapshot });
         } catch { /* missed tick is fine */ }
     }
@@ -250,8 +264,8 @@ export class Agent {
         const entries = await Promise.all(dirents.map(async (d): Promise<DirEntry> => {
             const type: DirEntryType = d.isSymbolicLink() ? "symlink"
                 : d.isDirectory() ? "dir"
-                : d.isFile() ? "file"
-                : "other";
+                    : d.isFile() ? "file"
+                        : "other";
             try {
                 const st = await fs.lstat(path.join(target, d.name));
                 return { name: d.name, type, sizeBytes: st.size, modifiedAt: st.mtimeMs, permissions: permString(st.mode) };
@@ -286,7 +300,9 @@ export class Agent {
 
     private async runDeletePath(targetPath: string): Promise<void> {
         const target = normalizePath(targetPath);
-        if (target === "/") throw new Error("Refusing to delete /");
+        if (target === "/") {
+            throw new Error("Refusing to delete /");
+        }
         await fs.rm(target, { recursive: true });
     }
 

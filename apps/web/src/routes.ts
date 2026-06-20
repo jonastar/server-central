@@ -42,8 +42,12 @@ export function routeToHash(route: Route): string {
             let hash = `#/server/${encodeURIComponent(route.serverId)}/${route.tab}`;
             if (route.tab === "files") {
                 const encoded = route.path ? encodePath(route.path) : "";
-                if (encoded) hash += `/${encoded}`;
-                if (route.file) hash += `?f=${encodeURIComponent(route.file)}`;
+                if (encoded) {
+                    hash += `/${encoded}`;
+                }
+                if (route.file) {
+                    hash += `?f=${encodeURIComponent(route.file)}`;
+                }
             }
             return hash;
         }
@@ -55,9 +59,15 @@ export function hashToRoute(hash: string): Route {
     const [pathPart, queryPart = ""] = hash.replace(/^#/, "").split("?");
     const segs = pathPart.split("/").filter(Boolean);
 
-    if (segs.length === 0) return { view: "dashboard" };
-    if (segs[0] === "agents") return { view: "agents" };
-    if (segs[0] === "settings") return { view: "settings" };
+    if (segs.length === 0) {
+        return { view: "dashboard" };
+    }
+    if (segs[0] === "agents") {
+        return { view: "agents" };
+    }
+    if (segs[0] === "settings") {
+        return { view: "settings" };
+    }
 
     if (segs[0] === "server" && segs[1]) {
         const serverId = decodeURIComponent(segs[1]);

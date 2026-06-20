@@ -21,7 +21,9 @@ async function persistedId(): Promise<string> {
     const file = path.join(stateDir(), "machine-id");
     try {
         const existing = (await fs.readFile(file, "utf8")).trim();
-        if (existing) return existing;
+        if (existing) {
+            return existing;
+        }
     } catch { /* generate one below */ }
 
     const id = crypto.randomUUID().replace(/-/g, "");
@@ -40,7 +42,9 @@ export async function resolveMachineId(): Promise<string> {
     for (const src of OS_MACHINE_ID_SOURCES) {
         try {
             const raw = (await fs.readFile(src, "utf8")).trim();
-            if (raw) return hashId(raw);
+            if (raw) {
+                return hashId(raw);
+            }
         } catch { /* try next source */ }
     }
     return persistedId();

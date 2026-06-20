@@ -7,8 +7,12 @@ import { EmptyState, ErrorBanner, Modal } from "./ui";
 const REFRESH_MS = 10_000;
 
 function stateBadge(state: string): string {
-    if (state === "running") return "badge-ok";
-    if (state === "paused" || state === "restarting") return "badge-warn";
+    if (state === "running") {
+        return "badge-ok";
+    }
+    if (state === "paused" || state === "restarting") {
+        return "badge-warn";
+    }
     return "badge-err";
 }
 
@@ -35,7 +39,9 @@ export function DockerView({ serverId }: { serverId: string }) {
     }, [load]);
 
     async function action(container: ContainerInfo, act: ContainerAction) {
-        if (act === "remove" && !confirm(`Remove container "${container.name}"?`)) return;
+        if (act === "remove" && !confirm(`Remove container "${container.name}"?`)) {
+            return;
+        }
         setBusyId(container.id);
         try {
             await api("dockerContainerAction", { serverId, containerId: container.id, action: act });

@@ -10,7 +10,9 @@ export function TerminalView({ serverId }: { serverId: string }) {
 
     useEffect(() => {
         const host = hostRef.current;
-        if (!host) return;
+        if (!host) {
+            return;
+        }
 
         const term = new Terminal({
             fontSize: 13,
@@ -27,15 +29,23 @@ export function TerminalView({ serverId }: { serverId: string }) {
             `ws://${API_HOST}/terminal?serverId=${encodeURIComponent(serverId)}&token=${encodeURIComponent(getToken() ?? "")}`,
         );
         const send = (msg: TerminalClientMessage) => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(msg));
+            }
         };
 
         ws.onopen = () => send({ type: "resize", cols: term.cols, rows: term.rows });
         ws.onmessage = (event) => {
             const msg = JSON.parse(event.data) as TerminalServerMessage;
-            if (msg.type === "data") term.write(msg.data);
-            else if (msg.type === "error") term.writeln(`\r\n\x1b[31m${msg.message}\x1b[0m`);
-            else if (msg.type === "exit") term.writeln("\r\n\x1b[90m[session ended]\x1b[0m");
+            if (msg.type === "data") {
+                term.write(msg.data);
+            }
+            else if (msg.type === "error") {
+                term.writeln(`\r\n\x1b[31m${msg.message}\x1b[0m`);
+            }
+            else if (msg.type === "exit") {
+                term.writeln("\r\n\x1b[90m[session ended]\x1b[0m");
+            }
         };
         ws.onclose = () => term.writeln("\r\n\x1b[90m[disconnected]\x1b[0m");
 

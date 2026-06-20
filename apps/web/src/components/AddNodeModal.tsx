@@ -38,7 +38,9 @@ export function AddNodeModal({ onClose }: { onClose: () => void }) {
     useEffect(() => { void generate(platform); }, []);
 
     useEffect(() => {
-        if (!expiresAt) return;
+        if (!expiresAt) {
+            return;
+        }
         const tick = () => setSecondsLeft(Math.max(0, Math.round((expiresAt - Date.now()) / 1000)));
         tick();
         const id = setInterval(tick, 1000);
@@ -51,7 +53,9 @@ export function AddNodeModal({ onClose }: { onClose: () => void }) {
     }
 
     async function handleCopy() {
-        if (!command) return;
+        if (!command) {
+            return;
+        }
         await navigator.clipboard.writeText(command);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);

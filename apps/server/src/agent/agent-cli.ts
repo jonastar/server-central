@@ -24,11 +24,21 @@ function parseArgs(args: string[]): Args {
     let mode: AgentMode = "live";
 
     for (let i = 0; i < args.length; i++) {
-        if (args[i] === "--agent") continue;
-        else if (args[i] === "--control") control = args[++i];
-        else if (args[i] === "--alt-control") altControl = args[++i];
-        else if (args[i] === "--token") token = args[++i];
-        else if (args[i] === "--cert") cert = args[++i];
+        if (args[i] === "--agent") {
+            continue;
+        }
+        else if (args[i] === "--control") {
+            control = args[++i];
+        }
+        else if (args[i] === "--alt-control") {
+            altControl = args[++i];
+        }
+        else if (args[i] === "--token") {
+            token = args[++i];
+        }
+        else if (args[i] === "--cert") {
+            cert = args[++i];
+        }
         else if (args[i] === "--mode") {
             const value = args[++i];
             if (value !== "live" && value !== "installed") {
@@ -123,7 +133,9 @@ async function pruneOldBinaries(keep: string): Promise<void> {
         .filter((e): e is { full: string; mtime: number } => e !== null)
         .sort((a, b) => b.mtime - a.mtime);
     for (const { full } of sorted.slice(KEEP_VERSIONS)) {
-        if (full === keep) continue;
+        if (full === keep) {
+            continue;
+        }
         await fs.rm(full, { force: true }).catch(() => { });
     }
 }
@@ -142,7 +154,9 @@ async function downloadBinary(opts: { control: string; altControl: string | null
         try {
             // tls.ca pins the control-plane cert (Bun-specific fetch option).
             const res = await fetch(url, { tls: { ca: opts.certPem } });
-            if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).trim()}`);
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status} ${(await res.text()).trim()}`);
+            }
             await Bun.write(opts.dest, res);
             await fs.chmod(opts.dest, 0o755);
             return;
@@ -161,8 +175,12 @@ async function downloadBinary(opts: { control: string; altControl: string | null
  * add-server flow design).
  */
 async function installSelf(opts: { control: string; altControl: string | null; certPem: string; agentToken: string }): Promise<void> {
-    if (process.platform !== "linux") throw new Error("Service install is only supported on Linux");
-    if (await Bun.file(UNIT_PATH).exists()) throw new Error("sc-agent service is already installed");
+    if (process.platform !== "linux") {
+        throw new Error("Service install is only supported on Linux");
+    }
+    if (await Bun.file(UNIT_PATH).exists()) {
+        throw new Error("sc-agent service is already installed");
+    }
 
     await fs.mkdir("/etc/sc-agent", { recursive: true });
     const bin = versionedBin(AGENT_VERSION);
@@ -205,9 +223,15 @@ WantedBy=multi-user.target
  * previous versioned binary is kept for rollback. Never touches the unit or cert.
  */
 async function updateSelf(opts: { control: string; altControl: string | null; certPem: string; token: string; version: string }): Promise<void> {
-    if (process.platform !== "linux") throw new Error("Self-update is only supported on Linux");
-    if (!(await Bun.file(UNIT_PATH).exists())) throw new Error("sc-agent is not installed as a service");
-    if (opts.version === AGENT_VERSION) throw new Error(`Already running version ${AGENT_VERSION}`);
+    if (process.platform !== "linux") {
+        throw new Error("Self-update is only supported on Linux");
+    }
+    if (!(await Bun.file(UNIT_PATH).exists())) {
+        throw new Error("sc-agent is not installed as a service");
+    }
+    if (opts.version === AGENT_VERSION) {
+        throw new Error(`Already running version ${AGENT_VERSION}`);
+    }
 
     const bin = versionedBin(opts.version);
     await downloadBinary({ control: opts.control, altControl: opts.altControl, certPem: opts.certPem, token: opts.token, dest: bin });

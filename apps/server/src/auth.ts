@@ -65,7 +65,9 @@ export class AuthStore {
 
     /** Create the first account. Fails if any user already exists. */
     async setupOwner(username: string, password: string): Promise<{ token: string; user: UserInfo }> {
-        if (!this.needsSetup()) throw new Error("Setup already completed");
+        if (!this.needsSetup()) {
+            throw new Error("Setup already completed");
+        }
         const user = await this.createUser(username, password, "owner");
         const token = await this.createSession(user.id);
         return { token, user };
@@ -75,7 +77,9 @@ export class AuthStore {
         const rec = Object.values(this.users).find((u) => u.username === normalizeUsername(username));
         // Verify against a dummy hash when the user is unknown to keep timing uniform.
         const ok = await Bun.password.verify(password, rec?.passwordHash ?? this.dummyHash);
-        if (!rec || !ok) throw new Error("Invalid username or password");
+        if (!rec || !ok) {
+            throw new Error("Invalid username or password");
+        }
         const token = await this.createSession(rec.id);
         return { token, user: toUserInfo(rec) };
     }
@@ -89,16 +93,22 @@ export class AuthStore {
 
     /** Resolve a bearer token to its user, refreshing the session's last-seen. */
     async authenticate(token: string | null): Promise<UserInfo | null> {
-        if (!token) return null;
+        if (!token) {
+            return null;
+        }
         const session = this.sessions[token];
-        if (!session) return null;
+        if (!session) {
+            return null;
+        }
         if (Date.now() - session.lastSeenAt > SESSION_TTL_MS) {
             delete this.sessions[token];
             await this.persistSessions();
             return null;
         }
         const rec = this.users[session.userId];
-        if (!rec) return null;
+        if (!rec) {
+            return null;
+        }
         session.lastSeenAt = Date.now();
         // Persist last-seen lazily; a missed write only shortens the session window.
         this.persistSessions().catch(() => { /* best-effort */ });
@@ -107,8 +117,12 @@ export class AuthStore {
 
     private async createUser(username: string, password: string, role: Role): Promise<UserInfo> {
         const name = normalizeUsername(username);
-        if (!name) throw new Error("Username is required");
-        if (password.length < 8) throw new Error("Password must be at least 8 characters");
+        if (!name) {
+            throw new Error("Username is required");
+        }
+        if (password.length < 8) {
+            throw new Error("Password must be at least 8 characters");
+        }
         if (Object.values(this.users).some((u) => u.username === name)) {
             throw new Error("Username already taken");
         }
@@ -140,7 +154,9 @@ export class AuthStore {
                 changed = true;
             }
         }
-        if (changed) await this.persistSessions();
+        if (changed) {
+            await this.persistSessions();
+        }
     }
 
     private async persistUsers(): Promise<void> {

@@ -9,7 +9,7 @@ import { CentralHandler } from "./handler";
 import { ensureTls } from "./tls";
 import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
-import { runAgentCli } from "./agent-cli";
+import { runAgentCli } from "./agent/agent-cli";
 
 // This single binary is both the control plane and the host agent. With
 // `--agent` it connects to a control plane and runs the managed-host logic
@@ -36,7 +36,9 @@ const eventSockets = new Set<ServerWebSocket<WsData>>();
 
 function broadcast(event: ApiEvent): void {
     const payload = JSON.stringify(event);
-    for (const socket of eventSockets) socket.send(payload);
+    for (const socket of eventSockets) {
+        socket.send(payload);
+    }
 }
 
 const fleet = new Fleet(
@@ -50,7 +52,9 @@ await auth.init();
 
 const tls = await ensureTls(path.join(CONFIG_DIR, "tls"));
 const wanIp = await discoverWanIp();
-if (wanIp) console.log(`Discovered WAN IP: ${wanIp}`);
+if (wanIp) {
+    console.log(`Discovered WAN IP: ${wanIp}`);
+}
 
 const nodeServer = await startNodeServer(
     fleet,
@@ -66,7 +70,9 @@ const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]
 
 function bearerToken(req: Request): string | null {
     const header = req.headers.get("Authorization");
-    if (!header) return null;
+    if (!header) {
+        return null;
+    }
     const match = /^Bearer\s+(.+)$/i.exec(header);
     return match ? match[1] : null;
 }
@@ -78,7 +84,9 @@ function sendTerminal(ws: ServerWebSocket<WsData>, msg: TerminalServerMessage): 
 }
 
 async function openTerminal(ws: ServerWebSocket<WsData>): Promise<void> {
-    if (ws.data.channel !== "terminal") return;
+    if (ws.data.channel !== "terminal") {
+        return;
+    }
     try {
         const agent = fleet.get(ws.data.serverId);
         const shell = await agent.openShell(80, 24);
@@ -109,7 +117,9 @@ const server = Bun.serve<WsData>({
         // browsers can't set Authorization headers on WS upgrades.
         if (url.pathname === "/events" || url.pathname === "/terminal") {
             const user = await auth.authenticate(url.searchParams.get("token"));
-            if (!user) return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+            if (!user) {
+                return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+            }
 
             if (url.pathname === "/events") {
                 if (serverCtx.upgrade(req, { data: { channel: "events" } satisfies WsData })) {
@@ -122,7 +132,9 @@ const server = Bun.serve<WsData>({
                 return Response.json({ error: "serverId required" }, { status: 400, headers: corsHeaders });
             }
             const data: WsData = { channel: "terminal", serverId, shell: null };
-            if (serverCtx.upgrade(req, { data })) return undefined as unknown as Response;
+            if (serverCtx.upgrade(req, { data })) {
+                return undefined as unknown as Response;
+            }
             return new Response("Upgrade failed", { status: 400, headers: corsHeaders });
         }
 
@@ -166,16 +178,26 @@ const server = Bun.serve<WsData>({
             }
         },
         message(ws, message) {
-            if (ws.data.channel !== "terminal" || !ws.data.shell) return;
+            if (ws.data.channel !== "terminal" || !ws.data.shell) {
+                return;
+            }
             try {
                 const msg = JSON.parse(String(message)) as TerminalClientMessage;
-                if (msg.type === "input") ws.data.shell.write(msg.data);
-                else if (msg.type === "resize") ws.data.shell.resize(msg.cols, msg.rows);
+                if (msg.type === "input") {
+                    ws.data.shell.write(msg.data);
+                }
+                else if (msg.type === "resize") {
+                    ws.data.shell.resize(msg.cols, msg.rows);
+                }
             } catch { /* ignore malformed frames */ }
         },
         close(ws) {
-            if (ws.data.channel === "events") eventSockets.delete(ws);
-            else ws.data.shell?.close();
+            if (ws.data.channel === "events") {
+                eventSockets.delete(ws);
+            }
+            else {
+                ws.data.shell?.close();
+            }
         },
     },
 });

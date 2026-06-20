@@ -46,7 +46,9 @@ export async function ensureTls(dir: string): Promise<TlsBundle> {
     // Regenerate a legacy cert that predates the SAN: agents can no longer
     // verify it when connecting by hostname (Bun enforces hostname↔SAN).
     const staleSan = exists[0] && !hasRequiredSan(await fs.readFile(certPath, "utf8").catch(() => ""));
-    if (staleSan) console.log("Existing TLS cert lacks the control-plane SAN; regenerating");
+    if (staleSan) {
+        console.log("Existing TLS cert lacks the control-plane SAN; regenerating");
+    }
 
     if (!exists[0] || !exists[1] || staleSan) {
         const proc = Bun.spawn([

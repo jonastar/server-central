@@ -1,6 +1,6 @@
 import type { AgentMode, MetricsSnapshot, ServerEntry } from "@central/shared";
 import { HostAgent } from "./host-agent";
-import { createEmbeddedAgent } from "./embedded-agent";
+import { createEmbeddedAgent } from "./agent/embedded-agent";
 import { type AgentRecord, readAgentState, writeAgentState } from "./config";
 
 /** Higher wins when two agents claim the same machine. */
@@ -32,7 +32,9 @@ export class Fleet {
         for (const record of Object.values(stored)) {
             // Drop the legacy embedded-agent record: the embedded agent now keys
             // on the real machine id, so a leftover "local" would be a phantom.
-            if (record.id === "local") continue;
+            if (record.id === "local") {
+                continue;
+            }
             this.knownAgents.set(record.id, record);
         }
 
@@ -46,7 +48,9 @@ export class Fleet {
     private activeOf(list: HostAgent[]): HostAgent | undefined {
         let best: HostAgent | undefined;
         for (const a of list) {
-            if (!best || MODE_RANK[a.mode] >= MODE_RANK[best.mode]) best = a;
+            if (!best || MODE_RANK[a.mode] >= MODE_RANK[best.mode]) {
+                best = a;
+            }
         }
         return best;
     }
@@ -55,8 +59,12 @@ export class Fleet {
     private reconcile(list: HostAgent[]): HostAgent {
         const active = this.activeOf(list)!;
         for (const a of list) {
-            if (a === active) a.activate?.();
-            else a.deactivate?.();
+            if (a === active) {
+                a.activate?.();
+            }
+            else {
+                a.deactivate?.();
+            }
         }
         return active;
     }
@@ -64,7 +72,9 @@ export class Fleet {
     get(serverId: string): HostAgent {
         const list = this.connections.get(serverId);
         const active = list && this.activeOf(list);
-        if (!active) throw new Error(`Unknown server: ${serverId}`);
+        if (!active) {
+            throw new Error(`Unknown server: ${serverId}`);
+        }
         return active;
     }
 
@@ -75,7 +85,9 @@ export class Fleet {
      */
     register(agent: HostAgent): boolean {
         const list = this.connections.get(agent.id) ?? [];
-        if (!list.includes(agent)) list.push(agent);
+        if (!list.includes(agent)) {
+            list.push(agent);
+        }
         this.connections.set(agent.id, list);
 
         const active = this.reconcile(list);
@@ -87,15 +99,21 @@ export class Fleet {
 
     deregister(agent: HostAgent): void {
         const list = this.connections.get(agent.id);
-        if (!list) return;
+        if (!list) {
+            return;
+        }
         const idx = list.indexOf(agent);
-        if (idx === -1) return;
+        if (idx === -1) {
+            return;
+        }
         list.splice(idx, 1);
 
         if (list.length === 0) {
             this.connections.delete(agent.id);
             const record = this.knownAgents.get(agent.id);
-            if (record) record.lastSeenAt = Date.now();
+            if (record) {
+                record.lastSeenAt = Date.now();
+            }
         } else {
             // Promote a standby to active if the one that left was active.
             this.recordAgent(this.reconcile(list));
@@ -146,14 +164,18 @@ export class Fleet {
         const out: Record<string, MetricsSnapshot[]> = {};
         for (const [id, list] of this.connections) {
             const active = this.activeOf(list);
-            if (active) out[id] = active.history;
+            if (active) {
+                out[id] = active.history;
+            }
         }
         return out;
     }
 
     private async persistState(): Promise<void> {
         const state: Record<string, AgentRecord> = {};
-        for (const [id, record] of this.knownAgents) state[id] = record;
+        for (const [id, record] of this.knownAgents) {
+            state[id] = record;
+        }
         await writeAgentState(state);
     }
 }

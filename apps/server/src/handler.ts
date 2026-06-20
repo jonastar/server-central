@@ -43,7 +43,9 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
     }
 
     async me(_data: void, ctx?: AuthContext): Promise<UserInfo> {
-        if (!ctx?.user) throw new Error("Not authenticated");
+        if (!ctx?.user) {
+            throw new Error("Not authenticated");
+        }
         return ctx.user;
     }
 
@@ -102,17 +104,27 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
     // ---- Node enrollment ---------------------------------------------------------------
 
     async generateNodeInstallCommand(data: { platform: "linux" | "mac" | "windows" }): Promise<{ command: string; expiresAt: number }> {
-        if (!this.nodeServer) throw new Error("Node server not initialized");
+        if (!this.nodeServer) {
+            throw new Error("Node server not initialized");
+        }
         const config = await readConfig();
         return this.nodeServer.generateInstallCommand(data.platform, config.domain ?? null);
     }
 
     async installNodeService(data: { serverId: string }): Promise<void> {
-        if (!this.nodeServer) throw new Error("Node server not initialized");
+        if (!this.nodeServer) {
+            throw new Error("Node server not initialized");
+        }
         const agent = this.fleet.get(data.serverId);
-        if (agent.status().state !== "online") throw new Error("Agent is not connected");
-        if (agent.mode === "installed") throw new Error("Agent is already installed as a service");
-        if (!agent.installService) throw new Error("This agent cannot be installed as a service");
+        if (agent.status().state !== "online") {
+            throw new Error("Agent is not connected");
+        }
+        if (agent.mode === "installed") {
+            throw new Error("Agent is already installed as a service");
+        }
+        if (!agent.installService) {
+            throw new Error("This agent cannot be installed as a service");
+        }
 
         // Durable token keyed by machine id (the fleet's serverId).
         const agentToken = await this.nodeServer.mintAgentToken(data.serverId);
@@ -121,8 +133,12 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     async updateNodeService(data: { serverId: string }): Promise<void> {
         const agent = this.fleet.get(data.serverId);
-        if (agent.status().state !== "online") throw new Error("Agent is not connected");
-        if (agent.mode !== "installed") throw new Error("Only installed agents can be updated");
+        if (agent.status().state !== "online") {
+            throw new Error("Agent is not connected");
+        }
+        if (agent.mode !== "installed") {
+            throw new Error("Only installed agents can be updated");
+        }
         if (agent.status().info?.agentVersion === AGENT_VERSION) {
             throw new Error("Agent is already up to date");
         }
@@ -147,7 +163,9 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
         const out: ProcessInfo[] = [];
         for (const line of res.stdout.split("\n").slice(1)) {
             const f = line.trim().split(/\s+/);
-            if (f.length < 11) continue;
+            if (f.length < 11) {
+                continue;
+            }
             out.push({
                 user: f[0],
                 pid: Number(f[1]),

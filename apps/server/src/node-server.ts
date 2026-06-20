@@ -109,7 +109,9 @@ export class NodeServer {
     /** Serve the compiled agent binary for `platform` from dist/. */
     private static binaryResponse(platform: string): Response {
         const binary = PLATFORM_BINARY[platform];
-        if (!binary) return new Response("Unknown platform", { status: 400 });
+        if (!binary) {
+            return new Response("Unknown platform", { status: 400 });
+        }
         const binPath = path.join(DIST_DIR, binary);
         try {
             return new Response(Bun.file(binPath), {
@@ -122,9 +124,13 @@ export class NodeServer {
 
     private validateToken(token: string): boolean {
         // Durable tokens (installed agents) never expire.
-        if (this.durableTokenSet.has(token)) return true;
+        if (this.durableTokenSet.has(token)) {
+            return true;
+        }
         const entry = this.tokens.get(token);
-        if (!entry) return false;
+        if (!entry) {
+            return false;
+        }
         if (Date.now() > entry.expiresAt) {
             this.tokens.delete(token);
             return false;
@@ -231,7 +237,9 @@ export class NodeServer {
                 },
                 close(ws) {
                     const connId = ws.data.connId;
-                    if (!connId) return;
+                    if (!connId) {
+                        return;
+                    }
                     const proxy = self.agents.get(connId);
                     if (proxy) {
                         proxy.disconnect();
@@ -248,7 +256,9 @@ export class NodeServer {
         this.tokenSweep = setInterval(() => {
             const now = Date.now();
             for (const [token, entry] of self.tokens) {
-                if (now > entry.expiresAt) self.tokens.delete(token);
+                if (now > entry.expiresAt) {
+                    self.tokens.delete(token);
+                }
             }
         }, 5 * 60 * 1000);
         // Don't keep the process alive on this timer alone (matters for tests).
@@ -257,7 +267,9 @@ export class NodeServer {
 
     /** Stop listening and clear timers. Primarily for tests. */
     stop(): void {
-        if (this.tokenSweep) clearInterval(this.tokenSweep);
+        if (this.tokenSweep) {
+            clearInterval(this.tokenSweep);
+        }
         this.tokenSweep = null;
         this.server?.stop(true);
         this.server = null;
@@ -267,7 +279,9 @@ export class NodeServer {
 function primaryLanIp(): string {
     for (const ifaces of Object.values(os.networkInterfaces())) {
         for (const iface of ifaces ?? []) {
-            if (!iface.internal && iface.family === "IPv4") return iface.address;
+            if (!iface.internal && iface.family === "IPv4") {
+                return iface.address;
+            }
         }
     }
     return "127.0.0.1";

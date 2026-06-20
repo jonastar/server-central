@@ -28,7 +28,9 @@ class ConnectionManager {
 
     /** Open the events socket. Called once the user is authenticated. */
     start() {
-        if (this.running) return;
+        if (this.running) {
+            return;
+        }
         this.running = true;
         this.connect();
     }
@@ -36,7 +38,9 @@ class ConnectionManager {
     /** Close the socket and reset state (on logout / auth loss). */
     stop() {
         this.running = false;
-        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+        }
         this.reconnectTimer = null;
         this.ws?.close();
         this.ws = null;
@@ -44,15 +48,21 @@ class ConnectionManager {
     }
 
     private connect() {
-        if (!this.running) return;
+        if (!this.running) {
+            return;
+        }
         const token = getToken();
-        if (!token) return;
+        if (!token) {
+            return;
+        }
         const ws = new WebSocket(`ws://${API_HOST}/events?token=${encodeURIComponent(token)}`);
         this.ws = ws;
         ws.onopen = () => this.update({ connected: true, connecting: false });
         ws.onclose = () => {
             this.ws = null;
-            if (!this.running) return;
+            if (!this.running) {
+                return;
+            }
             this.update({ connected: false, connecting: true });
             this.reconnectTimer = setTimeout(() => this.connect(), 3000);
         };
@@ -86,7 +96,9 @@ class ConnectionManager {
 
     private update(patch: Partial<Omit<ConnectionState, "conn">>): void {
         this.state = { ...this.state, ...patch };
-        for (const l of this.listeners.values()) l(this.getState());
+        for (const l of this.listeners.values()) {
+            l(this.getState());
+        }
     }
 
     getState(): ConnectionState {

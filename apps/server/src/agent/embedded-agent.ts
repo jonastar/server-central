@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import type { MetricsSnapshot } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, resolveMachineId } from "./agent";
-import { HostAgent } from "./host-agent";
+import { HostAgent } from "../host-agent";
 
 /**
  * Build the control plane's own host as a {@link HostAgent}, backed by an

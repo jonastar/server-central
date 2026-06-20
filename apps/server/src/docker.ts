@@ -7,7 +7,9 @@ function parseJsonLines<T>(text: string): T[] {
     const out: T[] = [];
     for (const line of text.split("\n")) {
         const trimmed = line.trim();
-        if (!trimmed) continue;
+        if (!trimmed) {
+            continue;
+        }
         try {
             out.push(JSON.parse(trimmed) as T);
         } catch { /* skip malformed line */ }
@@ -67,7 +69,9 @@ export async function dockerContainerAction(
     containerId: string,
     action: ContainerAction,
 ): Promise<void> {
-    if (!SAFE_ID_RE.test(containerId)) throw new Error(`Invalid container id: ${containerId}`);
+    if (!SAFE_ID_RE.test(containerId)) {
+        throw new Error(`Invalid container id: ${containerId}`);
+    }
     const cmd = action === "remove" ? "rm -f" : action;
     const res = await server.exec(`docker ${cmd} ${containerId} 2>&1`);
     if (res.code !== 0) {
@@ -80,7 +84,9 @@ export async function dockerContainerLogs(
     containerId: string,
     tail: number,
 ): Promise<string> {
-    if (!SAFE_ID_RE.test(containerId)) throw new Error(`Invalid container id: ${containerId}`);
+    if (!SAFE_ID_RE.test(containerId)) {
+        throw new Error(`Invalid container id: ${containerId}`);
+    }
     const res = await server.exec(`docker logs --tail ${Math.floor(tail)} ${containerId} 2>&1`);
     return res.stdout;
 }
