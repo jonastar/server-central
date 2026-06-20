@@ -4,10 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMode, MetricsSnapshot } from "@central/shared";
 import { Fleet } from "../../src/fleet";
-import { NodeProxy } from "../../src/node-proxy";
+import { HostAgent } from "../../src/host-agent";
 
 // Unit-level coverage for the machine-id keying + live/installed priority rules
-// in Fleet. No sockets — we drive NodeProxy instances directly.
+// in Fleet. No sockets — we drive HostAgent instances directly.
 
 const MACHINE = "machine-abc";
 
@@ -19,8 +19,8 @@ function onMetrics(serverId: string) {
     metricsEvents.push(serverId);
 }
 
-function makeProxy(mode: AgentMode): NodeProxy {
-    return new NodeProxy(() => {}, MACHINE, `host-${mode}`, null, onMetrics, mode);
+function makeProxy(mode: AgentMode): HostAgent {
+    return new HostAgent(() => {}, MACHINE, `host-${mode}`, null, onMetrics, mode);
 }
 
 function fakeSnapshot(): MetricsSnapshot {

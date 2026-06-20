@@ -2,8 +2,8 @@ import * as path from "node:path";
 import type { Subprocess } from "bun";
 import type { NodeMessage } from "@central/shared";
 
-/** The real agent CLI entry (apps/node/src/index.ts), relative to this file. */
-const AGENT_ENTRY = path.resolve(import.meta.dir, "../../../node/src/index.ts");
+/** The real agent CLI entry — the server binary run with `--agent`. */
+const AGENT_ENTRY = path.resolve(import.meta.dir, "../../src/index.ts");
 
 /**
  * Poll `fn` until it returns a truthy value or the timeout elapses.
@@ -38,13 +38,13 @@ export interface SpawnedAgent {
 }
 
 /**
- * Spawn the real agent CLI as a subprocess — the same `connect` entry point the
- * production node binary uses, run from source (no compile step). Exercises real
- * arg parsing, the WsTransport, the connect/reconnect loop, and startMetrics().
+ * Spawn the real agent CLI as a subprocess — the same `--agent` entry point the
+ * production binary uses, run from source (no compile step). Exercises real arg
+ * parsing, the WsTransport, the connect/reconnect loop, and startMetrics().
  */
 export function spawnTestAgent(opts: { control: string; token: string; certPath: string }): SpawnedAgent {
     const proc = Bun.spawn(
-        ["bun", AGENT_ENTRY, "connect", "--control", opts.control, "--token", opts.token, "--cert", opts.certPath],
+        ["bun", AGENT_ENTRY, "--agent", "--control", opts.control, "--token", opts.token, "--cert", opts.certPath],
         { stdout: "pipe", stderr: "pipe" },
     );
 

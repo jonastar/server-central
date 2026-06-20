@@ -1,15 +1,34 @@
-import type { AgentMode, ControlMessage, MetricsSnapshot, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
-import type { ExecResult, HostAgent, ShellSession } from "./agent";
+import type { AgentMode, ControlMessage, DirEntry, FileContent, MetricsSnapshot, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
+export interface ExecResult {
+    stdout: string;
+    stderr: string;
+    code: number;
+}
+
+/** An interactive PTY session on the agent's host. */
+export interface ShellSession {
+    onData(cb: (data: string) => void): void;
+    onExit(cb: (code: number | null) => void): void;
+    write(data: string): void;
+    resize(cols: number, rows: number): void;
+    close(): void;
+}
+
 /**
- * Server-side proxy for a managed host — works for both remote nodes (WebSocket)
- * and the embedded agent (in-process). The only difference is what `sendControl` does.
+ * The control plane's handle to a managed host — everything Server Central needs
+ * from a host, expressed as control messages sent over an abstract transport.
+ *
+ * One class serves every host: remote nodes (`sendControl` writes to a WebSocket)
+ * and the embedded host (`sendControl` hands the message to an in-process Agent —
+ * see {@link ./embedded-agent}). The transport is the only difference.
  */
-export class NodeProxy implements HostAgent {
+export class HostAgent {
     readonly id: string;
     readonly name: string;
+    /** How this agent runs on its host. Drives fleet priority (installed > live). */
     readonly mode: AgentMode;
     readonly history: MetricsSnapshot[] = [];
 
@@ -35,7 +54,7 @@ export class NodeProxy implements HostAgent {
         this.mode = mode;
     }
 
-    /** Update system info (used by embedded agent after it collects info on start). */
+    /** Update system info (used by the embedded agent after it collects info on start). */
     setInfo(info: SystemInfo): void {
         this.info = info;
     }
@@ -59,7 +78,7 @@ export class NodeProxy implements HostAgent {
         };
     }
 
-    /** Called when a NodeMessage arrives (from WebSocket or in-process Agent). */
+    /** Called when a NodeMessage arrives (from a WebSocket or an in-process Agent). */
     receive(msg: NodeMessage): void {
         if (msg.type === "metrics") {
             // A demoted dummy still streams metrics over its own socket; ignore
@@ -96,7 +115,7 @@ export class NodeProxy implements HostAgent {
         }
     }
 
-    /** Called when the connection drops (remote agents only; embedded agents never disconnect). */
+    /** Called when the connection drops (remote agents only; the embedded agent never disconnects). */
     disconnect(): void {
         this.connected = false;
         for (const { reject } of this.pending.values()) {
@@ -124,7 +143,7 @@ export class NodeProxy implements HostAgent {
         });
     }
 
-    // ---- HostAgent implementation -----------------------------------------------
+    // ---- Host operations --------------------------------------------------------
 
     async exec(command: string): Promise<ExecResult> {
         const resp = await this.request<Extract<NodeMessage, { type: "execResponse" }>>({
@@ -133,14 +152,14 @@ export class NodeProxy implements HostAgent {
         return resp.result;
     }
 
-    async listDir(dirPath: string): Promise<{ path: string; entries: import("@central/shared").DirEntry[] }> {
+    async listDir(dirPath: string): Promise<{ path: string; entries: DirEntry[] }> {
         const resp = await this.request<Extract<NodeMessage, { type: "listDirResponse" }>>({
             type: "listDirRequest", requestId: crypto.randomUUID(), path: dirPath,
         });
         return resp.result;
     }
 
-    async readFile(filePath: string): Promise<import("@central/shared").FileContent> {
+    async readFile(filePath: string): Promise<FileContent> {
         const resp = await this.request<Extract<NodeMessage, { type: "readFileResponse" }>>({
             type: "readFileRequest", requestId: crypto.randomUUID(), path: filePath,
         });
@@ -170,6 +189,11 @@ export class NodeProxy implements HostAgent {
         });
     }
 
+    /**
+     * Promote a live agent to a permanent systemd service, using a durable token
+     * to reconnect. Only meaningful for remote agents; the embedded agent (the
+     * control plane's own host) has no install handler and will reject this.
+     */
     async installService(agentToken: string): Promise<void> {
         await this.request<Extract<NodeMessage, { type: "installServiceResponse" }>>({
             type: "installService", requestId: crypto.randomUUID(), agentToken,

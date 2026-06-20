@@ -1,10 +1,11 @@
 import * as fs from "node:fs/promises";
 import type { AgentMode, NodeMessage, SystemInfo } from "@central/shared";
 import { CONTROL_PLANE_TLS_SERVERNAME } from "@central/shared";
-import { Agent, AgentTransport, collectSystemInfo } from "./agent";
-import { resolveMachineId } from "./machine-id";
+import { Agent, type AgentTransport, collectSystemInfo, resolveMachineId } from "./agent";
 
 // ---- CLI argument parsing ----------------------------------------------------
+
+const USAGE = "Usage: sc-server --agent --control <url> [--alt-control <url>] --token <token> --cert <path> [--mode live|installed]";
 
 interface Args {
     control: string;
@@ -14,21 +15,16 @@ interface Args {
     mode: AgentMode;
 }
 
-function parseArgs(): Args {
-    const args = process.argv.slice(2);
-    if (args[0] !== "connect") {
-        console.error("Usage: sc-agent connect --control <url> [--alt-control <url>] --token <token> --cert <path> [--mode live|installed]");
-        process.exit(1);
-    }
-
+function parseArgs(args: string[]): Args {
     let control: string | null = null;
     let altControl: string | null = null;
     let token: string | null = null;
     let cert: string | null = null;
     let mode: AgentMode = "live";
 
-    for (let i = 1; i < args.length; i++) {
-        if (args[i] === "--control") control = args[++i];
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === "--agent") continue;
+        else if (args[i] === "--control") control = args[++i];
         else if (args[i] === "--alt-control") altControl = args[++i];
         else if (args[i] === "--token") token = args[++i];
         else if (args[i] === "--cert") cert = args[++i];
@@ -44,6 +40,7 @@ function parseArgs(): Args {
 
     if (!control || !token || !cert) {
         console.error("--control, --token, and --cert are required");
+        console.error(USAGE);
         process.exit(1);
     }
 
@@ -105,7 +102,7 @@ async function installSelf(opts: { control: string; altControl: string | null; c
     await fs.writeFile(INSTALL_CERT, opts.certPem, { mode: 0o600 });
 
     const alt = opts.altControl ? ` --alt-control "${opts.altControl}"` : "";
-    const execStart = `${INSTALL_BIN} connect --control "${opts.control}"${alt} --token "${opts.agentToken}" --cert "${INSTALL_CERT}" --mode installed`;
+    const execStart = `${INSTALL_BIN} --agent --control "${opts.control}"${alt} --token "${opts.agentToken}" --cert "${INSTALL_CERT}" --mode installed`;
     const unit = `[Unit]
 Description=Server Central Agent
 After=network-online.target
@@ -181,10 +178,11 @@ async function runWithUrl(url: string, id: Identity, onInstallService: (agentTok
     });
 }
 
-// ---- Main loop ---------------------------------------------------------------
+// ---- Entry -------------------------------------------------------------------
 
-async function main(): Promise<void> {
-    const { control, altControl, token, cert, mode } = parseArgs();
+/** Run as a host agent (`server --agent …`), connecting to a control plane. */
+export async function runAgentCli(argv: string[]): Promise<void> {
+    const { control, altControl, token, cert, mode } = parseArgs(argv);
     const certPem = await Bun.file(cert).text();
     const info = await collectSystemInfo();
     const machineId = await resolveMachineId();
@@ -219,8 +217,3 @@ async function main(): Promise<void> {
         Object.assign(info, await collectSystemInfo());
     }
 }
-
-main().catch((err) => {
-    console.error("Fatal:", err);
-    process.exit(1);
-});

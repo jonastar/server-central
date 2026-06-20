@@ -9,8 +9,8 @@ import { ensureTls, type TlsBundle } from "../../src/tls";
 import { attemptIdentify, poll, spawnTestAgent } from "./helpers";
 
 // In-process integration test: a real NodeServer (TLS + WSS) plus the real agent
-// CLI (apps/node/src/index.ts) spawned as a subprocess, exercising the full
-// enroll → identify → fleet → metrics path without Docker or a compiled binary.
+// CLI (the server entry run with `--agent`) spawned as a subprocess, exercising
+// the full enroll → identify → fleet → metrics path without Docker or a binary.
 
 let tmpDir: string;
 let prevCwd: string;
@@ -44,7 +44,7 @@ beforeAll(async () => {
     const onMetrics = (serverId: string, snapshot: MetricsSnapshot) => {
         metricsEvents.push({ serverId, snapshot });
     };
-    // Construct Fleet without init() so the embedded LocalAgent doesn't start;
+    // Construct Fleet without init() so the embedded agent doesn't start;
     // we only want remote agents registered via the NodeServer for this test.
     fleet = new Fleet(onMetrics);
     server = new NodeServer(fleet, tls, "127.0.0.1", null, onMetrics, 0);

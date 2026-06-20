@@ -4,7 +4,7 @@ import * as path from "node:path";
 import type { Server } from "bun";
 import type { MetricsSnapshot, NodeMessage } from "@central/shared";
 import type { TlsBundle } from "./tls";
-import { NodeProxy } from "./node-proxy";
+import { HostAgent } from "./host-agent";
 import type { Fleet } from "./fleet";
 import { readAgentTokens, writeAgentTokens } from "./config";
 
@@ -28,7 +28,7 @@ interface TokenEntry {
 
 export class NodeServer {
     private tokens = new Map<string, TokenEntry>();
-    private agents = new Map<string, NodeProxy>();
+    private agents = new Map<string, HostAgent>();
     private server: Server<NodeWsData> | null = null;
     private tokenSweep: ReturnType<typeof setInterval> | null = null;
     /** Durable per-machine tokens (machineId → token) for installed agents. */
@@ -92,7 +92,7 @@ export class NodeServer {
             command =
                 `curl.exe ${pinned} -fsSL "${baseUrl}/node-bootstrap/${token}/windows" -o "$env:TEMP\\sc-agent.exe"` +
                 `; curl.exe ${pinned} -fsSL "${baseUrl}/node-cert" -o "$env:TEMP\\sc-agent.crt"` +
-                `; & "$env:TEMP\\sc-agent.exe" connect --control "${controlWs}"${altFlag} --token "${token}" --cert "$env:TEMP\\sc-agent.crt"`;
+                `; & "$env:TEMP\\sc-agent.exe" --agent --control "${controlWs}"${altFlag} --token "${token}" --cert "$env:TEMP\\sc-agent.crt"`;
         } else {
             // Run the agent with sudo: it manages the host and, when promoted,
             // installs itself as a (root) systemd service — both need privileges.
@@ -100,7 +100,7 @@ export class NodeServer {
                 `curl ${pinned} -fsSL "${baseUrl}/node-bootstrap/${token}/${platform}" -o /tmp/sc-agent` +
                 ` && curl ${pinned} -fsSL "${baseUrl}/node-cert" -o /tmp/sc-agent.crt` +
                 ` && chmod +x /tmp/sc-agent` +
-                ` && sudo /tmp/sc-agent connect --control "${controlWs}"${altFlag} --token "${token}" --cert /tmp/sc-agent.crt`;
+                ` && sudo /tmp/sc-agent --agent --control "${controlWs}"${altFlag} --token "${token}" --cert /tmp/sc-agent.crt`;
         }
 
         return { command, expiresAt };
@@ -155,7 +155,7 @@ export class NodeServer {
                             headers: { "Content-Type": "application/octet-stream" },
                         });
                     } catch {
-                        return new Response(`Binary not found: build with 'bun run build:node'`, { status: 404 });
+                        return new Response(`Binary not found: build with 'bun run build:agent'`, { status: 404 });
                     }
                 }
 
@@ -197,7 +197,7 @@ export class NodeServer {
                         const conn = crypto.randomUUID();
                         ws.data.connId = conn;
 
-                        const proxy = new NodeProxy(
+                        const proxy = new HostAgent(
                             (ctrlMsg) => ws.send(JSON.stringify(ctrlMsg)),
                             msg.machineId,
                             msg.info.hostname,

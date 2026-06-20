@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage } from "@central/shared";
-import type { ShellSession } from "./agent";
+import type { ShellSession } from "./host-agent";
 import { CONFIG_DIR } from "./config";
 import { AuthStore, type AuthContext } from "./auth";
 import { Fleet } from "./fleet";
@@ -9,6 +9,16 @@ import { CentralHandler } from "./handler";
 import { ensureTls } from "./tls";
 import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
+import { runAgentCli } from "./agent-cli";
+
+// This single binary is both the control plane and the host agent. With
+// `--agent` it connects to a control plane and runs the managed-host logic
+// (never returns); otherwise it falls through and boots the control plane below.
+const cliArgs = process.argv.slice(2);
+if (cliArgs.includes("--agent")) {
+    await runAgentCli(cliArgs);
+    process.exit(0);
+}
 
 type Command = keyof CentralApiOperations;
 

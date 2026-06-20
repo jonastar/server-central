@@ -1,5 +1,5 @@
 import type { ContainerAction, ContainerInfo, DockerImageInfo, DockerState, DockerVolumeInfo } from "@central/shared";
-import type { HostAgent } from "./agent";
+import type { HostAgent } from "./host-agent";
 
 const SAFE_ID_RE = /^[A-Za-z0-9_.-]+$/;
 

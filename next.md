@@ -1,5 +1,14 @@
 # Next items to implement
 
+# Already implemented, archive
+
+- [DONE] Slight node refactor — merge node into server, collapse the agent classes
+  - `apps/node` is gone; the agent now lives in the server and runs via `sc-server --agent --control … --token … --cert …`. The same single binary is both the control plane (no args) and the host agent (`--agent`); `apps/server/src/index.ts` dispatches on `--agent` before booting the control plane.
+  - Source moved into `apps/server/src/`: `agent.ts` (the host-side `Agent` runner, transport-abstracted), `machine-id.ts`, and `agent-cli.ts` (the `--agent` connect/reconnect loop, `WsTransport`, self-install).
+  - The confusing trio collapsed to two clear types: `Agent` (runs on the host) and `HostAgent` (the control plane's handle to any host — formerly `NodeProxy`, now also replacing the `HostAgent` interface). `LocalAgent` is deleted; the embedded host is just `createEmbeddedAgent()` (`embedded-agent.ts`) — a `HostAgent` whose transport feeds an in-process `Agent`. No more per-method forwarding.
+  - Build retargeted: `bun run build:agent` compiles the server entry into `dist/sc-agent-{linux,mac,windows}`; the install command + systemd `ExecStart` invoke the binary with `--agent`.
+  - Verified: typecheck clean, all 16 server tests pass (the integration test spawns the real `--agent` subprocess), and both `--agent` and plain control-plane boot work.
+
 - [DONE] Web: Store state in url, e.g the current folder were viewing, the current file were editing, the current open view etc
   - Example: /server/fm/folder/path/here
   - Hash-based routing (`apps/web/src/routes.ts` routeToHash/hashToRoute + `hooks/useHashRoute.ts`). The route carries view/server/tab and, for the files tab, the folder path + open file (`#/server/<id>/files/<path>?f=<file>`). FilesView is now controlled by the route. Replaced the old localStorage route.

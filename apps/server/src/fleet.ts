@@ -1,6 +1,6 @@
 import type { AgentMode, MetricsSnapshot, ServerEntry } from "@central/shared";
-import type { HostAgent } from "./agent";
-import { LocalAgent } from "./local-agent";
+import { HostAgent } from "./host-agent";
+import { createEmbeddedAgent } from "./embedded-agent";
 import { type AgentRecord, readAgentState, writeAgentState } from "./config";
 
 /** Higher wins when two agents claim the same machine. */
@@ -36,8 +36,7 @@ export class Fleet {
             this.knownAgents.set(record.id, record);
         }
 
-        const local = new LocalAgent(this.onMetrics);
-        await local.start();
+        const local = await createEmbeddedAgent(this.onMetrics);
         this.connections.set(local.id, [local]);
         this.recordAgent(local);
         void this.persistState();
