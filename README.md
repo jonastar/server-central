@@ -48,6 +48,7 @@ The goal is to have stuff work with minimal configuration, or easily configurabl
 - Adding nodes
 - File browser and editor
 - Basic monitoring
+- Terminal
 
 So i have a long way to go!
 
