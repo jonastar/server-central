@@ -1,3 +1,7 @@
+**Prototype stage**
+
+This project is in the prototyping stage, it's not meant to be used by end users and is very experimental.
+
 # Server-central (working title)
 
 Server central is an attempt to make a tool to manage a lot of computers/servers, be it in a homelab, small business or whatever (just don't try to bring this into a enterprise scenario with a 1k+ node cluster, i did not build it for that)
