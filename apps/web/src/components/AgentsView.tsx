@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import type { ServerEntry } from "@central/shared";
 import { api } from "../api";
-import { cx, fmtDateTime, fmtUptime } from "../utils";
+import { cx, fmtDateTime, fmtUptime, isAgentOutdated } from "../utils";
 import { StatusDot, EmptyState, ErrorBanner } from "./ui";
 
 function modeBadge(mode: string | undefined) {
@@ -22,6 +22,19 @@ export function AgentsView({ servers, onOpenServer }: {
         setError(null);
         try {
             await api("installNodeService", { serverId });
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusyId(null);
+        }
+    }
+
+    async function update(serverId: string) {
+        if (!confirm("Update this agent to the latest version? It will download the new binary and restart.")) return;
+        setBusyId(serverId);
+        setError(null);
+        try {
+            await api("updateNodeService", { serverId });
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -71,6 +84,7 @@ export function AgentsView({ servers, onOpenServer }: {
                                 const uptime = online && info
                                     ? info.uptimeSeconds + (Date.now() - info.capturedAt) / 1000
                                     : null;
+                                const outdated = isAgentOutdated(entry);
                                 return (
                                     <Fragment key={entry.id}>
                                         <tr className="row-clickable" onClick={() => onOpenServer(entry.id)}>
@@ -79,7 +93,9 @@ export function AgentsView({ servers, onOpenServer }: {
                                             </td>
                                             <td className="file-name">{entry.name}</td>
                                             <td>{modeBadge(status.mode)}</td>
-                                            <td className="dim">{info?.agentVersion ?? "—"}</td>
+                                            <td className={cx("dim", outdated && "badge-warn")} title={outdated ? "Update available" : undefined}>
+                                                {info?.agentVersion ?? "—"}{outdated && " ⚠"}
+                                            </td>
                                             <td className="dim">{info?.primaryIp ?? "—"}</td>
                                             <td className="dim cmd-cell" title={info?.os}>{info?.os ?? "—"}</td>
                                             <td className="dim">{uptime ? fmtUptime(uptime) : "—"}</td>
@@ -94,6 +110,16 @@ export function AgentsView({ servers, onOpenServer }: {
                                                         title="Install as a permanent systemd service"
                                                     >
                                                         {busyId === entry.id ? "Installing…" : "Install as service"}
+                                                    </button>
+                                                )}
+                                                {outdated && (
+                                                    <button
+                                                        className="btn"
+                                                        disabled={busyId === entry.id}
+                                                        onClick={() => void update(entry.id)}
+                                                        title="Download the latest binary and restart the agent"
+                                                    >
+                                                        {busyId === entry.id ? "Updating…" : "Update"}
                                                     </button>
                                                 )}
                                             </td>

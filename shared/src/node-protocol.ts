@@ -20,6 +20,7 @@ export type NodeMessage =
     | { type: "shellData"; sessionId: string; data: string }
     | { type: "shellExit"; sessionId: string; code: number | null }
     | { type: "installServiceResponse"; requestId: string }
+    | { type: "updateServiceResponse"; requestId: string }
     | { type: "error"; requestId?: string; message: string };
 
 // ---- Control → Node ----------------------------------------------------------
@@ -38,4 +39,7 @@ export type ControlMessage =
     | { type: "closeShell"; sessionId: string }
     // Ask a live agent to install itself as a permanent (systemd) service. The
     // agentToken is a durable credential the installed service uses to reconnect.
-    | { type: "installService"; requestId: string; agentToken: string };
+    | { type: "installService"; requestId: string; agentToken: string }
+    // Ask an installed agent to update itself to `version`: download that binary
+    // from the control plane, repoint its symlink, and restart into it.
+    | { type: "updateService"; requestId: string; version: string };

@@ -86,6 +86,9 @@ export class Agent {
         /** Performs the self-install when the control plane requests it. Absent
          *  for the embedded agent, which cannot install itself. */
         private readonly onInstallService?: (agentToken: string) => Promise<void>,
+        /** Performs the self-update to `version` when the control plane requests
+         *  it. Absent for the embedded agent, which ships with the control plane. */
+        private readonly onUpdateService?: (version: string) => Promise<void>,
     ) {
         this.isEmbedded = isEmbedded;
     }
@@ -191,6 +194,17 @@ export class Agent {
                     if (!this.onInstallService) throw new Error("This agent cannot install itself");
                     await this.onInstallService(msg.agentToken);
                     this.transport.send({ type: "installServiceResponse", requestId: msg.requestId });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
+
+            case "updateService": {
+                try {
+                    if (!this.onUpdateService) throw new Error("This agent cannot update itself");
+                    await this.onUpdateService(msg.version);
+                    this.transport.send({ type: "updateServiceResponse", requestId: msg.requestId });
                 } catch (e) {
                     this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
                 }

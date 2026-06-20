@@ -1,5 +1,20 @@
+import { AGENT_VERSION, type ServerEntry } from "@central/shared";
+
 export function cx(...parts: Array<string | false | null | undefined>): string {
     return parts.filter(Boolean).join(" ");
+}
+
+/**
+ * An installed, online agent whose reported version trails the control plane's
+ * AGENT_VERSION can be updated in place. Live agents are ephemeral (re-run from
+ * the latest binary), so they're never flagged.
+ */
+export function isAgentOutdated(entry: ServerEntry): boolean {
+    const { status } = entry;
+    return status.state === "online"
+        && status.mode === "installed"
+        && !!status.info?.agentVersion
+        && status.info.agentVersion !== AGENT_VERSION;
 }
 
 export function fmtBytes(n: number): string {

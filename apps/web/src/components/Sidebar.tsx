@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ServerEntry } from "@central/shared";
-import { cx } from "../utils";
+import { cx, isAgentOutdated } from "../utils";
 import { SERVER_TABS, type Route } from "../routes";
 import { StatusDot } from "./ui";
 import { AddNodeModal } from "./AddNodeModal";
@@ -13,6 +13,7 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
     onLogout: () => void;
 }) {
     const [addingNode, setAddingNode] = useState(false);
+    const updatesAvailable = servers.some(isAgentOutdated);
 
     return (
         <aside className="sidebar">
@@ -33,6 +34,9 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                 onClick={() => onNavigate({ view: "agents" })}
             >
                 Agents
+                {updatesAvailable && (
+                    <span className="nav-badge" title="An agent update is available">⚠</span>
+                )}
             </button>
 
             <div className="sidebar-section">

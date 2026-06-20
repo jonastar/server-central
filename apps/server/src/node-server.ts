@@ -106,6 +106,20 @@ export class NodeServer {
         return { command, expiresAt };
     }
 
+    /** Serve the compiled agent binary for `platform` from dist/. */
+    private static binaryResponse(platform: string): Response {
+        const binary = PLATFORM_BINARY[platform];
+        if (!binary) return new Response("Unknown platform", { status: 400 });
+        const binPath = path.join(DIST_DIR, binary);
+        try {
+            return new Response(Bun.file(binPath), {
+                headers: { "Content-Type": "application/octet-stream" },
+            });
+        } catch {
+            return new Response(`Binary not found: build with 'bun run build:agent'`, { status: 404 });
+        }
+    }
+
     private validateToken(token: string): boolean {
         // Durable tokens (installed agents) never expire.
         if (this.durableTokenSet.has(token)) return true;
@@ -142,21 +156,20 @@ export class NodeServer {
                     if (!self.validateToken(token)) {
                         return new Response("Invalid or expired token", { status: 403 });
                     }
-                    const entry = self.tokens.get(token)!;
-                    entry.downloaded = true;
+                    self.tokens.get(token)!.downloaded = true;
+                    return NodeServer.binaryResponse(platform);
+                }
 
-                    const binary = PLATFORM_BINARY[platform];
-                    if (!binary) return new Response("Unknown platform", { status: 400 });
-
-                    const binPath = path.join(DIST_DIR, binary);
-                    try {
-                        const file = Bun.file(binPath);
-                        return new Response(file, {
-                            headers: { "Content-Type": "application/octet-stream" },
-                        });
-                    } catch {
-                        return new Response(`Binary not found: build with 'bun run build:agent'`, { status: 404 });
+                // Binary fetch for an installed agent's self-update — same binaries
+                // as bootstrap, but authenticated by the agent's durable token (so
+                // it doesn't touch the short-lived enrollment token map).
+                const binaryMatch = url.pathname.match(/^\/node-binary\/([^/]+)\/([^/]+)$/);
+                if (req.method === "GET" && binaryMatch) {
+                    const [, token, platform] = binaryMatch;
+                    if (!self.validateToken(token)) {
+                        return new Response("Invalid or expired token", { status: 403 });
                     }
+                    return NodeServer.binaryResponse(platform);
                 }
 
                 if (url.pathname === "/node") {

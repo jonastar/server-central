@@ -252,6 +252,9 @@ export type CentralApiOperations = {
     // Promote a connected live agent to a permanent systemd service.
     installNodeService: { data: { serverId: string }; response: void };
 
+    // Update an installed agent to the control plane's current AGENT_VERSION.
+    updateNodeService: { data: { serverId: string }; response: void };
+
     // Config
     getConfig: { data: void; response: { domain: string | null } };
     setDomain: { data: { domain: string | null }; response: void };

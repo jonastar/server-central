@@ -200,6 +200,17 @@ export class HostAgent {
         });
     }
 
+    /**
+     * Update an installed agent to `version`: it downloads that binary from the
+     * control plane, repoints its symlink, and restarts into it. Only meaningful
+     * for remote installed agents; the embedded agent rejects this.
+     */
+    async updateService(version: string): Promise<void> {
+        await this.request<Extract<NodeMessage, { type: "updateServiceResponse" }>>({
+            type: "updateService", requestId: crypto.randomUUID(), version,
+        });
+    }
+
     async openShell(cols: number, rows: number): Promise<ShellSession> {
         const sessionId = crypto.randomUUID();
         let dataCb: (data: string) => void = () => { };

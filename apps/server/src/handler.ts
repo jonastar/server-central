@@ -10,6 +10,7 @@ import type {
     ServerEntry,
     UserInfo,
 } from "@central/shared";
+import { AGENT_VERSION } from "@central/shared";
 import { dockerContainerAction, dockerContainerLogs, dockerList } from "./docker";
 import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
@@ -116,6 +117,16 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
         // Durable token keyed by machine id (the fleet's serverId).
         const agentToken = await this.nodeServer.mintAgentToken(data.serverId);
         await agent.installService(agentToken);
+    }
+
+    async updateNodeService(data: { serverId: string }): Promise<void> {
+        const agent = this.fleet.get(data.serverId);
+        if (agent.status().state !== "online") throw new Error("Agent is not connected");
+        if (agent.mode !== "installed") throw new Error("Only installed agents can be updated");
+        if (agent.status().info?.agentVersion === AGENT_VERSION) {
+            throw new Error("Agent is already up to date");
+        }
+        await agent.updateService(AGENT_VERSION);
     }
 
     // ---- Config ------------------------------------------------------------------------
