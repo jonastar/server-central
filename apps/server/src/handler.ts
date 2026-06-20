@@ -8,8 +8,10 @@ import type {
     MetricsSnapshot,
     ProcessInfo,
     ServerEntry,
+    UserInfo,
 } from "@central/shared";
 import { dockerContainerAction, dockerContainerLogs, dockerList } from "./docker";
+import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
 import { readConfig, setDomain as persistSetDomain } from "./config";
@@ -17,8 +19,32 @@ import { readConfig, setDomain as persistSetDomain } from "./config";
 export class CentralHandler implements ApiHandler<CentralApiOperations> {
     constructor(
         private readonly fleet: Fleet,
+        private readonly auth: AuthStore,
         private readonly nodeServer: NodeServer | null = null,
     ) { }
+
+    // ---- Auth -----------------------------------------------------------------
+
+    async getAuthState(_data: void, ctx?: AuthContext): Promise<{ needsSetup: boolean; user: UserInfo | null }> {
+        return { needsSetup: this.auth.needsSetup(), user: ctx?.user ?? null };
+    }
+
+    async setupOwner(data: { username: string; password: string }): Promise<{ token: string; user: UserInfo }> {
+        return this.auth.setupOwner(data.username, data.password);
+    }
+
+    async login(data: { username: string; password: string }): Promise<{ token: string; user: UserInfo }> {
+        return this.auth.login(data.username, data.password);
+    }
+
+    async logout(_data: void, ctx?: AuthContext): Promise<void> {
+        await this.auth.logout(ctx?.token ?? null);
+    }
+
+    async me(_data: void, ctx?: AuthContext): Promise<UserInfo> {
+        if (!ctx?.user) throw new Error("Not authenticated");
+        return ctx.user;
+    }
 
     // ---- Servers --------------------------------------------------------------
 
@@ -78,6 +104,18 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
         if (!this.nodeServer) throw new Error("Node server not initialized");
         const config = await readConfig();
         return this.nodeServer.generateInstallCommand(data.platform, config.domain ?? null);
+    }
+
+    async installNodeService(data: { serverId: string }): Promise<void> {
+        if (!this.nodeServer) throw new Error("Node server not initialized");
+        const agent = this.fleet.get(data.serverId);
+        if (agent.status().state !== "online") throw new Error("Agent is not connected");
+        if (agent.mode === "installed") throw new Error("Agent is already installed as a service");
+        if (!agent.installService) throw new Error("This agent cannot be installed as a service");
+
+        // Durable token keyed by machine id (the fleet's serverId).
+        const agentToken = await this.nodeServer.mintAgentToken(data.serverId);
+        await agent.installService(agentToken);
     }
 
     // ---- Config ------------------------------------------------------------------------

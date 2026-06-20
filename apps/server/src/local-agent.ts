@@ -1,10 +1,8 @@
 import * as os from "node:os";
-import type { MetricsSnapshot, ServerStatus } from "@central/shared";
-import { Agent, AgentTransport, collectSystemInfo } from "@central/node";
+import type { AgentMode, MetricsSnapshot, ServerStatus } from "@central/shared";
+import { Agent, AgentTransport, collectSystemInfo, resolveMachineId } from "@central/node";
 import type { ExecResult, HostAgent, ShellSession } from "./agent";
 import { NodeProxy } from "./node-proxy";
-
-const EMBEDDED_ID = "local";
 
 /**
  * The embedded agent — runs in the same process as the control plane.
@@ -12,8 +10,13 @@ const EMBEDDED_ID = "local";
  * in-process channel, so the same code path handles both local and remote hosts.
  */
 export class LocalAgent implements HostAgent {
-    readonly id = EMBEDDED_ID;
+    // Resolved from the host's machine id (set in start()), so a separate agent
+    // on the same physical machine collapses to one fleet entry rather than a
+    // distinct "local" host.
+    id = "";
     readonly name = os.hostname();
+    // The control plane's own host — permanent, like an installed agent.
+    readonly mode: AgentMode = "installed";
 
     private agent!: Agent;
     private proxy!: NodeProxy;
@@ -22,10 +25,12 @@ export class LocalAgent implements HostAgent {
     constructor(private readonly onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void) {}
 
     async start(): Promise<void> {
+        this.id = await resolveMachineId();
+
         // Create proxy first so the agent transport can reference it
         const proxy = new NodeProxy(
             (ctrlMsg) => void this.agent.onMessage(ctrlMsg),
-            EMBEDDED_ID,
+            this.id,
             os.hostname(),
             null,
             this.onMetrics,
@@ -47,7 +52,7 @@ export class LocalAgent implements HostAgent {
     }
 
     status(): ServerStatus {
-        return { serverId: this.id, state: "online", info: this.info };
+        return { serverId: this.id, state: "online", info: this.info, mode: this.mode };
     }
 
     get history(): MetricsSnapshot[] { return this.proxy?.history ?? []; }

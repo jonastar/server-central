@@ -40,6 +40,7 @@ export function ServerOverview({ entry, history }: {
                     <InfoChip label="Arch" value={info.arch} />
                     <InfoChip label="IP" value={info.primaryIp} />
                     <InfoChip label="Uptime" value={uptime ? fmtUptime(uptime) : "—"} />
+                    {entry.status.mode && <InfoChip label="Agent" value={entry.status.mode} />}
                     {info.cpuModel && <InfoChip label="CPU" value={`${info.cpuModel} (${info.cpuCores}c)`} />}
                 </div>
             )}

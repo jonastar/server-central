@@ -1,0 +1,124 @@
+import { Fragment, useState } from "react";
+import type { ServerEntry } from "@central/shared";
+import { api } from "../api";
+import { cx, fmtDateTime, fmtUptime } from "../utils";
+import { StatusDot, EmptyState, ErrorBanner } from "./ui";
+
+function modeBadge(mode: string | undefined) {
+    if (!mode) return <span className="dim">—</span>;
+    return <span className={cx("badge", mode === "installed" ? "badge-ok" : "badge-warn")}>{mode}</span>;
+}
+
+export function AgentsView({ servers, onOpenServer }: {
+    servers: ServerEntry[];
+    onOpenServer: (serverId: string) => void;
+}) {
+    const [busyId, setBusyId] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    async function install(serverId: string) {
+        if (!confirm("Install this agent as a permanent systemd service? It will take over from the live connection.")) return;
+        setBusyId(serverId);
+        setError(null);
+        try {
+            await api("installNodeService", { serverId });
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusyId(null);
+        }
+    }
+
+    // Stable, useful order: online first, then by name.
+    const rows = [...servers].sort((a, b) => {
+        const ao = a.status.state === "online" ? 0 : 1;
+        const bo = b.status.state === "online" ? 0 : 1;
+        return ao - bo || a.name.localeCompare(b.name);
+    });
+
+    return (
+        <div className="view">
+            <header className="view-header">
+                <h1>Agents</h1>
+            </header>
+
+            {error && <ErrorBanner>{error}</ErrorBanner>}
+
+            {rows.length === 0 ? (
+                <EmptyState>No agents known yet.</EmptyState>
+            ) : (
+                <section className="panel">
+                    <table className="data-table">
+                        <thead>
+                            <tr>
+                                <th>State</th>
+                                <th>Name</th>
+                                <th>Mode</th>
+                                <th>Version</th>
+                                <th>IP</th>
+                                <th>OS</th>
+                                <th>Uptime</th>
+                                <th>Machine ID</th>
+                                <th>Last seen</th>
+                                <th />
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((entry) => {
+                                const { status } = entry;
+                                const info = status.info;
+                                const online = status.state === "online";
+                                const uptime = online && info
+                                    ? info.uptimeSeconds + (Date.now() - info.capturedAt) / 1000
+                                    : null;
+                                return (
+                                    <Fragment key={entry.id}>
+                                        <tr className="row-clickable" onClick={() => onOpenServer(entry.id)}>
+                                            <td>
+                                                <StatusDot state={status.state} title={status.error ?? status.state} />
+                                            </td>
+                                            <td className="file-name">{entry.name}</td>
+                                            <td>{modeBadge(status.mode)}</td>
+                                            <td className="dim">{info?.agentVersion ?? "—"}</td>
+                                            <td className="dim">{info?.primaryIp ?? "—"}</td>
+                                            <td className="dim cmd-cell" title={info?.os}>{info?.os ?? "—"}</td>
+                                            <td className="dim">{uptime ? fmtUptime(uptime) : "—"}</td>
+                                            <td className="mono dim" title={entry.id}>{entry.id.slice(0, 12)}</td>
+                                            <td className="dim">{online ? "now" : status.lastSeenAt ? fmtDateTime(status.lastSeenAt) : "—"}</td>
+                                            <td className="row-actions-always" onClick={(e) => e.stopPropagation()}>
+                                                {online && status.mode === "live" && (
+                                                    <button
+                                                        className="btn"
+                                                        disabled={busyId === entry.id}
+                                                        onClick={() => void install(entry.id)}
+                                                        title="Install as a permanent systemd service"
+                                                    >
+                                                        {busyId === entry.id ? "Installing…" : "Install as service"}
+                                                    </button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                        {status.standbys?.map((sb, i) => (
+                                            <tr key={`${entry.id}-sb-${i}`} className="dim">
+                                                <td><span className="badge badge-warn">standby</span></td>
+                                                <td className="file-name">{sb.name}</td>
+                                                <td>{modeBadge(sb.mode)}</td>
+                                                <td>{sb.agentVersion ?? "—"}</td>
+                                                <td>—</td>
+                                                <td>—</td>
+                                                <td>—</td>
+                                                <td className="mono" title={entry.id}>{entry.id.slice(0, 12)}</td>
+                                                <td>now</td>
+                                                <td />
+                                            </tr>
+                                        ))}
+                                    </Fragment>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </section>
+            )}
+        </div>
+    );
+}

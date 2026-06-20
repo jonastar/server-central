@@ -1,4 +1,4 @@
-import type { ControlMessage, MetricsSnapshot, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
+import type { AgentMode, ControlMessage, MetricsSnapshot, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
 import type { ExecResult, HostAgent, ShellSession } from "./agent";
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -10,10 +10,13 @@ const REQUEST_TIMEOUT_MS = 30_000;
 export class NodeProxy implements HostAgent {
     readonly id: string;
     readonly name: string;
+    readonly mode: AgentMode;
     readonly history: MetricsSnapshot[] = [];
 
     private info: SystemInfo | null;
     private connected = true;
+    /** False once demoted to a standby/dummy by a higher-priority agent. */
+    private active = true;
 
     private readonly pending = new Map<string, { resolve: (msg: NodeMessage) => void; reject: (err: Error) => void }>();
     private readonly shells = new Map<string, { onData: (d: string) => void; onExit: (c: number | null) => void }>();
@@ -24,10 +27,12 @@ export class NodeProxy implements HostAgent {
         name: string,
         info: SystemInfo | null,
         private readonly onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void,
+        mode: AgentMode = "live",
     ) {
         this.id = nodeId;
         this.name = name;
         this.info = info;
+        this.mode = mode;
     }
 
     /** Update system info (used by embedded agent after it collects info on start). */
@@ -35,17 +40,31 @@ export class NodeProxy implements HostAgent {
         this.info = info;
     }
 
+    /** Demote to a standby/dummy: stop forwarding metrics, drop active state. */
+    deactivate(): void {
+        this.active = false;
+    }
+
+    /** Promote back to the active agent for its machine (e.g. the active one disconnected). */
+    activate(): void {
+        this.active = true;
+    }
+
     status(): ServerStatus {
         return {
             serverId: this.id,
             state: this.connected ? "online" : "offline",
             info: this.info ?? undefined,
+            mode: this.mode,
         };
     }
 
     /** Called when a NodeMessage arrives (from WebSocket or in-process Agent). */
     receive(msg: NodeMessage): void {
         if (msg.type === "metrics") {
+            // A demoted dummy still streams metrics over its own socket; ignore
+            // them so the active agent for this machine is the only source.
+            if (!this.active) return;
             this.history.push(msg.snapshot);
             if (this.history.length > 720) this.history.splice(0, this.history.length - 720);
             this.onMetrics(this.id, msg.snapshot);
@@ -148,6 +167,12 @@ export class NodeProxy implements HostAgent {
     async renamePath(from: string, to: string): Promise<void> {
         await this.request<Extract<NodeMessage, { type: "renameResponse" }>>({
             type: "renamePathRequest", requestId: crypto.randomUUID(), from, to,
+        });
+    }
+
+    async installService(agentToken: string): Promise<void> {
+        await this.request<Extract<NodeMessage, { type: "installServiceResponse" }>>({
+            type: "installService", requestId: crypto.randomUUID(), agentToken,
         });
     }
 

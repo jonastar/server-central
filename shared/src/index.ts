@@ -23,6 +23,30 @@ export type ApiHandler<T extends ProtocolSchema> = {
 
 export type ServerConnState = "connecting" | "online" | "offline" | "error";
 
+/**
+ * How an agent is running on its host:
+ * - `live`: an ephemeral connection started by pasting the install command.
+ * - `installed`: a permanent agent (e.g. a systemd service). Takes priority
+ *   over a `live` agent for the same machine.
+ */
+export type AgentMode = "live" | "installed";
+
+/**
+ * Version of the agent software (server + node ship together from this
+ * monorepo, so a single constant covers both the embedded and remote agents).
+ */
+export const AGENT_VERSION = "0.1.0";
+
+/**
+ * Fixed TLS server name the control-plane cert is issued for. The agent pins the
+ * exact cert via `ca`, so the hostname is not the trust anchor — but Bun (unlike
+ * Node) enforces hostname↔SAN verification at the TLS layer and ignores
+ * `checkServerIdentity`. Using a constant name (present in the cert SAN, sent as
+ * the client `servername`) makes verification succeed regardless of whether the
+ * agent connects by IP or domain.
+ */
+export const CONTROL_PLANE_TLS_SERVERNAME = "control-plane";
+
 export interface SystemInfo {
     hostname: string;
     os: string;
@@ -34,6 +58,15 @@ export interface SystemInfo {
     /** Uptime at `capturedAt`; add elapsed wall time for a live value. */
     uptimeSeconds: number;
     capturedAt: number;
+    /** Agent software version; absent for records written before versions existed. */
+    agentVersion?: string;
+}
+
+/** A connected-but-not-active agent for a machine (a duplicate/lower-priority connection). */
+export interface StandbyAgent {
+    name: string;
+    mode: AgentMode;
+    agentVersion?: string;
 }
 
 export interface ServerStatus {
@@ -41,6 +74,12 @@ export interface ServerStatus {
     state: ServerConnState;
     error?: string;
     info?: SystemInfo;
+    /** How the agent is running on this host; absent for never-connected hosts. */
+    mode?: AgentMode;
+    /** When the agent was last seen, for offline entries. Absent while online. */
+    lastSeenAt?: number;
+    /** Other connections to this machine that lost the priority race (live vs installed). */
+    standbys?: StandbyAgent[];
 }
 
 export interface ServerEntry {
@@ -157,9 +196,31 @@ export interface ProcessInfo {
     command: string;
 }
 
+// ---- Auth & users ------------------------------------------------------------
+//
+// Roles are coarse (v1). `owner` is the first account created during first-run
+// setup and can never be deleted. Per-operation enforcement is layered on later;
+// for now every authenticated user is the owner.
+
+export type Role = "owner" | "admin" | "operator" | "viewer";
+
+export interface UserInfo {
+    id: string;
+    username: string;
+    role: Role;
+    createdAt: number;
+}
+
 // ---- HTTP API operations -------------------------------------------------------
 
 export type CentralApiOperations = {
+    // Auth (getAuthState/setupOwner/login require no session; the rest do)
+    getAuthState: { data: void; response: { needsSetup: boolean; user: UserInfo | null } };
+    setupOwner: { data: { username: string; password: string }; response: { token: string; user: UserInfo } };
+    login: { data: { username: string; password: string }; response: { token: string; user: UserInfo } };
+    logout: { data: void; response: void };
+    me: { data: void; response: UserInfo };
+
     // Servers
     getServers: { data: void; response: ServerEntry[] };
 
@@ -187,6 +248,9 @@ export type CentralApiOperations = {
         data: { platform: "linux" | "mac" | "windows" };
         response: { command: string; expiresAt: number };
     };
+
+    // Promote a connected live agent to a permanent systemd service.
+    installNodeService: { data: { serverId: string }; response: void };
 
     // Config
     getConfig: { data: void; response: { domain: string | null } };

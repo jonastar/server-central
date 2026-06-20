@@ -5,11 +5,12 @@ import { SERVER_TABS, type Route } from "../routes";
 import { StatusDot } from "./ui";
 import { AddNodeModal } from "./AddNodeModal";
 
-export function Sidebar({ servers, route, backendConnected, onNavigate }: {
+export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout }: {
     servers: ServerEntry[];
     route: Route;
     backendConnected: boolean;
     onNavigate: (route: Route) => void;
+    onLogout: () => void;
 }) {
     const [addingNode, setAddingNode] = useState(false);
 
@@ -25,6 +26,13 @@ export function Sidebar({ servers, route, backendConnected, onNavigate }: {
                 onClick={() => onNavigate({ view: "dashboard" })}
             >
                 Dashboard
+            </button>
+
+            <button
+                className={cx("nav-item", route.view === "agents" && "active")}
+                onClick={() => onNavigate({ view: "agents" })}
+            >
+                Agents
             </button>
 
             <div className="sidebar-section">
@@ -82,6 +90,9 @@ export function Sidebar({ servers, route, backendConnected, onNavigate }: {
                     style={{ marginBottom: 8 }}
                 >
                     Settings
+                </button>
+                <button className="nav-item" onClick={onLogout} style={{ marginBottom: 8 }}>
+                    Sign out
                 </button>
                 <StatusDot state={backendConnected ? "online" : "connecting"} />
                 {backendConnected ? "Backend connected" : "Connecting…"}

@@ -22,12 +22,26 @@ interface OpenFile {
     binary: boolean;
 }
 
-export function FilesView({ serverId }: { serverId: string }) {
-    const [path, setPath] = useState("/");
+/** Patch to the URL-backed files state: change folder and/or open file. */
+export interface FilesNav {
+    path?: string;
+    file?: string | null;
+}
+
+export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }: {
+    serverId: string;
+    /** Current folder (from the URL). */
+    path: string;
+    /** Path of the open file (from the URL), or null. */
+    openFile: string | null;
+    onNavigate: (patch: FilesNav) => void;
+}) {
     const [entries, setEntries] = useState<DirEntry[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [file, setFile] = useState<OpenFile | null>(null);
     const [saving, setSaving] = useState(false);
+
+    const setPath = useCallback((dir: string) => onNavigate({ path: dir, file: null }), [onNavigate]);
 
     const load = useCallback(async (dir: string) => {
         setError(null);
@@ -41,23 +55,29 @@ export function FilesView({ serverId }: { serverId: string }) {
     }, [serverId]);
 
     useEffect(() => {
-        setPath("/");
-        setFile(null);
         setEntries(null);
-    }, [serverId]);
-
-    useEffect(() => {
         void load(path);
     }, [path, load]);
 
-    async function openFile(filePath: string) {
+    // Sync the open editor buffer with the URL's file. Skip re-fetching when the
+    // buffer already holds that file (e.g. a freshly-created unsaved draft).
+    useEffect(() => {
+        if (!openFilePath) { setFile(null); return; }
+        if (file?.path === openFilePath) return;
+        let cancelled = false;
         setError(null);
-        try {
-            const res = await api("readFile", { serverId, path: filePath });
-            setFile({ path: filePath, content: res.content, original: res.content, truncated: res.truncated, binary: res.binary });
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        }
+        api("readFile", { serverId, path: openFilePath })
+            .then((res) => {
+                if (cancelled) return;
+                setFile({ path: openFilePath, content: res.content, original: res.content, truncated: res.truncated, binary: res.binary });
+            })
+            .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); });
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [serverId, openFilePath]);
+
+    function openFile(filePath: string) {
+        onNavigate({ file: filePath });
     }
 
     async function saveFile() {
@@ -89,7 +109,11 @@ export function FilesView({ serverId }: { serverId: string }) {
     function newFile() {
         const name = prompt("New file name:");
         if (!name) return;
-        setFile({ path: joinPath(path, name), content: "", original: "\0", truncated: false, binary: false });
+        const newPath = joinPath(path, name);
+        // Seed the buffer before navigating so the sync effect treats it as an
+        // already-open (unsaved) draft rather than fetching a non-existent file.
+        setFile({ path: newPath, content: "", original: "\0", truncated: false, binary: false });
+        onNavigate({ file: newPath });
     }
 
     async function rename(entry: DirEntry) {
@@ -99,7 +123,7 @@ export function FilesView({ serverId }: { serverId: string }) {
         const to = joinPath(path, name);
         try {
             await api("renamePath", { serverId, from, to });
-            if (file?.path === from) setFile({ ...file, path: to });
+            if (file?.path === from) { setFile({ ...file, path: to }); onNavigate({ file: to }); }
             void load(path);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -111,7 +135,7 @@ export function FilesView({ serverId }: { serverId: string }) {
         const target = joinPath(path, entry.name);
         try {
             await api("deletePath", { serverId, path: target });
-            if (file?.path === target) setFile(null);
+            if (file?.path === target) onNavigate({ file: null });
             void load(path);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -193,7 +217,7 @@ export function FilesView({ serverId }: { serverId: string }) {
                             >
                                 {saving ? "Saving…" : "Save"}
                             </button>
-                            <button className="btn" onClick={() => !dirty || confirm("Discard unsaved changes?") ? setFile(null) : undefined}>
+                            <button className="btn" onClick={() => !dirty || confirm("Discard unsaved changes?") ? onNavigate({ file: null }) : undefined}>
                                 Close
                             </button>
                         </div>

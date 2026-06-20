@@ -1,11 +1,12 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ServerWebSocket } from "bun";
+import type { Server } from "bun";
 import type { MetricsSnapshot, NodeMessage } from "@central/shared";
 import type { TlsBundle } from "./tls";
 import { NodeProxy } from "./node-proxy";
 import type { Fleet } from "./fleet";
+import { readAgentTokens, writeAgentTokens } from "./config";
 
 export const NODE_SERVER_PORT = 4142;
 
@@ -18,7 +19,7 @@ const PLATFORM_BINARY: Record<string, string> = {
     windows: "sc-agent-windows.exe",
 };
 
-type NodeWsData = { channel: "node"; nodeId: string | null };
+type NodeWsData = { channel: "node"; connId: string | null };
 
 interface TokenEntry {
     expiresAt: number;
@@ -28,6 +29,11 @@ interface TokenEntry {
 export class NodeServer {
     private tokens = new Map<string, TokenEntry>();
     private agents = new Map<string, NodeProxy>();
+    private server: Server<NodeWsData> | null = null;
+    private tokenSweep: ReturnType<typeof setInterval> | null = null;
+    /** Durable per-machine tokens (machineId → token) for installed agents. */
+    private durableTokens: Record<string, string> = {};
+    private durableTokenSet = new Set<string>();
 
     constructor(
         private readonly fleet: Fleet,
@@ -35,12 +41,42 @@ export class NodeServer {
         private readonly lanIp: string,
         private readonly wanIp: string | null,
         private readonly onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void,
+        private readonly listenPort: number = NODE_SERVER_PORT,
     ) { }
 
-    generateInstallCommand(platform: "linux" | "mac" | "windows", domain: string | null): { command: string; expiresAt: number } {
+    /** The port the node server is actually listening on (resolved when listenPort is 0). */
+    get port(): number {
+        return this.server?.port ?? this.listenPort;
+    }
+
+    /** Load persisted durable agent tokens. Call before start(). */
+    async init(): Promise<void> {
+        this.durableTokens = await readAgentTokens();
+        this.durableTokenSet = new Set(Object.values(this.durableTokens));
+    }
+
+    /** Issue a fresh enrollment token without wrapping it in an install command. */
+    mintToken(): { token: string; expiresAt: number } {
         const token = crypto.randomUUID();
         const expiresAt = Date.now() + 30 * 60 * 1000;
         this.tokens.set(token, { expiresAt, downloaded: false });
+        return { token, expiresAt };
+    }
+
+    /**
+     * Issue (or replace) a durable token for a machine, used by an installed
+     * service to reconnect indefinitely. Persisted so it survives restarts.
+     */
+    async mintAgentToken(machineId: string): Promise<string> {
+        const token = crypto.randomUUID();
+        this.durableTokens[machineId] = token;
+        this.durableTokenSet = new Set(Object.values(this.durableTokens));
+        await writeAgentTokens(this.durableTokens);
+        return token;
+    }
+
+    generateInstallCommand(platform: "linux" | "mac" | "windows", domain: string | null): { command: string; expiresAt: number } {
+        const { token, expiresAt } = this.mintToken();
 
         const externalHost = domain ?? this.wanIp;
 
@@ -49,22 +85,30 @@ export class NodeServer {
         const altControlWs = externalHost ? `wss://${externalHost}:${NODE_SERVER_PORT}/node` : null;
         const altFlag = altControlWs ? ` --alt-control "${altControlWs}"` : "";
 
+        const pinned = `-k --pinnedpubkey "${this.tls.pin}"`;
+
         let command: string;
         if (platform === "windows") {
             command =
-                `curl.exe --pinnedpubkey "${this.tls.pin}" -fsSL "${baseUrl}/node-bootstrap/${token}/windows" -o "$env:TEMP\\sc-agent.exe"` +
-                `; & "$env:TEMP\\sc-agent.exe" connect --control "${controlWs}"${altFlag} --token "${token}"`;
+                `curl.exe ${pinned} -fsSL "${baseUrl}/node-bootstrap/${token}/windows" -o "$env:TEMP\\sc-agent.exe"` +
+                `; curl.exe ${pinned} -fsSL "${baseUrl}/node-cert" -o "$env:TEMP\\sc-agent.crt"` +
+                `; & "$env:TEMP\\sc-agent.exe" connect --control "${controlWs}"${altFlag} --token "${token}" --cert "$env:TEMP\\sc-agent.crt"`;
         } else {
+            // Run the agent with sudo: it manages the host and, when promoted,
+            // installs itself as a (root) systemd service — both need privileges.
             command =
-                `curl --pinnedpubkey "${this.tls.pin}" -fsSL "${baseUrl}/node-bootstrap/${token}/${platform}" -o /tmp/sc-agent` +
+                `curl ${pinned} -fsSL "${baseUrl}/node-bootstrap/${token}/${platform}" -o /tmp/sc-agent` +
+                ` && curl ${pinned} -fsSL "${baseUrl}/node-cert" -o /tmp/sc-agent.crt` +
                 ` && chmod +x /tmp/sc-agent` +
-                ` && /tmp/sc-agent connect --control "${controlWs}"${altFlag} --token "${token}"`;
+                ` && sudo /tmp/sc-agent connect --control "${controlWs}"${altFlag} --token "${token}" --cert /tmp/sc-agent.crt`;
         }
 
         return { command, expiresAt };
     }
 
     private validateToken(token: string): boolean {
+        // Durable tokens (installed agents) never expire.
+        if (this.durableTokenSet.has(token)) return true;
         const entry = this.tokens.get(token);
         if (!entry) return false;
         if (Date.now() > entry.expiresAt) {
@@ -77,14 +121,20 @@ export class NodeServer {
     start(): void {
         const self = this;
 
-        Bun.serve<NodeWsData>({
-            port: NODE_SERVER_PORT,
+        this.server = Bun.serve<NodeWsData>({
+            port: this.listenPort,
             tls: {
                 cert: this.tls.certPem,
                 key: this.tls.keyPem,
             },
             async fetch(req, serverCtx) {
                 const url = new URL(req.url);
+
+                if (req.method === "GET" && url.pathname === "/node-cert") {
+                    return new Response(self.tls.certPem, {
+                        headers: { "Content-Type": "application/x-pem-file" },
+                    });
+                }
 
                 const bootstrapMatch = url.pathname.match(/^\/node-bootstrap\/([^/]+)\/([^/]+)$/);
                 if (req.method === "GET" && bootstrapMatch) {
@@ -110,7 +160,7 @@ export class NodeServer {
                 }
 
                 if (url.pathname === "/node") {
-                    if (serverCtx.upgrade(req, { data: { channel: "node", nodeId: null } satisfies NodeWsData })) {
+                    if (serverCtx.upgrade(req, { data: { channel: "node", connId: null } satisfies NodeWsData })) {
                         return undefined as unknown as Response;
                     }
                     return new Response("Upgrade failed", { status: 400 });
@@ -131,9 +181,9 @@ export class NodeServer {
                         return;
                     }
 
-                    const nodeId = ws.data.nodeId;
+                    const connId = ws.data.connId;
 
-                    if (!nodeId) {
+                    if (!connId) {
                         if (msg.type !== "identify") {
                             ws.close(1002, "expected identify");
                             return;
@@ -142,48 +192,62 @@ export class NodeServer {
                             ws.close(1008, "invalid token");
                             return;
                         }
-                        const id = crypto.randomUUID();
-                        ws.data.nodeId = id;
+                        // Route this socket's messages by a per-connection id, but
+                        // identify the host (and the fleet entry) by its machine id.
+                        const conn = crypto.randomUUID();
+                        ws.data.connId = conn;
 
                         const proxy = new NodeProxy(
                             (ctrlMsg) => ws.send(JSON.stringify(ctrlMsg)),
-                            id,
+                            msg.machineId,
                             msg.info.hostname,
                             msg.info,
                             self.onMetrics,
+                            msg.mode,
                         );
-                        self.agents.set(id, proxy);
-                        self.fleet.register(proxy);
+                        self.agents.set(conn, proxy);
+                        const active = self.fleet.register(proxy);
 
-                        ws.send(JSON.stringify({ type: "acknowledged", nodeId: id }));
-                        console.log(`Node connected: ${msg.info.hostname} (${id})`);
+                        ws.send(JSON.stringify({ type: "acknowledged", nodeId: msg.machineId, active }));
+                        const role = active ? msg.mode : `${msg.mode}, standby`;
+                        console.log(`Node connected: ${msg.info.hostname} (${msg.machineId}) [${role}]`);
                         return;
                     }
 
-                    self.agents.get(nodeId)?.receive(msg);
+                    self.agents.get(connId)?.receive(msg);
                 },
                 close(ws) {
-                    const nodeId = ws.data.nodeId;
-                    if (!nodeId) return;
-                    const proxy = self.agents.get(nodeId);
+                    const connId = ws.data.connId;
+                    if (!connId) return;
+                    const proxy = self.agents.get(connId);
                     if (proxy) {
                         proxy.disconnect();
-                        self.agents.delete(nodeId);
-                        self.fleet.deregister(nodeId);
-                        console.log(`Node disconnected: ${proxy.name} (${nodeId})`);
+                        self.agents.delete(connId);
+                        self.fleet.deregister(proxy);
+                        console.log(`Node disconnected: ${proxy.name} (${proxy.id})`);
                     }
                 },
             },
         });
 
-        console.log(`Node server (HTTPS/WSS) listening on :${NODE_SERVER_PORT}`);
+        console.log(`Node server (HTTPS/WSS) listening on :${this.port}`);
 
-        setInterval(() => {
+        this.tokenSweep = setInterval(() => {
             const now = Date.now();
             for (const [token, entry] of self.tokens) {
                 if (now > entry.expiresAt) self.tokens.delete(token);
             }
         }, 5 * 60 * 1000);
+        // Don't keep the process alive on this timer alone (matters for tests).
+        this.tokenSweep.unref?.();
+    }
+
+    /** Stop listening and clear timers. Primarily for tests. */
+    stop(): void {
+        if (this.tokenSweep) clearInterval(this.tokenSweep);
+        this.tokenSweep = null;
+        this.server?.stop(true);
+        this.server = null;
     }
 }
 
@@ -196,13 +260,14 @@ function primaryLanIp(): string {
     return "127.0.0.1";
 }
 
-export function startNodeServer(
+export async function startNodeServer(
     fleet: Fleet,
     tls: TlsBundle,
     wanIp: string | null,
     onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void,
-): NodeServer {
+): Promise<NodeServer> {
     const server = new NodeServer(fleet, tls, primaryLanIp(), wanIp, onMetrics);
+    await server.init();
     server.start();
     return server;
 }

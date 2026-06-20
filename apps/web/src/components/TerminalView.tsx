@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalClientMessage, TerminalServerMessage } from "@central/shared";
-import { API_HOST } from "../api";
+import { API_HOST, getToken } from "../api";
 
 export function TerminalView({ serverId }: { serverId: string }) {
     const hostRef = useRef<HTMLDivElement>(null);
@@ -23,7 +23,9 @@ export function TerminalView({ serverId }: { serverId: string }) {
         term.open(host);
         fit.fit();
 
-        const ws = new WebSocket(`ws://${API_HOST}/terminal?serverId=${encodeURIComponent(serverId)}`);
+        const ws = new WebSocket(
+            `ws://${API_HOST}/terminal?serverId=${encodeURIComponent(serverId)}&token=${encodeURIComponent(getToken() ?? "")}`,
+        );
         const send = (msg: TerminalClientMessage) => {
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
         };

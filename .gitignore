@@ -6,4 +6,4 @@ build
 bun.lock
 bun.lockb
 data/
-apps/server/.sc-tls
+apps/server/.sc-data

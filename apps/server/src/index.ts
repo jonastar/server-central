@@ -1,6 +1,9 @@
+import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage } from "@central/shared";
 import type { ShellSession } from "./agent";
+import { CONFIG_DIR } from "./config";
+import { AuthStore, type AuthContext } from "./auth";
 import { Fleet } from "./fleet";
 import { CentralHandler } from "./handler";
 import { ensureTls } from "./tls";
@@ -16,7 +19,7 @@ type WsData =
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 const eventSockets = new Set<ServerWebSocket<WsData>>();
@@ -32,18 +35,31 @@ const fleet = new Fleet(
 );
 await fleet.init();
 
-const tls = await ensureTls("./.sc-tls");
+const auth = new AuthStore();
+await auth.init();
+
+const tls = await ensureTls(path.join(CONFIG_DIR, "tls"));
 const wanIp = await discoverWanIp();
 if (wanIp) console.log(`Discovered WAN IP: ${wanIp}`);
 
-const nodeServer = startNodeServer(
+const nodeServer = await startNodeServer(
     fleet,
     tls,
     wanIp,
     (serverId, snapshot) => broadcast({ kind: "metrics", data: { serverId, snapshot } }),
 );
 
-const handler = new CentralHandler(fleet, nodeServer);
+const handler = new CentralHandler(fleet, auth, nodeServer);
+
+/** Commands callable without a session (first-run setup + login). */
+const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]);
+
+function bearerToken(req: Request): string | null {
+    const header = req.headers.get("Authorization");
+    if (!header) return null;
+    const match = /^Bearer\s+(.+)$/i.exec(header);
+    return match ? match[1] : null;
+}
 
 // ---- Terminal bridge ---------------------------------------------------------
 
@@ -72,19 +88,25 @@ async function openTerminal(ws: ServerWebSocket<WsData>): Promise<void> {
 
 const server = Bun.serve<WsData>({
     port: Number(process.env.PORT) || 4141,
-    fetch(req, serverCtx) {
+    async fetch(req, serverCtx) {
         const url = new URL(req.url);
 
         if (req.method === "OPTIONS") {
             return new Response(null, { status: 204, headers: corsHeaders });
         }
-        if (url.pathname === "/events") {
-            if (serverCtx.upgrade(req, { data: { channel: "events" } satisfies WsData })) {
-                return undefined as unknown as Response;
+
+        // WebSocket channels carry the bearer token as a query param, since
+        // browsers can't set Authorization headers on WS upgrades.
+        if (url.pathname === "/events" || url.pathname === "/terminal") {
+            const user = await auth.authenticate(url.searchParams.get("token"));
+            if (!user) return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+
+            if (url.pathname === "/events") {
+                if (serverCtx.upgrade(req, { data: { channel: "events" } satisfies WsData })) {
+                    return undefined as unknown as Response;
+                }
+                return new Response("Upgrade failed", { status: 400, headers: corsHeaders });
             }
-            return new Response("Upgrade failed", { status: 400, headers: corsHeaders });
-        }
-        if (url.pathname === "/terminal") {
             const serverId = url.searchParams.get("serverId");
             if (!serverId) {
                 return Response.json({ error: "serverId required" }, { status: 400, headers: corsHeaders });
@@ -93,30 +115,33 @@ const server = Bun.serve<WsData>({
             if (serverCtx.upgrade(req, { data })) return undefined as unknown as Response;
             return new Response("Upgrade failed", { status: 400, headers: corsHeaders });
         }
+
         if (req.method !== "POST") {
             return Response.json({ error: "Use POST" }, { status: 405, headers: corsHeaders });
         }
 
         const command = url.pathname.replace(/^\//, "") as Command;
-        const fn = (handler[command] as ((data: unknown) => Promise<unknown>) | undefined)?.bind(handler);
+        const fn = (handler[command] as ((data: unknown, ctx: AuthContext) => Promise<unknown>) | undefined)?.bind(handler);
         if (!fn) {
             return Response.json({ error: `Unknown command: ${command}` }, { status: 404, headers: corsHeaders });
         }
 
-        return req
-            .json()
-            .catch(() => null)
-            .then(async (data) => {
-                try {
-                    const result = await fn(data ?? undefined);
-                    return new Response(result === undefined ? "null" : JSON.stringify(result), {
-                        headers: { ...corsHeaders, "Content-Type": "application/json" },
-                    });
-                } catch (err) {
-                    const message = err instanceof Error ? err.message : "Unexpected server error";
-                    return Response.json({ error: message }, { status: 500, headers: corsHeaders });
-                }
+        const token = bearerToken(req);
+        const user = await auth.authenticate(token);
+        if (!PUBLIC_COMMANDS.has(command) && !user) {
+            return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+        }
+
+        const data = await req.json().catch(() => null);
+        try {
+            const result = await fn(data ?? undefined, { token, user });
+            return new Response(result === undefined ? "null" : JSON.stringify(result), {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Unexpected server error";
+            return Response.json({ error: message }, { status: 500, headers: corsHeaders });
+        }
     },
     websocket: {
         open(ws) {

@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "bun --watch --env-file ../../.env src/index.ts",
     "start": "bun --env-file ../../.env src/index.ts",
-    "typecheck": "bunx tsc -p tsconfig.json --noEmit"
+    "test": "bun test",
+    "typecheck": "bunx tsc -p tsconfig.json --noEmit && bunx tsc -p test/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@central/shared": "workspace:*",

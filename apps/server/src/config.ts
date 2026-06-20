@@ -1,10 +1,11 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { SystemInfo } from "@central/shared";
+import type { AgentMode, SystemInfo } from "@central/shared";
 
 export const CONFIG_DIR = ".sc-data";
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const AGENT_STATE_FILE = path.join(CONFIG_DIR, "agents.json");
+const AGENT_TOKENS_FILE = path.join(CONFIG_DIR, "agent-tokens.json");
 
 export interface Config {
     domain?: string;
@@ -15,6 +16,8 @@ export interface AgentRecord {
     id: string;
     name: string;
     info?: SystemInfo;
+    /** Mode of the agent when last seen; absent for records written before modes existed. */
+    mode?: AgentMode;
     lastSeenAt: number;
 }
 
@@ -58,4 +61,23 @@ export async function readAgentState(): Promise<Record<string, AgentRecord>> {
 export async function writeAgentState(agents: Record<string, AgentRecord>): Promise<void> {
     await ensureDir();
     await fs.writeFile(AGENT_STATE_FILE, JSON.stringify(agents, null, 2));
+}
+
+/**
+ * Durable per-machine agent tokens (machineId → token). Issued when a live agent
+ * is promoted to an installed service; the systemd unit uses one to reconnect
+ * indefinitely, since short-lived enrollment tokens would expire.
+ */
+export async function readAgentTokens(): Promise<Record<string, string>> {
+    try {
+        const text = await fs.readFile(AGENT_TOKENS_FILE, "utf8");
+        return JSON.parse(text) as Record<string, string>;
+    } catch {
+        return {};
+    }
+}
+
+export async function writeAgentTokens(tokens: Record<string, string>): Promise<void> {
+    await ensureDir();
+    await fs.writeFile(AGENT_TOKENS_FILE, JSON.stringify(tokens, null, 2));
 }

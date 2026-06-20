@@ -1,5 +1,5 @@
 import type { ApiEvent, MetricsSnapshot, ServerEntry } from "@central/shared";
-import { api, API_HOST } from "./api";
+import { api, API_HOST, getToken } from "./api";
 
 const METRICS_CLIENT_MAX = 720;
 
@@ -15,6 +15,9 @@ export type ConnectionState = {
 class ConnectionManager {
     private lastListenerId = 0;
     private listeners: Map<number, (state: ConnectionState) => void> = new Map();
+    private ws: WebSocket | null = null;
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    private running = false;
 
     private state: Omit<ConnectionState, "conn"> = {
         connected: false,
@@ -23,16 +26,35 @@ class ConnectionManager {
         metrics: {},
     };
 
-    constructor() {
+    /** Open the events socket. Called once the user is authenticated. */
+    start() {
+        if (this.running) return;
+        this.running = true;
         this.connect();
     }
 
+    /** Close the socket and reset state (on logout / auth loss). */
+    stop() {
+        this.running = false;
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+        this.ws?.close();
+        this.ws = null;
+        this.update({ connected: false, connecting: true, servers: [], metrics: {} });
+    }
+
     private connect() {
-        const ws = new WebSocket(`ws://${API_HOST}/events`);
+        if (!this.running) return;
+        const token = getToken();
+        if (!token) return;
+        const ws = new WebSocket(`ws://${API_HOST}/events?token=${encodeURIComponent(token)}`);
+        this.ws = ws;
         ws.onopen = () => this.update({ connected: true, connecting: false });
         ws.onclose = () => {
+            this.ws = null;
+            if (!this.running) return;
             this.update({ connected: false, connecting: true });
-            setTimeout(() => this.connect(), 3000);
+            this.reconnectTimer = setTimeout(() => this.connect(), 3000);
         };
         ws.onerror = (err) => console.error("WebSocket error", err);
         ws.onmessage = (event) => this.handleEvent(JSON.parse(event.data) as ApiEvent);

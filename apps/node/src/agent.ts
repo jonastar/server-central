@@ -2,7 +2,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ControlMessage, DirEntry, DirEntryType, FileContent, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
-import { MetricsCollector } from "@central/shared";
+import { AGENT_VERSION, MetricsCollector } from "@central/shared";
+
+export { resolveMachineId } from "./machine-id";
 
 export interface AgentTransport {
     send(msg: NodeMessage): void;
@@ -54,6 +56,7 @@ export async function collectSystemInfo(): Promise<SystemInfo> {
         cpuCores: os.cpus().length,
         uptimeSeconds: os.uptime(),
         capturedAt: Date.now(),
+        agentVersion: AGENT_VERSION,
     };
 }
 
@@ -79,6 +82,9 @@ export class Agent {
     constructor(
         private readonly transport: AgentTransport,
         isEmbedded = false,
+        /** Performs the self-install when the control plane requests it. Absent
+         *  for the embedded agent, which cannot install itself. */
+        private readonly onInstallService?: (agentToken: string) => Promise<void>,
     ) {
         this.isEmbedded = isEmbedded;
     }
@@ -178,6 +184,17 @@ export class Agent {
                 this.shells.get(msg.sessionId)?.close();
                 this.shells.delete(msg.sessionId);
                 break;
+
+            case "installService": {
+                try {
+                    if (!this.onInstallService) throw new Error("This agent cannot install itself");
+                    await this.onInstallService(msg.agentToken);
+                    this.transport.send({ type: "installServiceResponse", requestId: msg.requestId });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
         }
     }
 
