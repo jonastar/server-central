@@ -106,6 +106,9 @@ export interface ServerStatus {
     info?: SystemInfo;
     /** How the agent is running on this host; absent for never-connected hosts. */
     mode?: AgentMode;
+    /** Source IP of the agent's connection as seen by the control plane (its public
+     *  IP when across NAT). Null for the embedded host and never-connected entries. */
+    remoteIp?: string | null;
     /** When the agent was last seen, for offline entries. Absent while online. */
     lastSeenAt?: number;
     /** Other connections to this machine that lost the priority race (live vs installed). */
@@ -231,6 +234,70 @@ export interface ProcessInfo {
     command: string;
 }
 
+// ---- Networking --------------------------------------------------------------
+
+export interface NetworkAddress {
+    /** "inet" (IPv4) or "inet6" (IPv6). */
+    family: string;
+    address: string;
+    prefixlen: number;
+    /** e.g. "global", "host", "link". */
+    scope: string;
+}
+
+export interface NetworkInterface {
+    name: string;
+    mac: string;
+    /** operstate: "UP" | "DOWN" | "UNKNOWN" | … */
+    state: string;
+    mtu: number;
+    addresses: NetworkAddress[];
+}
+
+export interface NetworkRoute {
+    /** "default" or a CIDR/destination. */
+    dst: string;
+    gateway?: string;
+    dev: string;
+    protocol?: string;
+    /** prefsrc — the source address used for this route. */
+    src?: string;
+}
+
+export interface NetworkInfo {
+    available: boolean;
+    error?: string;
+    interfaces: NetworkInterface[];
+    routes: NetworkRoute[];
+    /** The agent's source IP as seen by the control plane (its public IP across
+     *  NAT). Null for the embedded host. */
+    remoteIp: string | null;
+}
+
+// ---- Systemd -----------------------------------------------------------------
+
+export interface ServiceInfo {
+    /** e.g. "ssh.service". */
+    unit: string;
+    /** loaded | not-found | masked | … */
+    load: string;
+    /** active | inactive | failed | activating | … */
+    active: string;
+    /** running | exited | dead | failed | … */
+    sub: string;
+    description: string;
+    /** From unit-files: enabled | disabled | static | masked | … (absent if unknown). */
+    enabledState?: string;
+}
+
+export interface SystemdState {
+    available: boolean;
+    error?: string;
+    services: ServiceInfo[];
+}
+
+export type ServiceAction = "start" | "stop" | "restart" | "enable" | "disable";
+
 // ---- Auth & users ------------------------------------------------------------
 //
 // Roles are coarse (v1). `owner` is the first account created during first-run
@@ -280,6 +347,15 @@ export type CentralApiOperations = {
 
     // Processes
     getProcesses: { data: { serverId: string }; response: ProcessInfo[] };
+
+    // Networking — adapters, addresses, routes, and the agent's remote IP.
+    getNetworkInfo: { data: { serverId: string }; response: NetworkInfo };
+
+    // Systemd — list services, control them, view logs and unit files.
+    systemdList: { data: { serverId: string }; response: SystemdState };
+    systemdServiceAction: { data: { serverId: string; unit: string; action: ServiceAction }; response: void };
+    systemdServiceLogs: { data: { serverId: string; unit: string; lines?: number }; response: { logs: string } };
+    systemdUnitFile: { data: { serverId: string; unit: string }; response: { content: string } };
 
     // Node enrollment
     // useExternal builds the command around the control plane's external host

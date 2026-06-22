@@ -8,12 +8,17 @@ import type {
     InstallMechanism,
     InstallProbeResult,
     MetricsSnapshot,
+    NetworkInfo,
     ProcessInfo,
     ServerEntry,
+    ServiceAction,
+    SystemdState,
     UserInfo,
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
 import { dockerContainerAction, dockerContainerLogs, dockerList } from "./docker";
+import { getNetworkInfo } from "./network";
+import { systemdList, systemdServiceAction, systemdServiceLogs, systemdUnitFile } from "./systemd";
 import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
@@ -193,5 +198,29 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
             });
         }
         return out.sort((a, b) => b.cpuPct - a.cpuPct).slice(0, 300);
+    }
+
+    // ---- Networking --------------------------------------------------------------------
+
+    async getNetworkInfo(data: { serverId: string }): Promise<NetworkInfo> {
+        return getNetworkInfo(this.fleet.get(data.serverId));
+    }
+
+    // ---- Systemd -----------------------------------------------------------------------
+
+    async systemdList(data: { serverId: string }): Promise<SystemdState> {
+        return systemdList(this.fleet.get(data.serverId));
+    }
+
+    async systemdServiceAction(data: { serverId: string; unit: string; action: ServiceAction }): Promise<void> {
+        await systemdServiceAction(this.fleet.get(data.serverId), data.unit, data.action);
+    }
+
+    async systemdServiceLogs(data: { serverId: string; unit: string; lines?: number }): Promise<{ logs: string }> {
+        return { logs: await systemdServiceLogs(this.fleet.get(data.serverId), data.unit, data.lines ?? 300) };
+    }
+
+    async systemdUnitFile(data: { serverId: string; unit: string }): Promise<{ content: string }> {
+        return { content: await systemdUnitFile(this.fleet.get(data.serverId), data.unit) };
     }
 }

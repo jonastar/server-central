@@ -29,23 +29,19 @@ Turn it into a nested menu with several sub sections (maybe an overview?)
     - Maybe we should have a standard log-viewer component we can do reuse?
     - keep fetching all logs for now, we will deal with pagination/streaming in the feature
 
-### Networking host menu
-
-View network adapters and ip addresses on hosts
-
-We should have remote IP detection of agents (similar to the control plane)
-
-Maybe we could group hosts by subnet as well? food for thought!
-
-### Systemd host menu
-
-System services etc, view logs of services and basic controls and viewing unit files etc?
-
 ### Better process list?
 
 But at some point maybe it's better to just jump into htop in the terminal?
 
 # Already implemented, archive
+
+- [DONE] Networking host menu (2026-06-22)
+  - New per-server "Network" tab: `getNetworkInfo` (`apps/server/src/network.ts`) lists adapters, addresses, and routes via iproute2 JSON (`ip -j addr` / `ip -j route`), parsed into `NetworkInterface`/`NetworkAddress`/`NetworkRoute`. Unavailable-state fallback when `ip -j` isn't present.
+  - Remote IP detection of agents: control plane records each agent's WS source IP (public IP across NAT) via `server.requestIP(req)` at upgrade, carried on `HostAgent.remoteIp` + `ServerStatus.remoteIp`, surfaced in the Network view. Null for the embedded host.
+  - Still pending (food for thought): grouping hosts by subnet.
+
+- [DONE] Systemd host menu (2026-06-22)
+  - New per-server "Services" tab: `systemd.ts` provides `systemdList` (merges `list-units` runtime state with `list-unit-files` enabled state), `systemdServiceAction` (start/stop/restart/enable/disable, unit name validated), `systemdServiceLogs` (`journalctl`), and `systemdUnitFile` (`systemctl cat`). View has a filter, active-only toggle, controls, and logs/unit-file modals.
 
 - [DONE] Smaller items batch (2026-06-21)
   - Embedded agent now reports `mode: "embedded"` (distinct from live/installed) and outranks both in the fleet (`MODE_RANK.embedded = 3`); `installNodeService` rejects it with a clear message.

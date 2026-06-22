@@ -30,6 +30,9 @@ export class HostAgent {
     readonly name: string;
     /** How this agent runs on its host. Drives fleet priority (installed > live). */
     readonly mode: AgentMode;
+    /** Source IP of the agent's connection as seen by the control plane (its public
+     *  IP across NAT). Null for the embedded host. */
+    readonly remoteIp: string | null;
     readonly history: MetricsSnapshot[] = [];
 
     private info: SystemInfo | null;
@@ -47,11 +50,13 @@ export class HostAgent {
         info: SystemInfo | null,
         private readonly onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void,
         mode: AgentMode = "live",
+        remoteIp: string | null = null,
     ) {
         this.id = nodeId;
         this.name = name;
         this.info = info;
         this.mode = mode;
+        this.remoteIp = remoteIp;
     }
 
     /** Update system info (used by the embedded agent after it collects info on start). */
@@ -75,6 +80,7 @@ export class HostAgent {
             state: this.connected ? "online" : "offline",
             info: this.info ?? undefined,
             mode: this.mode,
+            remoteIp: this.remoteIp,
         };
     }
 

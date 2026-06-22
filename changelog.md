@@ -4,6 +4,14 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-06-22 - Networking and Systemd host menus
+
+## Added
+
+- **Network host tab**: a new per-server "Network" view (`getNetworkInfo` → `network.ts`) lists adapters, addresses, and routes via iproute2's JSON output (`ip -j addr` / `ip -j route`), parsed into typed `NetworkInterface`/`NetworkAddress`/`NetworkRoute`. Falls back to an "unavailable" state when `ip -j` isn't present.
+- **Remote IP detection of agents**: the control plane now records the source IP of each agent's WebSocket connection (its public IP across NAT, mirroring the control plane's own WAN discovery). Captured at upgrade via `server.requestIP(req)`, carried on `HostAgent.remoteIp` and `ServerStatus.remoteIp`, and surfaced in the Network view. Null for the embedded host.
+- **Services (systemd) host tab**: a new per-server "Services" view (`systemdList`/`systemdServiceAction`/`systemdServiceLogs`/`systemdUnitFile` → `systemd.ts`) lists service units merged from `list-units` (runtime state) and `list-unit-files` (enabled/disabled), with filter + active-only toggle, start/stop/restart/enable/disable controls, and modals for `journalctl` logs and `systemctl cat` unit files. Unit names are validated before use in commands.
+
 # 2026-06-21 - Enroll over a domain/WAN address (CA-based TLS)
 
 ## Added

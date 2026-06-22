@@ -1,4 +1,4 @@
-export type ServerTab = "overview" | "files" | "docker" | "processes" | "terminal";
+export type ServerTab = "overview" | "files" | "docker" | "processes" | "network" | "services" | "terminal";
 
 export type Route =
     | { view: "dashboard" }
@@ -19,6 +19,8 @@ export const SERVER_TABS: Array<{ id: ServerTab; label: string }> = [
     { id: "files", label: "Files" },
     { id: "docker", label: "Docker" },
     { id: "processes", label: "Processes" },
+    { id: "network", label: "Network" },
+    { id: "services", label: "Services" },
     { id: "terminal", label: "Terminal" },
 ];
 

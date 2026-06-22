@@ -19,7 +19,7 @@ const PLATFORM_BINARY: Record<string, string> = {
     windows: "sc-agent-windows.exe",
 };
 
-type NodeWsData = { channel: "node"; connId: string | null };
+type NodeWsData = { channel: "node"; connId: string | null; remoteIp: string | null };
 
 interface TokenEntry {
     expiresAt: number;
@@ -276,7 +276,8 @@ export class NodeServer {
                 }
 
                 if (url.pathname === "/node") {
-                    if (serverCtx.upgrade(req, { data: { channel: "node", connId: null } satisfies NodeWsData })) {
+                    const remoteIp = serverCtx.requestIP(req)?.address ?? null;
+                    if (serverCtx.upgrade(req, { data: { channel: "node", connId: null, remoteIp } satisfies NodeWsData })) {
                         return undefined as unknown as Response;
                     }
                     return new Response("Upgrade failed", { status: 400 });
@@ -320,6 +321,7 @@ export class NodeServer {
                             msg.info,
                             self.onMetrics,
                             msg.mode,
+                            ws.data.remoteIp,
                         );
                         self.agents.set(conn, proxy);
                         const active = self.fleet.register(proxy);
