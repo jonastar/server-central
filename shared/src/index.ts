@@ -196,6 +196,10 @@ export interface ContainerInfo {
     status: string;
     ports: string;
     createdAt: string;
+    /** Compose project (com.docker.compose.project label), if any. */
+    project?: string;
+    /** Compose service (com.docker.compose.service label), if any. */
+    service?: string;
 }
 
 export interface DockerVolumeInfo {
@@ -220,7 +224,80 @@ export interface DockerState {
     images: DockerImageInfo[];
 }
 
-export type ContainerAction = "start" | "stop" | "restart" | "remove";
+export type ContainerAction = "start" | "stop" | "restart" | "remove" | "pause" | "unpause";
+
+/** A compose stack derived from container labels. */
+export interface DockerStack {
+    project: string;
+    /** Total containers belonging to the stack. */
+    containers: number;
+    /** Containers currently running. */
+    running: number;
+    /** com.docker.compose.project.config_files label, if present. */
+    configFiles: string;
+    /** Distinct container states present in the stack. */
+    states: string[];
+}
+
+export interface DockerStacksState {
+    available: boolean;
+    error?: string;
+    stacks: DockerStack[];
+}
+
+export interface DockerMount {
+    type: string;
+    source: string;
+    destination: string;
+}
+
+/** `docker inspect` of a single container, distilled for the detail view. */
+export interface DockerContainerDetail {
+    id: string;
+    name: string;
+    image: string;
+    state: string;
+    status: string;
+    created: string;
+    command: string;
+    ports: string[];
+    mounts: DockerMount[];
+    env: string[];
+    networks: string[];
+    restartPolicy: string;
+    /** Pretty-printed raw `docker inspect` JSON. */
+    raw: string;
+}
+
+export interface DockerVolumeDetail {
+    name: string;
+    driver: string;
+    mountpoint: string;
+    /** Containers that mount this volume. */
+    attached: { id: string; name: string }[];
+    createdAt?: string;
+    labels?: string;
+}
+
+export interface DockerOverview {
+    available: boolean;
+    error?: string;
+    containersRunning: number;
+    containersTotal: number;
+    stacks: number;
+    volumes: number;
+    images: number;
+    /** Disk usage from `docker system df`. */
+    df?: {
+        images: string;
+        containers: string;
+        volumes: string;
+        buildCache: string;
+    };
+}
+
+export type StackAction = "start" | "stop" | "restart" | "down";
+export type ImageAction = "remove";
 
 // ---- Processes ---------------------------------------------------------------
 
@@ -344,6 +421,14 @@ export type CentralApiOperations = {
     dockerList: { data: { serverId: string }; response: DockerState };
     dockerContainerAction: { data: { serverId: string; containerId: string; action: ContainerAction }; response: void };
     dockerContainerLogs: { data: { serverId: string; containerId: string; tail?: number }; response: { logs: string } };
+    dockerOverview: { data: { serverId: string }; response: DockerOverview };
+    dockerStacks: { data: { serverId: string }; response: DockerStacksState };
+    dockerStackAction: { data: { serverId: string; project: string; action: StackAction }; response: void };
+    dockerContainerInspect: { data: { serverId: string; containerId: string }; response: DockerContainerDetail };
+    dockerVolumeInspect: { data: { serverId: string; name: string }; response: DockerVolumeDetail };
+    dockerVolumeRemove: { data: { serverId: string; name: string }; response: void };
+    dockerImageAction: { data: { serverId: string; imageId: string; action: ImageAction }; response: void };
+    dockerImagePull: { data: { serverId: string; ref: string }; response: { ok: boolean; message: string } };
 
     // Processes
     getProcesses: { data: { serverId: string }; response: ProcessInfo[] };

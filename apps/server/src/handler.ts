@@ -3,8 +3,13 @@ import type {
     CentralApiOperations,
     ContainerAction,
     DirEntry,
+    DockerContainerDetail,
+    DockerOverview,
+    DockerStacksState,
     DockerState,
+    DockerVolumeDetail,
     FileContent,
+    ImageAction,
     InstallMechanism,
     InstallProbeResult,
     MetricsSnapshot,
@@ -12,11 +17,24 @@ import type {
     ProcessInfo,
     ServerEntry,
     ServiceAction,
+    StackAction,
     SystemdState,
     UserInfo,
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
-import { dockerContainerAction, dockerContainerLogs, dockerList } from "./docker";
+import {
+    dockerContainerAction,
+    dockerContainerInspect,
+    dockerContainerLogs,
+    dockerImageAction,
+    dockerImagePull,
+    dockerList,
+    dockerOverview,
+    dockerStackAction,
+    dockerStacks,
+    dockerVolumeInspect,
+    dockerVolumeRemove,
+} from "./docker";
 import { getNetworkInfo } from "./network";
 import { systemdList, systemdServiceAction, systemdServiceLogs, systemdUnitFile } from "./systemd";
 import type { AuthContext, AuthStore } from "./auth";
@@ -110,6 +128,38 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     async dockerContainerLogs(data: { serverId: string; containerId: string; tail?: number }): Promise<{ logs: string }> {
         return { logs: await dockerContainerLogs(this.fleet.get(data.serverId), data.containerId, data.tail ?? 500) };
+    }
+
+    async dockerOverview(data: { serverId: string }): Promise<DockerOverview> {
+        return dockerOverview(this.fleet.get(data.serverId));
+    }
+
+    async dockerStacks(data: { serverId: string }): Promise<DockerStacksState> {
+        return dockerStacks(this.fleet.get(data.serverId));
+    }
+
+    async dockerStackAction(data: { serverId: string; project: string; action: StackAction }): Promise<void> {
+        await dockerStackAction(this.fleet.get(data.serverId), data.project, data.action);
+    }
+
+    async dockerContainerInspect(data: { serverId: string; containerId: string }): Promise<DockerContainerDetail> {
+        return dockerContainerInspect(this.fleet.get(data.serverId), data.containerId);
+    }
+
+    async dockerVolumeInspect(data: { serverId: string; name: string }): Promise<DockerVolumeDetail> {
+        return dockerVolumeInspect(this.fleet.get(data.serverId), data.name);
+    }
+
+    async dockerVolumeRemove(data: { serverId: string; name: string }): Promise<void> {
+        await dockerVolumeRemove(this.fleet.get(data.serverId), data.name);
+    }
+
+    async dockerImageAction(data: { serverId: string; imageId: string; action: ImageAction }): Promise<void> {
+        await dockerImageAction(this.fleet.get(data.serverId), data.imageId, data.action);
+    }
+
+    async dockerImagePull(data: { serverId: string; ref: string }): Promise<{ ok: boolean; message: string }> {
+        return dockerImagePull(this.fleet.get(data.serverId), data.ref);
     }
 
     // ---- Node enrollment ---------------------------------------------------------------

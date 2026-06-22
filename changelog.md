@@ -4,6 +4,22 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-06-22 - Docker rework (Portainer-lite)
+
+## Added
+
+- **Nested Docker menu**: the Docker tab is now a sub-tabbed view (Overview · Stacks · Containers · Volumes · Images), routed as `#/server/<id>/docker/<section>`. `routes.ts` gained `DockerSection` plus encode/decode (including a volume-browser drill-down `…/docker/volumes/<name>/<path>?f=<file>`); the view shell lives in `components/docker/`.
+- **Overview**: container running/total, stack, volume and image counts plus `docker system df` disk-usage cards (`dockerOverview`).
+- **Stacks**: compose stacks detected from `com.docker.compose.project` labels (no compose binary needed), with running/total badge, states, config-files, and Start/Stop/Restart/Down actions (`dockerStacks`/`dockerStackAction`); clicking a stack jumps to its containers.
+- **Containers**: filterable table (name/image/stack), pause/unpause added to the existing start/stop/restart/remove, a **Container detail** modal (`dockerContainerInspect`: state, command, ports, mounts, env, networks, restart policy, and a Raw inspect JSON tab), and richer logs.
+- **Volumes**: inspect (mountpoint, labels, attached containers via `dockerVolumeInspect`), remove (`dockerVolumeRemove`), and a **file browser** that reuses `FilesView` rooted at the volume mountpoint.
+- **Images**: remove (`dockerImageAction`) and pull a new image (`dockerImagePull`).
+- **Reusable log viewer**: `components/LogViewer.tsx` + `ansi.ts` render ANSI/SGR colors as styled spans and add find-in-text (highlight, prev/next, match counter) and a wrap toggle. Built to be reused by other log surfaces (e.g. systemd) later. Still fetches all logs (tail 2000) — pagination/streaming is future work.
+
+## Changed
+
+- `ContainerInfo` now carries derived `project`/`service` (parsed from compose labels); `ContainerAction` gained `pause`/`unpause`. `DockerView` was split from one flat screen into the section components above.
+
 # 2026-06-22 - Networking and Systemd host menus
 
 ## Added

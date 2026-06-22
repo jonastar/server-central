@@ -1,5 +1,7 @@
 export type ServerTab = "overview" | "files" | "docker" | "processes" | "network" | "services" | "terminal";
 
+export type DockerSection = "overview" | "stacks" | "containers" | "volumes" | "images";
+
 export type Route =
     | { view: "dashboard" }
     | { view: "agents" }
@@ -8,11 +10,17 @@ export type Route =
           view: "server";
           serverId: string;
           tab: ServerTab;
-          /** Files tab only: current folder. Defaults to "/". */
+          /** Docker tab only: active sub-section. Defaults to "overview". */
+          section?: DockerSection;
+          /** Docker tab, volumes section only: the volume being browsed. */
+          volume?: string;
+          /** Files tab / volume browser: current folder. Defaults to "/". */
           path?: string;
-          /** Files tab only: path of the open file, if any. */
+          /** Files tab / volume browser: path of the open file, if any. */
           file?: string;
       };
+
+const DOCKER_SECTIONS = new Set<DockerSection>(["overview", "stacks", "containers", "volumes", "images"]);
 
 export const SERVER_TABS: Array<{ id: ServerTab; label: string }> = [
     { id: "overview", label: "Overview" },
@@ -50,6 +58,18 @@ export function routeToHash(route: Route): string {
                 if (route.file) {
                     hash += `?f=${encodeURIComponent(route.file)}`;
                 }
+            } else if (route.tab === "docker") {
+                hash += `/${route.section ?? "overview"}`;
+                if (route.section === "volumes" && route.volume) {
+                    hash += `/${encodeURIComponent(route.volume)}`;
+                    const encoded = route.path ? encodePath(route.path) : "";
+                    if (encoded) {
+                        hash += `/${encoded}`;
+                    }
+                    if (route.file) {
+                        hash += `?f=${encodeURIComponent(route.file)}`;
+                    }
+                }
             }
             return hash;
         }
@@ -79,6 +99,17 @@ export function hashToRoute(hash: string): Route {
             const path = "/" + segs.slice(3).map(decodeURIComponent).join("/");
             const file = new URLSearchParams(queryPart).get("f") ?? undefined;
             return { view: "server", serverId, tab, path: path === "/" ? "/" : path, file };
+        }
+        if (tab === "docker") {
+            const sectionSeg = segs[3] as DockerSection | undefined;
+            const section = sectionSeg && DOCKER_SECTIONS.has(sectionSeg) ? sectionSeg : "overview";
+            if (section === "volumes" && segs[4]) {
+                const volume = decodeURIComponent(segs[4]);
+                const path = segs.length > 5 ? "/" + segs.slice(5).map(decodeURIComponent).join("/") : undefined;
+                const file = new URLSearchParams(queryPart).get("f") ?? undefined;
+                return { view: "server", serverId, tab, section, volume, path, file };
+            }
+            return { view: "server", serverId, tab, section };
         }
         return { view: "server", serverId, tab };
     }

@@ -8,32 +8,17 @@
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 
-### Docker revamped
-
-Docker is big, so i think we need to revamp it, basically embed some of the most used features of portainer into server-central
-
-#### Nested menus
-
-Turn it into a nested menu with several sub sections (maybe an overview?)
-
-- Stacks (detected from labels, compose stacks and such?)
-- Containers
-- Volumes
-  - File browser
-  - View what containers is attached
-- Images
-- Better log viewing
-  - Terminal escape codes
-  - Search feature
-  - And whatever else improvements we can make
-    - Maybe we should have a standard log-viewer component we can do reuse?
-    - keep fetching all logs for now, we will deal with pagination/streaming in the feature
-
 ### Better process list?
 
 But at some point maybe it's better to just jump into htop in the terminal?
 
 # Already implemented, archive
+
+- [DONE] Docker rework — Portainer-lite (2026-06-22)
+  - Docker tab is now a nested sub-tabbed view (Overview · Stacks · Containers · Volumes · Images), routed as `#/server/<id>/docker/<section>` (`routes.ts` `DockerSection` + volume-browser drill-down). Shell + sections live in `apps/web/src/components/docker/`.
+  - Backend (`apps/server/src/docker.ts`): added `dockerOverview` (counts + `docker system df`), `dockerStacks`/`dockerStackAction` (compose-project labels, no compose binary), `dockerContainerInspect`, `dockerVolumeInspect`/`dockerVolumeRemove`, `dockerImageAction`/`dockerImagePull`; `dockerContainerAction` gained pause/unpause. `ContainerInfo` now carries derived `project`/`service`.
+  - Reusable log viewer (`components/LogViewer.tsx` + `ansi.ts`): custom ANSI-to-HTML rendering with find-in-text (highlight, prev/next, match counter) and wrap toggle. Volume file browser reuses `FilesView` rooted at the volume mountpoint.
+  - Still pending (future): log pagination/streaming (currently tail 2000); reusing LogViewer for systemd/journald logs; per-stack compose up/pull via the compose plugin.
 
 - [DONE] Networking host menu (2026-06-22)
   - New per-server "Network" tab: `getNetworkInfo` (`apps/server/src/network.ts`) lists adapters, addresses, and routes via iproute2 JSON (`ip -j addr` / `ip -j route`), parsed into `NetworkInterface`/`NetworkAddress`/`NetworkRoute`. Unavailable-state fallback when `ip -j` isn't present.

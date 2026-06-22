@@ -78,7 +78,21 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                     />
                 );
             case "docker":
-                return <DockerView serverId={currentEntry.id} />;
+                return (
+                    <DockerView
+                        serverId={currentEntry.id}
+                        section={route.section ?? "overview"}
+                        volume={route.volume}
+                        path={route.path}
+                        file={route.file ?? null}
+                        onNavigate={(next) => setRoute({
+                            view: "server",
+                            serverId: currentEntry.id,
+                            tab: "docker",
+                            ...next,
+                        })}
+                    />
+                );
             case "processes":
                 return <ProcessesView serverId={currentEntry.id} />;
             case "network":
