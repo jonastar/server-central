@@ -1,10 +1,16 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ControlMessage, DirEntry, DirEntryType, FileContent, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
+import type { ControlMessage, DirEntry, DirEntryType, FileContent, InstallMechanism, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
 import { AGENT_VERSION, MetricsCollector } from "@central/shared";
+import { probeDir } from "./mounts";
 
 export { resolveMachineId } from "./machine-id";
+
+/** Default location for the agent binary (versioned binaries + stable symlink). */
+export const DEFAULT_INSTALL_DIR = "/usr/local/bin";
+/** Default location for the cert, config, manifest, and exec scratch / state. */
+export const DEFAULT_DATA_DIR = "/var/lib/sc-agent";
 
 export interface AgentTransport {
     send(msg: NodeMessage): void;
@@ -13,6 +19,21 @@ export interface AgentTransport {
 const METRICS_INTERVAL_MS = 5_000;
 const HISTORY_MAX = 720;
 const MAX_FILE_BYTES = 1024 * 1024;
+/** Images can be larger than text files since they're previewed, not edited. */
+const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
+
+/** Recognized image extensions → MIME type, for in-browser preview. */
+const IMAGE_MIME: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".ico": "image/x-icon",
+    ".svg": "image/svg+xml",
+    ".avif": "image/avif",
+};
 
 function normalizePath(p: string): string {
     return path.resolve("/", p || "/");
@@ -61,6 +82,22 @@ export async function collectSystemInfo(): Promise<SystemInfo> {
         uptimeSeconds: os.uptime(),
         capturedAt: Date.now(),
         agentVersion: AGENT_VERSION,
+        install: await collectInstallInfo(),
+    };
+}
+
+/** Whether the default install + data dirs are usable as-is; if not (read-only OS
+ *  root or noexec mount, e.g. TrueNAS), the setup wizard requires custom paths. */
+async function collectInstallInfo(): Promise<SystemInfo["install"]> {
+    const [installProbe, dataProbe] = await Promise.all([
+        probeDir(DEFAULT_INSTALL_DIR),
+        probeDir(DEFAULT_DATA_DIR),
+    ]);
+    const usable = (p: { writable: boolean; execCapable: boolean }) => p.writable && p.execCapable;
+    return {
+        defaultInstallDir: DEFAULT_INSTALL_DIR,
+        defaultDataDir: DEFAULT_DATA_DIR,
+        defaultsUsable: usable(installProbe) && usable(dataProbe),
     };
 }
 
@@ -87,9 +124,10 @@ export class Agent {
     constructor(
         private readonly transport: AgentTransport,
         isEmbedded = false,
-        /** Performs the self-install when the control plane requests it. Absent
-         *  for the embedded agent, which cannot install itself. */
-        private readonly onInstallService?: (agentToken: string) => Promise<void>,
+        /** Performs the self-install when the control plane requests it, returning a
+         *  startCommand for the manual mechanism (null for systemd). Absent for the
+         *  embedded agent, which cannot install itself. */
+        private readonly onInstallService?: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism) => Promise<{ startCommand: string | null }>,
         /** Performs the self-update to `version` when the control plane requests
          *  it. Absent for the embedded agent, which ships with the control plane. */
         private readonly onUpdateService?: (version: string) => Promise<void>,
@@ -195,13 +233,23 @@ export class Agent {
                 this.shells.delete(msg.sessionId);
                 break;
 
+            case "probeInstallPathRequest": {
+                try {
+                    const result = await probeDir(msg.path);
+                    this.transport.send({ type: "probeInstallPathResponse", requestId: msg.requestId, result });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
+
             case "installService": {
                 try {
                     if (!this.onInstallService) {
                         throw new Error("This agent cannot install itself");
                     }
-                    await this.onInstallService(msg.agentToken);
-                    this.transport.send({ type: "installServiceResponse", requestId: msg.requestId });
+                    const { startCommand } = await this.onInstallService(msg.agentToken, msg.installDir, msg.dataDir, msg.mechanism);
+                    this.transport.send({ type: "installServiceResponse", requestId: msg.requestId, startCommand });
                 } catch (e) {
                     this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
                 }
@@ -282,6 +330,15 @@ export class Agent {
     private async runReadFile(filePath: string): Promise<FileContent> {
         const target = normalizePath(filePath);
         const st = await fs.stat(target);
+        const mimeType = IMAGE_MIME[path.extname(target).toLowerCase()];
+
+        // Images are sent as base64 for in-browser preview rather than treated as
+        // un-openable binary, up to a larger cap than text files.
+        if (mimeType && st.size <= MAX_IMAGE_BYTES) {
+            const data = await fs.readFile(target);
+            return { path: target, content: data.toString("base64"), sizeBytes: st.size, truncated: false, binary: true, encoding: "base64", mimeType };
+        }
+
         const handle = await fs.open(target, "r");
         try {
             const buf = Buffer.alloc(Math.min(st.size, MAX_FILE_BYTES));

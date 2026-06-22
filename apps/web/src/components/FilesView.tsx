@@ -20,6 +20,8 @@ interface OpenFile {
     original: string;
     truncated: boolean;
     binary: boolean;
+    /** Set for images; `content` then holds base64 bytes for an inline preview. */
+    mimeType?: string;
 }
 
 /** Patch to the URL-backed files state: change folder and/or open file. */
@@ -73,7 +75,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
                 if (cancelled) {
                     return;
                 }
-                setFile({ path: openFilePath, content: res.content, original: res.content, truncated: res.truncated, binary: res.binary });
+                setFile({ path: openFilePath, content: res.content, original: res.content, truncated: res.truncated, binary: res.binary, mimeType: res.mimeType });
             })
             .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); });
         return () => { cancelled = true; };
@@ -225,19 +227,26 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
                             <span className="editor-path mono" title={file.path}>{file.path}{dirty ? " •" : ""}</span>
                             <span style={{ flex: 1 }} />
                             {file.truncated && <span className="badge badge-warn">truncated — read only</span>}
-                            {file.binary && <span className="badge badge-warn">binary</span>}
-                            <button
-                                className="btn btn-primary"
-                                onClick={() => void saveFile()}
-                                disabled={saving || file.binary || file.truncated || !dirty}
-                            >
-                                {saving ? "Saving…" : "Save"}
-                            </button>
+                            {file.mimeType && <span className="badge badge-ok">image</span>}
+                            {file.binary && !file.mimeType && <span className="badge badge-warn">binary</span>}
+                            {!file.mimeType && (
+                                <button
+                                    className="btn btn-primary"
+                                    onClick={() => void saveFile()}
+                                    disabled={saving || file.binary || file.truncated || !dirty}
+                                >
+                                    {saving ? "Saving…" : "Save"}
+                                </button>
+                            )}
                             <button className="btn" onClick={() => !dirty || confirm("Discard unsaved changes?") ? onNavigate({ file: null }) : undefined}>
                                 Close
                             </button>
                         </div>
-                        {file.binary ? (
+                        {file.mimeType ? (
+                            <div className="image-preview">
+                                <img src={`data:${file.mimeType};base64,${file.content}`} alt={file.path} />
+                            </div>
+                        ) : file.binary ? (
                             <div className="editor-loading">Binary file ({fmtBytes(file.content.length)}) — not editable.</div>
                         ) : (
                             <div className="editor-host">

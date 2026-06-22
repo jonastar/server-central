@@ -1,22 +1,44 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { AgentMode, NodeMessage, SystemInfo } from "@central/shared";
-import { AGENT_VERSION, CONTROL_PLANE_TLS_SERVERNAME } from "@central/shared";
-import { Agent, type AgentTransport, collectSystemInfo, resolveMachineId } from "./agent";
+import type { AgentMode, InstallMechanism, NodeMessage, SystemInfo } from "@central/shared";
+import { AGENT_VERSION } from "@central/shared";
+import { Agent, type AgentTransport, collectSystemInfo, DEFAULT_DATA_DIR, DEFAULT_INSTALL_DIR, resolveMachineId } from "./agent";
+import { probeDir } from "./mounts";
 
 // ---- CLI argument parsing ----------------------------------------------------
 
-const USAGE = "Usage: sc-server --agent --control <url> [--alt-control <url>] --token <token> --cert <path> [--mode live|installed]";
+const USAGE = "Usage: sc-server --agent (--config <path> | --control <url> [--alt-control <url>] --token <token> --cert <path> [--mode live|installed])";
 
+/**
+ * Resolved launch parameters. The live agent gets these from CLI flags; the
+ * installed service gets them from its config file (--config), which also carries
+ * the install/data dirs so self-update resolves the same locations.
+ */
 interface Args {
     control: string;
     altControl: string | null;
     token: string;
     cert: string;
     mode: AgentMode;
+    /** Set for an installed agent (from its config file); null for the live agent. */
+    installDir: string | null;
+    dataDir: string | null;
 }
 
-function parseArgs(args: string[]): Args {
+/** Persisted launch config for an installed agent (`--config <path>`). */
+interface AgentConfig {
+    control: string;
+    altControl: string | null;
+    token: string;
+    /** Path to the cert PEM. */
+    cert: string;
+    mode: AgentMode;
+    installDir: string;
+    dataDir: string;
+}
+
+async function parseArgs(args: string[]): Promise<Args> {
+    let configPath: string | null = null;
     let control: string | null = null;
     let altControl: string | null = null;
     let token: string | null = null;
@@ -26,6 +48,9 @@ function parseArgs(args: string[]): Args {
     for (let i = 0; i < args.length; i++) {
         if (args[i] === "--agent") {
             continue;
+        }
+        else if (args[i] === "--config") {
+            configPath = args[++i];
         }
         else if (args[i] === "--control") {
             control = args[++i];
@@ -49,19 +74,33 @@ function parseArgs(args: string[]): Args {
         }
     }
 
+    // --config (installed service) supplies everything, including install/data dirs.
+    if (configPath) {
+        const cfg = JSON.parse(await Bun.file(configPath).text()) as AgentConfig;
+        return {
+            control: cfg.control,
+            altControl: cfg.altControl,
+            token: cfg.token,
+            cert: cfg.cert,
+            mode: cfg.mode,
+            installDir: cfg.installDir,
+            dataDir: cfg.dataDir,
+        };
+    }
+
     if (!control || !token || !cert) {
-        console.error("--control, --token, and --cert are required");
+        console.error("--control, --token, and --cert are required (or pass --config <path>)");
         console.error(USAGE);
         process.exit(1);
     }
 
-    return { control, altControl, token, cert, mode };
+    return { control, altControl, token, cert, mode, installDir: null, dataDir: null };
 }
 
 // ---- WebSocket transport -----------------------------------------------------
 
 class WsTransport implements AgentTransport {
-    constructor(private readonly ws: WebSocket) {}
+    constructor(private readonly ws: WebSocket) { }
 
     send(msg: NodeMessage): void {
         if (this.ws.readyState === WebSocket.OPEN) {
@@ -82,18 +121,53 @@ interface Identity {
     certPem: string;
 }
 
-// ---- Self-install (live → systemd service) -----------------------------------
+// ---- Self-install (live → installed service) ---------------------------------
 
-const INSTALL_DIR = "/usr/local/bin";
-/** Stable symlink the systemd unit execs; repointed at a versioned binary. */
-const INSTALL_BIN = `${INSTALL_DIR}/sc-agent`;
-const INSTALL_CERT = "/etc/sc-agent/agent.crt";
 const UNIT_PATH = "/etc/systemd/system/sc-agent.service";
 /** How many versioned binaries to keep (current + this many for rollback). */
 const KEEP_VERSIONS = 2;
 
-function versionedBin(version: string): string {
-    return `${INSTALL_DIR}/sc-agent-${version}`;
+interface InstallManifest {
+    mechanism: InstallMechanism;
+}
+
+interface InstallPaths {
+    /** Dir holding versioned binaries + the stable symlink. */
+    dir: string;
+    /** Stable symlink the service execs; repointed at a versioned binary. */
+    bin: string;
+    /** Writable, exec-capable dir for cert, config, manifest, and scratch/state. */
+    dataDir: string;
+    cert: string;
+    /** The launch config the installed agent reads via --config. */
+    config: string;
+    /** Records which persistence mechanism installSelf used, so updateSelf and the
+     *  "already installed?" check work regardless of where (or whether) a unit lives. */
+    manifest: string;
+    /** Exec-capable scratch (Bun extracts its native addons here, via TMPDIR). */
+    tmpDir: string;
+    versionedBin(version: string): string;
+}
+
+/**
+ * Resolve where the agent installs: the binary under `installDir` (default
+ * /usr/local/bin), and the cert/config/manifest/scratch under `dataDir` (default
+ * /var/lib/sc-agent). On an appliance OS where the defaults aren't writable or are
+ * mounted noexec, the setup wizard supplies pool paths for both.
+ */
+function resolveInstallPaths(installDir: string | null, dataDir: string | null): InstallPaths {
+    const dir = installDir || DEFAULT_INSTALL_DIR;
+    const data = dataDir || DEFAULT_DATA_DIR;
+    return {
+        dir,
+        bin: `${dir}/sc-agent`,
+        dataDir: data,
+        cert: `${data}/agent.crt`,
+        config: `${data}/config.json`,
+        manifest: `${data}/install.json`,
+        tmpDir: `${data}/tmp`,
+        versionedBin: (version) => `${dir}/sc-agent-${version}`,
+    };
 }
 
 async function run(cmd: string, args: string[]): Promise<void> {
@@ -118,13 +192,13 @@ async function pointSymlink(target: string, link: string): Promise<void> {
  * just installed, which the symlink now points at). The bare `sc-agent` symlink
  * doesn't match the `sc-agent-` prefix, so it's untouched.
  */
-async function pruneOldBinaries(keep: string): Promise<void> {
-    const entries = await fs.readdir(INSTALL_DIR);
+async function pruneOldBinaries(paths: InstallPaths, keep: string): Promise<void> {
+    const entries = await fs.readdir(paths.dir);
     const versioned = await Promise.all(
         entries
             .filter((n) => n.startsWith("sc-agent-"))
             .map(async (n) => {
-                const full = path.join(INSTALL_DIR, n);
+                const full = path.join(paths.dir, n);
                 const st = await fs.stat(full).catch(() => null);
                 return st ? { full, mtime: st.mtimeMs } : null;
             }),
@@ -152,7 +226,8 @@ async function downloadBinary(opts: { control: string; altControl: string | null
     let lastErr: unknown;
     for (const url of urls) {
         try {
-            // tls.ca pins the control-plane cert (Bun-specific fetch option).
+            // tls.ca is the control-plane CA cert — the leaf's SAN covers this host,
+            // so fetch validates by hostname (Bun-specific fetch option).
             const res = await fetch(url, { tls: { ca: opts.certPem } });
             if (!res.ok) {
                 throw new Error(`HTTP ${res.status} ${(await res.text()).trim()}`);
@@ -167,30 +242,49 @@ async function downloadBinary(opts: { control: string; altControl: string | null
     throw new Error(`Failed to download agent binary: ${(lastErr as Error)?.message ?? lastErr}`);
 }
 
-/**
- * Promote this live agent to a permanent systemd service: drop the (versioned)
- * binary and cert at stable paths, point a stable symlink at it, write+enable a
- * unit that reconnects with the durable token in `--mode installed`, then exit so
- * the service takes over. Errors out if a unit already exists (per the
- * add-server flow design).
- */
-async function installSelf(opts: { control: string; altControl: string | null; certPem: string; agentToken: string }): Promise<void> {
-    if (process.platform !== "linux") {
-        throw new Error("Service install is only supported on Linux");
+/** Preflight install + data dirs: each must be writable and exec-capable, with an
+ *  actionable error so an appliance OS (read-only root / noexec mount) tells the
+ *  operator to choose pool paths in the setup wizard. */
+async function ensureInstallPathsUsable(paths: InstallPaths): Promise<void> {
+    for (const dir of [paths.dir, paths.dataDir]) {
+        const probe = await probeDir(dir);
+        if (!probe.writable || !probe.execCapable) {
+            const why = !probe.writable ? "not writable" : "mounted noexec";
+            throw new Error(
+                `Install path "${dir}" is ${why}. Choose install and data directories on `
+                + `writable, exec-capable storage (e.g. a storage pool like /mnt/pool/sc-agent).`,
+            );
+        }
     }
-    if (await Bun.file(UNIT_PATH).exists()) {
-        throw new Error("sc-agent service is already installed");
+}
+
+async function writeManifest(paths: InstallPaths, m: InstallManifest): Promise<void> {
+    await fs.writeFile(paths.manifest, JSON.stringify(m));
+}
+
+async function readManifest(paths: InstallPaths): Promise<InstallManifest | null> {
+    try {
+        return JSON.parse(await Bun.file(paths.manifest).text()) as InstallManifest;
+    } catch {
+        return null;
     }
+}
 
-    await fs.mkdir("/etc/sc-agent", { recursive: true });
-    const bin = versionedBin(AGENT_VERSION);
-    await fs.copyFile(process.execPath, bin);
-    await fs.chmod(bin, 0o755);
-    await pointSymlink(bin, INSTALL_BIN);
-    await fs.writeFile(INSTALL_CERT, opts.certPem, { mode: 0o600 });
+/** Whether an installed service already exists, by either persistence mechanism. */
+async function isInstalled(paths: InstallPaths): Promise<boolean> {
+    return (await Bun.file(UNIT_PATH).exists()) || (await readManifest(paths)) !== null;
+}
 
-    const alt = opts.altControl ? ` --alt-control "${opts.altControl}"` : "";
-    const execStart = `${INSTALL_BIN} --agent --control "${opts.control}"${alt} --token "${opts.agentToken}" --cert "${INSTALL_CERT}" --mode installed`;
+/** The command that launches the installed agent from its config file. The systemd
+ *  unit and the manual start command both use this; TMPDIR points at the exec-capable
+ *  scratch so Bun can extract its native addons even when /tmp is noexec. */
+function launchCommand(paths: InstallPaths): string {
+    return `TMPDIR=${paths.tmpDir} ${paths.bin} --agent --config ${paths.config}`;
+}
+
+/** Install via a systemd unit at UNIT_PATH. Restart=always gives crash recovery and
+ *  re-execs the symlink after a self-update. */
+async function installSystemd(paths: InstallPaths): Promise<void> {
     const unit = `[Unit]
 Description=Server Central Agent
 After=network-online.target
@@ -198,7 +292,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${execStart}
+Environment=TMPDIR=${paths.tmpDir}
+ExecStart=${paths.bin} --agent --config ${paths.config}
 Restart=always
 RestartSec=5
 
@@ -206,41 +301,112 @@ RestartSec=5
 WantedBy=multi-user.target
 `;
     await fs.writeFile(UNIT_PATH, unit);
-
     await run("systemctl", ["daemon-reload"]);
     await run("systemctl", ["enable", "--now", "sc-agent"]);
+}
 
-    console.log("Installed as systemd service; the installed agent will take over. Exiting live agent.");
-    // The installed service connects (mode installed) and takes priority; step
-    // aside shortly so the handoff completes. Delay so the success reply is sent.
+/**
+ * "Manual" install: lay down the files but don't fabricate a vendor-specific
+ * supervisor. Best-effort start the agent detached now so it reconnects without a
+ * reboot, and return the command for the operator to wire into their own init
+ * system (e.g. a TrueNAS POSTINIT Init/Shutdown script, or cron @reboot).
+ */
+function installManual(paths: InstallPaths): string {
+    const cmd = launchCommand(paths);
+    try {
+        // setsid + detach so it survives this (exiting) live agent; failure is fine —
+        // the operator can run the returned command themselves.
+        Bun.spawn(["/bin/sh", "-c", `setsid ${cmd} >/dev/null 2>&1 &`], { stdout: "ignore", stderr: "ignore" });
+    } catch { /* operator runs startCommand manually */ }
+    return cmd;
+}
+
+/**
+ * Promote this live agent to a permanent service: drop the (versioned) binary under
+ * the install dir, write the cert + launch config under the data dir, point the
+ * stable symlink at the binary, then persist it — a systemd unit (mechanism
+ * "systemd") or a returned start command the operator wires up (mechanism "manual")
+ * — and exit so the installed agent takes over. Errors out if already installed.
+ */
+async function installSelf(opts: {
+    control: string; altControl: string | null; certPem: string; agentToken: string;
+    installDir: string | null; dataDir: string | null; mechanism: InstallMechanism;
+}): Promise<{ startCommand: string | null }> {
+    if (process.platform !== "linux") {
+        throw new Error("Service install is only supported on Linux");
+    }
+    const paths = resolveInstallPaths(opts.installDir, opts.dataDir);
+    if (await isInstalled(paths)) {
+        throw new Error("sc-agent service is already installed");
+    }
+
+    await ensureInstallPathsUsable(paths);
+    await fs.mkdir(paths.tmpDir, { recursive: true });
+
+    const bin = paths.versionedBin(AGENT_VERSION);
+    await fs.copyFile(process.execPath, bin);
+    await fs.chmod(bin, 0o755);
+    await pointSymlink(bin, paths.bin);
+    await fs.writeFile(paths.cert, opts.certPem, { mode: 0o600 });
+
+    const config: AgentConfig = {
+        control: opts.control,
+        altControl: opts.altControl,
+        token: opts.agentToken,
+        cert: paths.cert,
+        mode: "installed",
+        installDir: paths.dir,
+        dataDir: paths.dataDir,
+    };
+    await fs.writeFile(paths.config, JSON.stringify(config, null, 2));
+
+    let startCommand: string | null = null;
+    if (opts.mechanism === "systemd") {
+        await installSystemd(paths);
+        console.log("Installed as a systemd service; the installed agent will take over. Exiting live agent.");
+    } else {
+        startCommand = installManual(paths);
+        console.log("Installed (manual); started detached and returned a start command. Exiting live agent.");
+    }
+    await writeManifest(paths, { mechanism: opts.mechanism });
+
+    // The installed agent connects (mode installed) and takes priority; step aside
+    // shortly so the handoff completes. Delay so the success reply is sent first.
     setTimeout(() => process.exit(0), 1500);
+    return { startCommand };
 }
 
 /**
  * Update this installed agent to `version`: download the new binary, point the
- * stable symlink at it, then exit. The systemd unit's `Restart=always` re-execs
- * the symlink — now resolving to the new binary — so we come back up updated. The
- * previous versioned binary is kept for rollback. Never touches the unit or cert.
+ * stable symlink at it, then exit. The supervisor (systemd Restart=always, or the
+ * operator's init entry) re-execs the symlink — now the new binary. The previous
+ * versioned binary is kept for rollback. Never touches the service, cert, or config.
  */
-async function updateSelf(opts: { control: string; altControl: string | null; certPem: string; token: string; version: string }): Promise<void> {
+async function updateSelf(opts: {
+    control: string; altControl: string | null; certPem: string; token: string; version: string;
+    installDir: string | null; dataDir: string | null;
+}): Promise<void> {
     if (process.platform !== "linux") {
         throw new Error("Self-update is only supported on Linux");
     }
-    if (!(await Bun.file(UNIT_PATH).exists())) {
+    // The installed service runs with --config, which carries the install/data dirs,
+    // so this resolves to wherever installSelf put things.
+    const paths = resolveInstallPaths(opts.installDir, opts.dataDir);
+    if (!(await isInstalled(paths))) {
         throw new Error("sc-agent is not installed as a service");
     }
     if (opts.version === AGENT_VERSION) {
         throw new Error(`Already running version ${AGENT_VERSION}`);
     }
 
-    const bin = versionedBin(opts.version);
+    const bin = paths.versionedBin(opts.version);
     await downloadBinary({ control: opts.control, altControl: opts.altControl, certPem: opts.certPem, token: opts.token, dest: bin });
-    await pointSymlink(bin, INSTALL_BIN);
-    await pruneOldBinaries(bin);
+    await pointSymlink(bin, paths.bin);
+    await pruneOldBinaries(paths, bin);
 
     console.log(`Updated to ${opts.version}; restarting into the new binary.`);
-    // Exit so systemd (Restart=always) re-execs the symlink → the new version.
-    // Delay so the success reply is sent before we drop the connection.
+    // Exit so the supervisor re-execs the symlink → the new version. Delay so the
+    // success reply is sent before we drop the connection.
     setTimeout(() => process.exit(0), 1500);
 }
 
@@ -248,11 +414,12 @@ async function connect(url: string, id: Identity): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(url, {
             // @ts-expect-error Bun-specific TLS option
-            // ca pins the exact control-plane cert (the trust anchor). Bun enforces
-            // hostname↔SAN verification at the TLS layer and ignores
-            // checkServerIdentity, so we send a fixed servername that matches the
-            // cert SAN — making validation succeed whether we connect by IP or domain.
-            tls: { ca: id.certPem, servername: CONTROL_PLANE_TLS_SERVERNAME },
+            // ca is the control-plane CA cert — our trust anchor. The server presents
+            // a CA-signed leaf whose SAN covers the address we connect to (LAN IP, WAN
+            // IP, or domain), so Bun's hostname↔SAN check passes by IP or by domain.
+            // The leaf can be rotated/expanded server-side without touching agents,
+            // since they only ever trust this CA.
+            tls: { ca: id.certPem },
         });
 
         ws.onopen = () => {
@@ -280,7 +447,7 @@ async function connect(url: string, id: Identity): Promise<WebSocket> {
 async function runWithUrl(
     url: string,
     id: Identity,
-    onInstallService: (agentToken: string) => Promise<void>,
+    onInstallService: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism) => Promise<{ startCommand: string | null }>,
     onUpdateService: (version: string) => Promise<void>,
 ): Promise<void> {
     const ws = await connect(url, id);
@@ -303,7 +470,7 @@ async function runWithUrl(
 
 /** Run as a host agent (`server --agent …`), connecting to a control plane. */
 export async function runAgentCli(argv: string[]): Promise<void> {
-    const { control, altControl, token, cert, mode } = parseArgs(argv);
+    const { control, altControl, token, cert, mode, installDir, dataDir } = await parseArgs(argv);
     const certPem = await Bun.file(cert).text();
     const info = await collectSystemInfo();
     const machineId = await resolveMachineId();
@@ -312,8 +479,10 @@ export async function runAgentCli(argv: string[]): Promise<void> {
 
     // The control URLs the installed service should reconnect with (and downloads
     // the updated binary from) are the same ones this live agent was given.
-    const onInstallService = (agentToken: string) => installSelf({ control, altControl, certPem, agentToken });
-    const onUpdateService = (version: string) => updateSelf({ control, altControl, certPem, token, version });
+    const onInstallService = (agentToken: string, dir: string | null, data: string | null, mechanism: InstallMechanism) =>
+        installSelf({ control, altControl, certPem, agentToken, installDir: dir, dataDir: data, mechanism });
+    // installDir/dataDir come from the installed agent's config file (null for live).
+    const onUpdateService = (version: string) => updateSelf({ control, altControl, certPem, token, version, installDir, dataDir });
 
     console.log(`sc-agent starting (mode ${mode}, machine ${machineId}), connecting to ${control}`);
 

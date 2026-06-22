@@ -1,6 +1,7 @@
 node_modules
 dist
 build
+.toolchain
 .env
 .env.local
 bun.lock

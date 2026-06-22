@@ -5,6 +5,8 @@ import type {
     DirEntry,
     DockerState,
     FileContent,
+    InstallMechanism,
+    InstallProbeResult,
     MetricsSnapshot,
     ProcessInfo,
     ServerEntry,
@@ -55,6 +57,10 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
         return this.fleet.entries();
     }
 
+    async deleteServer(data: { serverId: string }): Promise<void> {
+        this.fleet.remove(data.serverId);
+    }
+
     // ---- Metrics ----------------------------------------------------------------
 
     async getMetricsHistory(data: { serverId: string }): Promise<MetricsSnapshot[]> {
@@ -103,15 +109,19 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     // ---- Node enrollment ---------------------------------------------------------------
 
-    async generateNodeInstallCommand(data: { platform: "linux" | "mac" | "windows" }): Promise<{ command: string; expiresAt: number }> {
+    async generateNodeInstallCommand(data: { platform: "linux" | "mac" | "windows"; useExternal?: boolean }): Promise<{ command: string; expiresAt: number; externalHost: string | null }> {
         if (!this.nodeServer) {
             throw new Error("Node server not initialized");
         }
         const config = await readConfig();
-        return this.nodeServer.generateInstallCommand(data.platform, config.domain ?? null);
+        return this.nodeServer.generateInstallCommand(data.platform, config.domain ?? null, data.useExternal ?? false);
     }
 
-    async installNodeService(data: { serverId: string }): Promise<void> {
+    async probeInstallPath(data: { serverId: string; path: string }): Promise<InstallProbeResult> {
+        return this.fleet.get(data.serverId).probeInstallPath(data.path);
+    }
+
+    async installNodeService(data: { serverId: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism }): Promise<{ startCommand: string | null }> {
         if (!this.nodeServer) {
             throw new Error("Node server not initialized");
         }
@@ -119,16 +129,19 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
         if (agent.status().state !== "online") {
             throw new Error("Agent is not connected");
         }
-        if (agent.mode === "installed") {
-            throw new Error("Agent is already installed as a service");
+        if (agent.mode !== "live") {
+            throw new Error(agent.mode === "embedded"
+                ? "The control plane's own host can't be installed as a service"
+                : "Agent is already installed as a service");
         }
-        if (!agent.installService) {
-            throw new Error("This agent cannot be installed as a service");
-        }
+        const installDir = data.installDir?.trim() || null;
+        const dataDir = data.dataDir?.trim() || null;
 
-        // Durable token keyed by machine id (the fleet's serverId).
+        // Durable token keyed by machine id (the fleet's serverId). The agent
+        // validates the chosen paths (writable + exec) before writing anything.
         const agentToken = await this.nodeServer.mintAgentToken(data.serverId);
-        await agent.installService(agentToken);
+        const startCommand = await agent.installService(agentToken, installDir, dataDir, data.mechanism);
+        return { startCommand };
     }
 
     async updateNodeService(data: { serverId: string }): Promise<void> {
@@ -154,6 +167,9 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     async setDomain(data: { domain: string | null }): Promise<void> {
         await persistSetDomain(data.domain);
+        // Re-issue the leaf so it carries the new domain in its SAN; agents trust the
+        // CA, so this takes effect without re-enrolling anything.
+        await this.nodeServer?.refreshTls();
     }
 
     // ---- Processes ---------------------------------------------------------------------

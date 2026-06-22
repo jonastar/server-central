@@ -47,7 +47,7 @@ beforeAll(async () => {
     // Construct Fleet without init() so the embedded agent doesn't start;
     // we only want remote agents registered via the NodeServer for this test.
     fleet = new Fleet(onMetrics);
-    server = new NodeServer(fleet, tls, "127.0.0.1", null, onMetrics, 0);
+    server = new NodeServer(fleet, tls, "127.0.0.1", null, onMetrics, null, 0);
     server.start();
 });
 
@@ -61,7 +61,7 @@ test(
     "real agent process connects and appears in the fleet as online",
     async () => {
         const { token } = server.mintToken();
-        const agent = spawnTestAgent({ control: control(), token, certPath: tls.certPath });
+        const agent = spawnTestAgent({ control: control(), token, certPath: tls.caCertPath });
         try {
             const entry = await poll(() => onlineRemoteAgent(), {
                 label: "real agent online in fleet",
@@ -80,13 +80,13 @@ test(
 test(
     "real agent connects via a hostname, not just an IP",
     async () => {
-        // Regression: Bun enforces hostname↔SAN verification at the TLS layer and
-        // ignores checkServerIdentity, so connecting by hostname (a domain in
-        // production) used to fail the handshake against the old CN-only cert.
-        // The cert now carries a SAN and the agent sends a fixed servername.
+        // Regression: Bun enforces hostname↔SAN verification at the TLS layer, so
+        // connecting by hostname (a domain in production) fails unless the served
+        // leaf carries that host in its SAN. The agent trusts the CA; the leaf's
+        // SAN includes localhost, so a by-name connect validates.
         const { token } = server.mintToken();
         const hostControl = `wss://localhost:${server.port}/node`;
-        const agent = spawnTestAgent({ control: hostControl, token, certPath: tls.certPath });
+        const agent = spawnTestAgent({ control: hostControl, token, certPath: tls.caCertPath });
         try {
             const entry = await poll(() => onlineRemoteAgent(), {
                 label: "real agent online via hostname",
@@ -103,7 +103,7 @@ test(
 );
 
 test("rejects an agent presenting an invalid token", async () => {
-    const result = await attemptIdentify({ port: server.port, certPem: tls.certPem, token: "not-a-real-token" });
+    const result = await attemptIdentify({ port: server.port, certPem: tls.caCertPem, token: "not-a-real-token" });
     expect(result.acknowledged).toBe(false);
     expect(result.closeCode).toBe(1008);
 });
@@ -112,15 +112,44 @@ test("accepts an installed agent using a durable (non-expiring) token", async ()
     // Installed agents reconnect indefinitely, so they authenticate with a
     // durable token issued at install time rather than an enrollment token.
     const agentToken = await server.mintAgentToken("durable-machine");
-    const result = await attemptIdentify({ port: server.port, certPem: tls.certPem, token: agentToken });
+    const result = await attemptIdentify({ port: server.port, certPem: tls.caCertPem, token: agentToken });
     expect(result.acknowledged).toBe(true);
 });
+
+test(
+    "probeInstallPath reports a real directory as usable and an uncreatable one as not",
+    async () => {
+        const { token } = server.mintToken();
+        const agent = spawnTestAgent({ control: control(), token, certPath: tls.caCertPath });
+        try {
+            const entry = await poll(() => onlineRemoteAgent(), {
+                label: "real agent online in fleet",
+                timeoutMs: 15_000,
+            }).catch((err) => {
+                throw new Error(`${err}\n--- agent output ---\n${agent.output()}`);
+            });
+            const host = fleet.get(entry.id);
+
+            // tmpDir is writable + exec-capable (the test harness runs from it).
+            const ok = await host.probeInstallPath(path.join(tmpDir, "probe-target"));
+            expect(ok.writable).toBe(true);
+            expect(ok.execCapable).toBe(true);
+
+            // /proc is read-only: a child dir can't be created → not writable.
+            const bad = await host.probeInstallPath("/proc/sc-agent-probe");
+            expect(bad.writable).toBe(false);
+        } finally {
+            await agent.stop();
+        }
+    },
+    25_000,
+);
 
 test(
     "metrics flow from the real agent to the server after connect",
     async () => {
         const { token } = server.mintToken();
-        const agent = spawnTestAgent({ control: control(), token, certPath: tls.certPath });
+        const agent = spawnTestAgent({ control: control(), token, certPath: tls.caCertPath });
         try {
             const entry = await poll(() => onlineRemoteAgent(), {
                 label: "real agent online in fleet",

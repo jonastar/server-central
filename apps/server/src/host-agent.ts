@@ -1,4 +1,4 @@
-import type { AgentMode, ControlMessage, DirEntry, FileContent, MetricsSnapshot, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
+import type { AgentMode, ControlMessage, DirEntry, FileContent, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -196,14 +196,28 @@ export class HostAgent {
     }
 
     /**
-     * Promote a live agent to a permanent systemd service, using a durable token
-     * to reconnect. Only meaningful for remote agents; the embedded agent (the
+     * Probe a candidate install/data directory on the host (writable + exec-capable),
+     * backing the setup wizard's live path validation.
+     */
+    async probeInstallPath(targetPath: string): Promise<InstallProbeResult> {
+        const resp = await this.request<Extract<NodeMessage, { type: "probeInstallPathResponse" }>>({
+            type: "probeInstallPathRequest", requestId: crypto.randomUUID(), path: targetPath,
+        });
+        return resp.result;
+    }
+
+    /**
+     * Promote a live agent to a permanent service, using a durable token to
+     * reconnect. mechanism "systemd" installs a unit; "manual" lays down files and
+     * returns a startCommand for the operator to wire into their own init system
+     * (null for systemd). Only meaningful for remote agents; the embedded agent (the
      * control plane's own host) has no install handler and will reject this.
      */
-    async installService(agentToken: string): Promise<void> {
-        await this.request<Extract<NodeMessage, { type: "installServiceResponse" }>>({
-            type: "installService", requestId: crypto.randomUUID(), agentToken,
+    async installService(agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism): Promise<string | null> {
+        const resp = await this.request<Extract<NodeMessage, { type: "installServiceResponse" }>>({
+            type: "installService", requestId: crypto.randomUUID(), agentToken, installDir, dataDir, mechanism,
         });
+        return resp.startCommand;
     }
 
     /**

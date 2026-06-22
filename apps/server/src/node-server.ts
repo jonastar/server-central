@@ -3,10 +3,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Server } from "bun";
 import type { MetricsSnapshot, NodeMessage } from "@central/shared";
-import type { TlsBundle } from "./tls";
+import { ensureTls, localIps, type TlsBundle } from "./tls";
 import { HostAgent } from "./host-agent";
 import type { Fleet } from "./fleet";
-import { readAgentTokens, writeAgentTokens } from "./config";
+import { readAgentTokens, readConfig, writeAgentTokens } from "./config";
 
 export const NODE_SERVER_PORT = 4142;
 
@@ -37,10 +37,11 @@ export class NodeServer {
 
     constructor(
         private readonly fleet: Fleet,
-        private readonly tls: TlsBundle,
+        private tls: TlsBundle,
         private readonly lanIp: string,
         private readonly wanIp: string | null,
         private readonly onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void,
+        private readonly tlsDir: string | null = null,
         private readonly listenPort: number = NODE_SERVER_PORT,
     ) { }
 
@@ -75,35 +76,75 @@ export class NodeServer {
         return token;
     }
 
-    generateInstallCommand(platform: "linux" | "mac" | "windows", domain: string | null): { command: string; expiresAt: number } {
+    /** The control plane's external address (configured domain, else discovered
+     *  WAN IP) — used for off-LAN reconnects and, when requested, as the install
+     *  command's primary host. Null when neither is known. */
+    externalHost(domain: string | null): string | null {
+        return domain ?? this.wanIp;
+    }
+
+    /** Control-plane URLs an agent connects/downloads with. By default the LAN
+     *  address is primary with the external (domain/WAN) host as an off-LAN alt;
+     *  when useExternal is set the two swap, so a machine off the LAN reaches the
+     *  control plane directly. */
+    private endpoints(domain: string | null, useExternal = false): { baseUrl: string; controlWs: string; altControlWs: string | null } {
+        const externalHost = this.externalHost(domain);
+        const primaryHost = useExternal && externalHost ? externalHost : this.lanIp;
+        const altHost = useExternal && externalHost ? this.lanIp : externalHost;
+        return {
+            baseUrl: `https://${primaryHost}:${NODE_SERVER_PORT}`,
+            controlWs: `wss://${primaryHost}:${NODE_SERVER_PORT}/node`,
+            altControlWs: altHost && altHost !== primaryHost ? `wss://${altHost}:${NODE_SERVER_PORT}/node` : null,
+        };
+    }
+
+    generateInstallCommand(platform: "linux" | "mac" | "windows", domain: string | null, useExternal = false): { command: string; expiresAt: number; externalHost: string | null } {
         const { token, expiresAt } = this.mintToken();
-
-        const externalHost = domain ?? this.wanIp;
-
-        const baseUrl = `https://${this.lanIp}:${NODE_SERVER_PORT}`;
-        const controlWs = `wss://${this.lanIp}:${NODE_SERVER_PORT}/node`;
-        const altControlWs = externalHost ? `wss://${externalHost}:${NODE_SERVER_PORT}/node` : null;
-        const altFlag = altControlWs ? ` --alt-control "${altControlWs}"` : "";
-
+        const { baseUrl, controlWs, altControlWs } = this.endpoints(domain, useExternal);
         const pinned = `-k --pinnedpubkey "${this.tls.pin}"`;
 
         let command: string;
         if (platform === "windows") {
+            const altFlag = altControlWs ? ` --alt-control "${altControlWs}"` : "";
             command =
                 `curl.exe ${pinned} -fsSL "${baseUrl}/node-bootstrap/${token}/windows" -o "$env:TEMP\\sc-agent.exe"` +
                 `; curl.exe ${pinned} -fsSL "${baseUrl}/node-cert" -o "$env:TEMP\\sc-agent.crt"` +
                 `; & "$env:TEMP\\sc-agent.exe" --agent --control "${controlWs}"${altFlag} --token "${token}" --cert "$env:TEMP\\sc-agent.crt"`;
         } else {
-            // Run the agent with sudo: it manages the host and, when promoted,
-            // installs itself as a (root) systemd service — both need privileges.
-            command =
-                `curl ${pinned} -fsSL "${baseUrl}/node-bootstrap/${token}/${platform}" -o /tmp/sc-agent` +
-                ` && curl ${pinned} -fsSL "${baseUrl}/node-cert" -o /tmp/sc-agent.crt` +
-                ` && chmod +x /tmp/sc-agent` +
-                ` && sudo /tmp/sc-agent --agent --control "${controlWs}"${altFlag} --token "${token}" --cert /tmp/sc-agent.crt`;
+            // Unix: pipe a (pinned) bootstrap script into a root shell. The script
+            // downloads the binary + embedded cert into the current dir, runs the
+            // live agent in the foreground, and cleans up on exit. Run as root: the
+            // agent manages the host and, when promoted from the web UI, installs
+            // itself as a service. See bootstrap.sh. The external flag is carried
+            // in the URL so the separately-fetched bootstrap renders the same
+            // (external-primary) endpoints the download URL used.
+            const query = useExternal ? "?external=1" : "";
+            command = `curl ${pinned} -fsSL "${baseUrl}/node-install/${token}${query}" | sudo bash`;
         }
 
-        return { command, expiresAt };
+        return { command, expiresAt, externalHost: this.externalHost(domain) };
+    }
+
+    /** Render the unix bootstrap script for `token` (token/cert/pin/URLs filled in). */
+    async renderBootstrap(token: string, domain: string | null, useExternal = false): Promise<string> {
+        const { baseUrl, controlWs, altControlWs } = this.endpoints(domain, useExternal);
+        const altFlag = altControlWs ? `--alt-control ${altControlWs}` : "";
+        const tpl = await NodeServer.bootstrapScript();
+        // Function replacements so `$`/`$&` in the substituted values aren't treated
+        // as replacement patterns.
+        return tpl
+            .replaceAll("__TOKEN__", () => token)
+            .replaceAll("__PIN__", () => this.tls.pin)
+            .replaceAll("__BASE_URL__", () => baseUrl)
+            .replaceAll("__CONTROL_WS__", () => controlWs)
+            .replaceAll("__ALT_FLAG__", () => altFlag)
+            .replaceAll("__CERT__", () => this.tls.caCertPem.trim());
+    }
+
+    /** Read + cache the bootstrap.sh template (from source, like DIST_DIR). */
+    private static scriptPromise: Promise<string> | null = null;
+    private static bootstrapScript(): Promise<string> {
+        return (NodeServer.scriptPromise ??= Bun.file(path.resolve(import.meta.dir, "agent/bootstrap.sh")).text());
     }
 
     /** Serve the compiled agent binary for `platform` from dist/. */
@@ -139,6 +180,47 @@ export class NodeServer {
     }
 
     start(): void {
+        this.listen();
+        this.tokenSweep = setInterval(() => {
+            const now = Date.now();
+            for (const [token, entry] of this.tokens) {
+                if (now > entry.expiresAt) {
+                    this.tokens.delete(token);
+                }
+            }
+        }, 5 * 60 * 1000);
+        // Don't keep the process alive on this timer alone (matters for tests).
+        this.tokenSweep.unref?.();
+    }
+
+    /**
+     * Re-issue the leaf for the current domain/WAN/LAN and, if it changed, rebind the
+     * listener so the new cert is served. Needs tlsDir (set in production). Agents
+     * trust the CA, so a leaf swap is transparent — they just reconnect. Returns
+     * whether the cert changed. Bun's server.reload() does NOT hot-swap TLS, so we
+     * stop and re-listen on the same port.
+     */
+    async refreshTls(): Promise<boolean> {
+        if (!this.tlsDir) {
+            return false;
+        }
+        const cfg = await readConfig();
+        const bundle = await ensureTls(this.tlsDir, {
+            domain: cfg.domain ?? null,
+            wanIp: this.wanIp,
+            lanIps: localIps(),
+        });
+        if (bundle.certPem === this.tls.certPem) {
+            return false;
+        }
+        this.tls = bundle;
+        this.server?.stop(true);
+        this.listen();
+        console.log("Node server TLS leaf re-issued and listener rebound");
+        return true;
+    }
+
+    private listen(): void {
         const self = this;
 
         this.server = Bun.serve<NodeWsData>({
@@ -150,9 +232,24 @@ export class NodeServer {
             async fetch(req, serverCtx) {
                 const url = new URL(req.url);
 
+                // The CA cert is the agents' trust anchor (not the served leaf).
                 if (req.method === "GET" && url.pathname === "/node-cert") {
-                    return new Response(self.tls.certPem, {
+                    return new Response(self.tls.caCertPem, {
                         headers: { "Content-Type": "application/x-pem-file" },
+                    });
+                }
+
+                // Unix install: the (pinned) bootstrap script, run via `… | sudo bash`.
+                const installMatch = url.pathname.match(/^\/node-install\/([^/]+)$/);
+                if (req.method === "GET" && installMatch) {
+                    const [, token] = installMatch;
+                    if (!self.validateToken(token)) {
+                        return new Response("Invalid or expired token", { status: 403 });
+                    }
+                    const cfg = await readConfig();
+                    const useExternal = url.searchParams.get("external") === "1";
+                    return new Response(await self.renderBootstrap(token, cfg.domain ?? null, useExternal), {
+                        headers: { "Content-Type": "text/x-shellscript" },
                     });
                 }
 
@@ -252,17 +349,6 @@ export class NodeServer {
         });
 
         console.log(`Node server (HTTPS/WSS) listening on :${this.port}`);
-
-        this.tokenSweep = setInterval(() => {
-            const now = Date.now();
-            for (const [token, entry] of self.tokens) {
-                if (now > entry.expiresAt) {
-                    self.tokens.delete(token);
-                }
-            }
-        }, 5 * 60 * 1000);
-        // Don't keep the process alive on this timer alone (matters for tests).
-        this.tokenSweep.unref?.();
     }
 
     /** Stop listening and clear timers. Primarily for tests. */
@@ -292,8 +378,9 @@ export async function startNodeServer(
     tls: TlsBundle,
     wanIp: string | null,
     onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void,
+    tlsDir: string | null = null,
 ): Promise<NodeServer> {
-    const server = new NodeServer(fleet, tls, primaryLanIp(), wanIp, onMetrics);
+    const server = new NodeServer(fleet, tls, primaryLanIp(), wanIp, onMetrics, tlsDir);
     await server.init();
     server.start();
     return server;

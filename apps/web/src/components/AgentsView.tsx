@@ -3,12 +3,14 @@ import type { ServerEntry } from "@central/shared";
 import { api } from "../api";
 import { cx, fmtDateTime, fmtUptime, isAgentOutdated } from "../utils";
 import { StatusDot, EmptyState, ErrorBanner } from "./ui";
+import { SetupWizard } from "./SetupWizard";
 
 function modeBadge(mode: string | undefined) {
     if (!mode) {
         return <span className="dim">—</span>;
     }
-    return <span className={cx("badge", mode === "installed" ? "badge-ok" : "badge-warn")}>{mode}</span>;
+    const cls = mode === "live" ? "badge-warn" : "badge-ok";
+    return <span className={cx("badge", cls)}>{mode}</span>;
 }
 
 export function AgentsView({ servers, onOpenServer }: {
@@ -17,21 +19,7 @@ export function AgentsView({ servers, onOpenServer }: {
 }) {
     const [busyId, setBusyId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-
-    async function install(serverId: string) {
-        if (!confirm("Install this agent as a permanent systemd service? It will take over from the live connection.")) {
-            return;
-        }
-        setBusyId(serverId);
-        setError(null);
-        try {
-            await api("installNodeService", { serverId });
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        } finally {
-            setBusyId(null);
-        }
-    }
+    const [installEntry, setInstallEntry] = useState<ServerEntry | null>(null);
 
     async function update(serverId: string) {
         if (!confirm("Update this agent to the latest version? It will download the new binary and restart.")) {
@@ -41,6 +29,21 @@ export function AgentsView({ servers, onOpenServer }: {
         setError(null);
         try {
             await api("updateNodeService", { serverId });
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusyId(null);
+        }
+    }
+
+    async function remove(entry: ServerEntry) {
+        if (!confirm(`Forget "${entry.name}"? It will reappear if the agent reconnects.`)) {
+            return;
+        }
+        setBusyId(entry.id);
+        setError(null);
+        try {
+            await api("deleteServer", { serverId: entry.id });
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -110,12 +113,11 @@ export function AgentsView({ servers, onOpenServer }: {
                                             <td className="row-actions-always" onClick={(e) => e.stopPropagation()}>
                                                 {online && status.mode === "live" && (
                                                     <button
-                                                        className="btn"
-                                                        disabled={busyId === entry.id}
-                                                        onClick={() => void install(entry.id)}
-                                                        title="Install as a permanent systemd service"
+                                                        className="btn btn-primary"
+                                                        onClick={() => setInstallEntry(entry)}
+                                                        title="Promote this live agent to a permanent service"
                                                     >
-                                                        {busyId === entry.id ? "Installing…" : "Install as service"}
+                                                        Complete setup
                                                     </button>
                                                 )}
                                                 {outdated && (
@@ -126,6 +128,16 @@ export function AgentsView({ servers, onOpenServer }: {
                                                         title="Download the latest binary and restart the agent"
                                                     >
                                                         {busyId === entry.id ? "Updating…" : "Update"}
+                                                    </button>
+                                                )}
+                                                {!online && (
+                                                    <button
+                                                        className="btn"
+                                                        disabled={busyId === entry.id}
+                                                        onClick={() => void remove(entry)}
+                                                        title="Forget this offline agent"
+                                                    >
+                                                        Delete
                                                     </button>
                                                 )}
                                             </td>
@@ -150,6 +162,10 @@ export function AgentsView({ servers, onOpenServer }: {
                         </tbody>
                     </table>
                 </section>
+            )}
+
+            {installEntry && (
+                <SetupWizard entry={installEntry} onClose={() => setInstallEntry(null)} />
             )}
         </div>
     );

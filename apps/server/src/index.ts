@@ -2,11 +2,11 @@ import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage } from "@central/shared";
 import type { ShellSession } from "./host-agent";
-import { CONFIG_DIR } from "./config";
+import { CONFIG_DIR, readConfig } from "./config";
 import { AuthStore, type AuthContext } from "./auth";
 import { Fleet } from "./fleet";
 import { CentralHandler } from "./handler";
-import { ensureTls } from "./tls";
+import { ensureTls, localIps } from "./tls";
 import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
 import { runAgentCli } from "./agent/agent-cli";
@@ -50,17 +50,23 @@ await fleet.init();
 const auth = new AuthStore();
 await auth.init();
 
-const tls = await ensureTls(path.join(CONFIG_DIR, "tls"));
 const wanIp = await discoverWanIp();
 if (wanIp) {
     console.log(`Discovered WAN IP: ${wanIp}`);
 }
+
+// Leaf cert covers the addresses agents actually connect to (LAN, WAN, domain);
+// the CA underneath it is the agents' stable trust anchor.
+const tlsDir = path.join(CONFIG_DIR, "tls");
+const startupConfig = await readConfig();
+const tls = await ensureTls(tlsDir, { domain: startupConfig.domain ?? null, wanIp, lanIps: localIps() });
 
 const nodeServer = await startNodeServer(
     fleet,
     tls,
     wanIp,
     (serverId, snapshot) => broadcast({ kind: "metrics", data: { serverId, snapshot } }),
+    tlsDir,
 );
 
 const handler = new CentralHandler(fleet, auth, nodeServer);

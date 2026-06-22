@@ -17,7 +17,7 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
 
     return (
         <aside className="sidebar">
-            {addingNode && <AddNodeModal onClose={() => setAddingNode(false)} />}
+            {addingNode && <AddNodeModal servers={servers} onClose={() => setAddingNode(false)} />}
             <div className="sidebar-brand" onClick={() => onNavigate({ view: "dashboard" })}>
                 <span className="brand-mark">⬡</span> Server Central
             </div>

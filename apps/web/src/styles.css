@@ -484,6 +484,25 @@ tr:hover .row-actions { visibility: visible; }
 .editor-host { flex: 1; min-height: 0; }
 .editor-loading { padding: 20px; color: var(--muted); }
 
+.image-preview {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background:
+        repeating-conic-gradient(var(--panel-2) 0% 25%, transparent 0% 50%) 50% / 24px 24px;
+}
+
+.image-preview img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+}
+
 .editor-textarea {
     flex: 1;
     width: 100%;
@@ -530,6 +549,18 @@ tr:hover .row-actions { visibility: visible; }
     color: var(--err);
     border-radius: 6px;
     padding: 8px 12px;
+}
+
+.banner-ok {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: color-mix(in srgb, var(--ok) 9%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--border));
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
 }
 
 .empty-state {

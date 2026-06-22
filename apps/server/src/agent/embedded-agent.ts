@@ -9,9 +9,10 @@ import { HostAgent } from "../host-agent";
  * fed straight back into the HostAgent, so the same code path serves the local
  * host and remote nodes — no method forwarding, just a different transport.
  *
- * Keyed on the real machine id and marked `installed`, so a separate agent on the
+ * Keyed on the real machine id and marked `embedded`, so a separate agent on the
  * same physical machine collapses to one fleet entry rather than a distinct
- * "local" host. The embedded agent has no install handler and never disconnects.
+ * "local" host. The embedded agent has no install handler and never disconnects;
+ * `embedded` outranks live/installed so it always stays the active connection.
  */
 export async function createEmbeddedAgent(
     onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void,
@@ -24,7 +25,7 @@ export async function createEmbeddedAgent(
         os.hostname(),
         null,
         onMetrics,
-        "installed",
+        "embedded",
     );
 
     const transport: AgentTransport = { send: (nodeMsg) => host.receive(nodeMsg) };

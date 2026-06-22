@@ -1,3 +1,5 @@
+import pkg from "../package.json" with { type: "json" };
+
 export * from "./node-protocol";
 export * from "./metrics";
 
@@ -28,22 +30,24 @@ export type ServerConnState = "connecting" | "online" | "offline" | "error";
  * - `live`: an ephemeral connection started by pasting the install command.
  * - `installed`: a permanent agent (e.g. a systemd service). Takes priority
  *   over a `live` agent for the same machine.
+ * - `embedded`: the control plane's own in-process agent for the host it runs
+ *   on. Always connected, can't be installed, and outranks live/installed for
+ *   that machine.
  */
-export type AgentMode = "live" | "installed";
+export type AgentMode = "live" | "installed" | "embedded";
 
 /**
  * Version of the agent software (server + node ship together from this
  * monorepo, so a single constant covers both the embedded and remote agents).
+ * Sourced from the shared package's package.json so there's one place to bump it.
  */
-export const AGENT_VERSION = "0.1.0";
+export const AGENT_VERSION: string = pkg.version;
 
 /**
- * Fixed TLS server name the control-plane cert is issued for. The agent pins the
- * exact cert via `ca`, so the hostname is not the trust anchor — but Bun (unlike
- * Node) enforces hostname↔SAN verification at the TLS layer and ignores
- * `checkServerIdentity`. Using a constant name (present in the cert SAN, sent as
- * the client `servername`) makes verification succeed regardless of whether the
- * agent connects by IP or domain.
+ * Common Name (and a baseline SAN entry) of the control-plane leaf cert. Agents
+ * trust the CA that signs the leaf, and the leaf's SAN additionally carries the
+ * concrete addresses the agent connects to (LAN IP, WAN IP, domain), so Bun's
+ * hostname↔SAN verification passes whether the agent connects by IP or by domain.
  */
 export const CONTROL_PLANE_TLS_SERVERNAME = "control-plane";
 
@@ -60,6 +64,32 @@ export interface SystemInfo {
     capturedAt: number;
     /** Agent software version; absent for records written before versions existed. */
     agentVersion?: string;
+    /** Default install/data locations and whether they're usable as-is. When
+     *  `defaultsUsable` is false (e.g. a read-only OS root or noexec mount, as on
+     *  TrueNAS) the setup wizard requires custom paths on writable, exec storage. */
+    install?: AgentInstallInfo;
+}
+
+/** How an installed agent is supervised on its host. */
+export type InstallMechanism = "systemd" | "manual";
+
+export interface AgentInstallInfo {
+    /** Where the binary would install by default (e.g. /usr/local/bin). */
+    defaultInstallDir: string;
+    /** Where cert/config/state would live by default (e.g. /var/lib/sc-agent). */
+    defaultDataDir: string;
+    /** Both defaults are writable and exec-capable — a one-click install will work. */
+    defaultsUsable: boolean;
+}
+
+/** Result of probing a candidate install/data directory on an agent's host. */
+export interface InstallProbeResult {
+    /** The directory already exists. */
+    exists: boolean;
+    /** The directory is writable (created if missing during the probe). */
+    writable: boolean;
+    /** A binary can be executed from the directory (not a noexec mount). */
+    execCapable: boolean;
 }
 
 /** A connected-but-not-active agent for a machine (a duplicate/lower-priority connection). */
@@ -139,11 +169,16 @@ export interface DirEntry {
 
 export interface FileContent {
     path: string;
+    /** Text (utf8) or, for images, the base64-encoded bytes (see `encoding`). */
     content: string;
     sizeBytes: number;
     truncated: boolean;
-    /** True when the file looks binary; content will be empty. */
+    /** True when the file looks binary; content will be empty unless it's an image. */
     binary: boolean;
+    /** How `content` is encoded. Absent means plain utf8 text. */
+    encoding?: "base64";
+    /** MIME type for renderable files (currently images), e.g. "image/png". */
+    mimeType?: string;
 }
 
 // ---- Docker ------------------------------------------------------------------
@@ -223,6 +258,9 @@ export type CentralApiOperations = {
 
     // Servers
     getServers: { data: void; response: ServerEntry[] };
+    // Forget a server. Only offline agents can be removed (the embedded host and
+    // currently-connected agents are rejected).
+    deleteServer: { data: { serverId: string }; response: void };
 
     // Metrics
     getMetricsHistory: { data: { serverId: string }; response: MetricsSnapshot[] };
@@ -244,13 +282,28 @@ export type CentralApiOperations = {
     getProcesses: { data: { serverId: string }; response: ProcessInfo[] };
 
     // Node enrollment
+    // useExternal builds the command around the control plane's external host
+    // (configured domain, else discovered WAN IP) instead of the LAN IP, for
+    // enrolling a machine that isn't on the same network. externalHost in the
+    // response is that host (null when none is known) so the UI can offer the
+    // toggle only when it would work.
     generateNodeInstallCommand: {
-        data: { platform: "linux" | "mac" | "windows" };
-        response: { command: string; expiresAt: number };
+        data: { platform: "linux" | "mac" | "windows"; useExternal?: boolean };
+        response: { command: string; expiresAt: number; externalHost: string | null };
     };
 
-    // Promote a connected live agent to a permanent systemd service.
-    installNodeService: { data: { serverId: string }; response: void };
+    // Promote a connected live agent to a permanent service. installDir/dataDir are
+    // where to put the binary and the cert/config/state; null uses the agent defaults
+    // (/usr/local/bin, /var/lib/sc-agent). mechanism "systemd" installs a unit;
+    // "manual" lays down files and returns a startCommand for the user to wire into
+    // their own init system. startCommand is null for the systemd mechanism.
+    installNodeService: {
+        data: { serverId: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism };
+        response: { startCommand: string | null };
+    };
+
+    // Probe a candidate install/data directory on an agent's host (writable + exec).
+    probeInstallPath: { data: { serverId: string; path: string }; response: InstallProbeResult };
 
     // Update an installed agent to the control plane's current AGENT_VERSION.
     updateNodeService: { data: { serverId: string }; response: void };

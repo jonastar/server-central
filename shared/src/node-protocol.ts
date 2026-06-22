@@ -1,4 +1,4 @@
-import type { AgentMode, DirEntry, FileContent, MetricsSnapshot, SystemInfo } from "./index";
+import type { AgentMode, DirEntry, FileContent, InstallMechanism, InstallProbeResult, MetricsSnapshot, SystemInfo } from "./index";
 
 export interface NodeExecResult {
     stdout: string;
@@ -19,7 +19,8 @@ export type NodeMessage =
     | { type: "renameResponse"; requestId: string }
     | { type: "shellData"; sessionId: string; data: string }
     | { type: "shellExit"; sessionId: string; code: number | null }
-    | { type: "installServiceResponse"; requestId: string }
+    | { type: "probeInstallPathResponse"; requestId: string; result: InstallProbeResult }
+    | { type: "installServiceResponse"; requestId: string; startCommand: string | null }
     | { type: "updateServiceResponse"; requestId: string }
     | { type: "error"; requestId?: string; message: string };
 
@@ -37,9 +38,13 @@ export type ControlMessage =
     | { type: "shellInput"; sessionId: string; data: string }
     | { type: "shellResize"; sessionId: string; cols: number; rows: number }
     | { type: "closeShell"; sessionId: string }
-    // Ask a live agent to install itself as a permanent (systemd) service. The
-    // agentToken is a durable credential the installed service uses to reconnect.
-    | { type: "installService"; requestId: string; agentToken: string }
+    // Probe a candidate install/data dir (writable + exec-capable) for the setup wizard.
+    | { type: "probeInstallPathRequest"; requestId: string; path: string }
+    // Ask a live agent to install itself as a permanent service. The agentToken is a
+    // durable credential the installed service uses to reconnect. installDir (binary)
+    // and dataDir (cert/config/state) are null to use the agent defaults. mechanism
+    // "systemd" writes a unit; "manual" lays down files and replies with a startCommand.
+    | { type: "installService"; requestId: string; agentToken: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism }
     // Ask an installed agent to update itself to `version`: download that binary
     // from the control plane, repoint its symlink, and restart into it.
     | { type: "updateService"; requestId: string; version: string };

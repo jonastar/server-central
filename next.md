@@ -1,6 +1,58 @@
 # Next items to implement
 
+## Smaller items
+
+- "already installed" during agent install
+  - We should have a force option to overwrite config, certs, and binaries.
+  - This is to fix a potentially broken install
+
+## Big tasks pending design, do not automatically implement these unless prompted specifically
+
+### Docker revamped
+
+Docker is big, so i think we need to revamp it, basically embed some of the most used features of portainer into server-central
+
+#### Nested menus
+
+Turn it into a nested menu with several sub sections (maybe an overview?)
+
+- Stacks (detected from labels, compose stacks and such?)
+- Containers
+- Volumes
+  - File browser
+  - View what containers is attached
+- Images
+- Better log viewing
+  - Terminal escape codes
+  - Search feature
+  - And whatever else improvements we can make
+    - Maybe we should have a standard log-viewer component we can do reuse?
+    - keep fetching all logs for now, we will deal with pagination/streaming in the feature
+
+### Networking host menu
+
+View network adapters and ip addresses on hosts
+
+We should have remote IP detection of agents (similar to the control plane)
+
+Maybe we could group hosts by subnet as well? food for thought!
+
+### Systemd host menu
+
+System services etc, view logs of services and basic controls and viewing unit files etc?
+
+### Better process list?
+
+But at some point maybe it's better to just jump into htop in the terminal?
+
 # Already implemented, archive
+
+- [DONE] Smaller items batch (2026-06-21)
+  - Embedded agent now reports `mode: "embedded"` (distinct from live/installed) and outranks both in the fleet (`MODE_RANK.embedded = 3`); `installNodeService` rejects it with a clear message.
+  - Add Node dialog auto-detects the freshly-enrolled live agent (watches the `servers` list against a baseline captured on open) and shows a "Continue setup" banner that hands off to the `SetupWizard` inline — no need to visit the Agents view.
+  - Delete servers: `deleteServer` op + `Fleet.remove()` (offline-only; connected/embedded rejected). Agents view has a Delete action on offline rows.
+  - File browser previews images inline: agent base64-encodes recognized image types (≤16 MB) and `FileContent` carries `encoding`/`mimeType`; `FilesView` renders `<img>` instead of the binary placeholder.
+  - `AGENT_VERSION` is read from `shared/package.json` `version` instead of a hardcoded string.
 
 - [DONE] Slight node refactor — merge node into server, collapse the agent classes
   - `apps/node` is gone; the agent now lives in the server and runs via `sc-server --agent --control … --token … --cert …`. The same single binary is both the control plane (no args) and the host agent (`--agent`); `apps/server/src/index.ts` dispatches on `--agent` before booting the control plane.

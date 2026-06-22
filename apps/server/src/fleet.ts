@@ -4,7 +4,7 @@ import { createEmbeddedAgent } from "./agent/embedded-agent";
 import { type AgentRecord, readAgentState, writeAgentState } from "./config";
 
 /** Higher wins when two agents claim the same machine. */
-const MODE_RANK: Record<AgentMode, number> = { live: 1, installed: 2 };
+const MODE_RANK: Record<AgentMode, number> = { live: 1, installed: 2, embedded: 3 };
 
 /**
  * Registry of host agents. Agents are keyed by a stable machine id, so a node
@@ -117,6 +117,22 @@ export class Fleet {
         } else {
             // Promote a standby to active if the one that left was active.
             this.recordAgent(this.reconcile(list));
+        }
+        void this.persistState();
+        this.onServersChange(this.entries());
+    }
+
+    /**
+     * Forget a known server. Only offline agents can be removed — a live
+     * connection (including the embedded host) would just reappear, so callers
+     * must stop the agent first.
+     */
+    remove(serverId: string): void {
+        if (this.connections.has(serverId)) {
+            throw new Error("Cannot delete a connected server; stop the agent first");
+        }
+        if (!this.knownAgents.delete(serverId)) {
+            throw new Error(`Unknown server: ${serverId}`);
         }
         void this.persistState();
         this.onServersChange(this.entries());

@@ -7,10 +7,10 @@
     "dev:server": "bun run --filter @central/server dev",
     "dev:web": "bun run --filter @central/web dev",
     "build": "bun run --filter @central/web build",
-    "build:agent:linux": "bun build --compile --target=bun-linux-x64 apps/server/src/index.ts --outfile dist/sc-agent-linux",
-    "build:agent:mac": "bun build --compile --target=bun-darwin-x64 apps/server/src/index.ts --outfile dist/sc-agent-mac",
-    "build:agent:windows": "bun build --compile --target=bun-windows-x64 apps/server/src/index.ts --outfile dist/sc-agent-windows.exe",
-    "build:agent": "bun run build:agent:linux && bun run build:agent:mac && bun run build:agent:windows",
+    "build:agent:linux": "bash scripts/build-agent.sh linux",
+    "build:agent:mac": "bash scripts/build-agent.sh mac",
+    "build:agent:windows": "bash scripts/build-agent.sh windows",
+    "build:agent": "bash scripts/build-agent.sh",
     "typecheck": "bun run --filter @central/shared typecheck && bun run --filter @central/server typecheck && bun run --filter @central/web typecheck"
   }
 }
