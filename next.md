@@ -5,8 +5,23 @@
 - "already installed" during agent install
   - We should have a force option to overwrite config, certs, and binaries.
   - This is to fix a potentially broken install
+- Agents should maybe track the valid control url if there's multiple
+- View agent config in the agents section
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
+
+### Task system
+
+Some things could benefit from a task system, for example:
+
+- Agent updates could be a task
+- Start/Stop services of various kinds
+- Agent install?
+- Backups of various kinds (not implemented yet)
+
+The task system could have task scoped logs, time tracking, status updates etc
+
+Further down the road (not for v1) we could have long running tasks that might need things such as progress tracking for resuming and such, but yeah.
 
 ### Better process list?
 

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { DirEntry } from "@central/shared";
 import { api } from "../api";
-import { cx, fmtBytes, fmtDateTime } from "../utils";
+import { bytesToBase64, cx, fmtBytes, fmtDateTime } from "../utils";
 import { CodeEditor } from "./CodeEditor";
 import { ErrorBanner } from "./ui";
 
@@ -42,6 +42,8 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
     const [error, setError] = useState<string | null>(null);
     const [file, setFile] = useState<OpenFile | null>(null);
     const [saving, setSaving] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const setPath = useCallback((dir: string) => onNavigate({ path: dir, file: null }), [onNavigate]);
 
@@ -128,6 +130,22 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         onNavigate({ file: newPath });
     }
 
+    async function uploadFiles(files: FileList) {
+        setUploading(true);
+        setError(null);
+        try {
+            for (const f of Array.from(files)) {
+                const bytes = new Uint8Array(await f.arrayBuffer());
+                await api("uploadFile", { serverId, path: joinPath(path, f.name), contentBase64: bytesToBase64(bytes) });
+            }
+            void load(path);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setUploading(false);
+        }
+    }
+
     async function rename(entry: DirEntry) {
         const name = prompt(`Rename "${entry.name}" to:`, entry.name);
         if (!name || name === entry.name) {
@@ -138,6 +156,22 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         try {
             await api("renamePath", { serverId, from, to });
             if (file?.path === from) { setFile({ ...file, path: to }); onNavigate({ file: to }); }
+            void load(path);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        }
+    }
+
+    async function move(entry: DirEntry) {
+        const dest = prompt(`Move "${entry.name}" to directory:`, path);
+        if (!dest || dest === path) {
+            return;
+        }
+        const from = joinPath(path, entry.name);
+        const to = joinPath(dest, entry.name);
+        try {
+            await api("renamePath", { serverId, from, to });
+            if (file?.path === from) { onNavigate({ file: null }); }
             void load(path);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -180,7 +214,21 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
                 <span style={{ flex: 1 }} />
                 <button className="btn" onClick={newFile}>New file</button>
                 <button className="btn" onClick={mkdir}>New folder</button>
+                <button className="btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                    {uploading ? "Uploading…" : "Upload"}
+                </button>
                 <button className="btn" onClick={() => void load(path)}>Refresh</button>
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                        const files = e.target.files;
+                        if (files && files.length > 0) { void uploadFiles(files); }
+                        e.target.value = "";
+                    }}
+                />
             </header>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -212,6 +260,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
                                     <td className="dim mono">{entry.permissions}</td>
                                     <td className="row-actions" onClick={(e) => e.stopPropagation()}>
                                         <button className="btn-icon" title="Rename" onClick={() => void rename(entry)}>✎</button>
+                                        <button className="btn-icon" title="Move" onClick={() => void move(entry)}>↗</button>
                                         <button className="btn-icon" title="Delete" onClick={() => void remove(entry)}>🗑</button>
                                     </td>
                                 </tr>

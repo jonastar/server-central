@@ -126,6 +126,13 @@ interface Identity {
 const UNIT_PATH = "/etc/systemd/system/sc-agent.service";
 /** How many versioned binaries to keep (current + this many for rollback). */
 const KEEP_VERSIONS = 2;
+/** Per-URL deadline for a self-update binary download. Sized so trying every URL
+ *  (currently at most two: control + alt) still fits inside the control plane's
+ *  30s RPC timeout — a dead endpoint aborts and falls through to the next, and an
+ *  all-endpoints failure surfaces as a real error upstream rather than the RPC
+ *  silently timing out. The binary is large but transfers in seconds on any real
+ *  link, so this only bites unreachable hosts. */
+const DOWNLOAD_TIMEOUT_MS = 12_000;
 
 interface InstallManifest {
     mechanism: InstallMechanism;
@@ -218,28 +225,50 @@ async function pruneOldBinaries(paths: InstallPaths, keep: string): Promise<void
  * Download the agent binary for this platform from the control plane (pinned via
  * the control-plane cert, authenticated by the durable token) into `dest`.
  */
-async function downloadBinary(opts: { control: string; altControl: string | null; certPem: string; token: string; dest: string }): Promise<void> {
+export async function downloadBinary(opts: { control: string; altControl: string | null; certPem: string; token: string; dest: string }): Promise<void> {
     const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "mac" : "linux";
     const urls = [opts.control, ...(opts.altControl ? [opts.altControl] : [])]
         .map((ws) => ws.replace(/^wss:\/\//, "https://").replace(/\/node$/, "") + `/node-binary/${opts.token}/${platform}`);
 
+    console.log(`[update] downloading agent binary (platform ${platform}) to ${opts.dest}; ${urls.length} URL(s) to try`);
+
     let lastErr: unknown;
     for (const url of urls) {
+        // Download to a temp sibling and rename into place, so a failed/partial
+        // download never leaves a corrupt binary the symlink could point at.
+        const tmp = `${opts.dest}.download-${process.pid}`;
+        const startedAt = Date.now();
         try {
+            console.log(`[update] fetching ${url} (timeout ${DOWNLOAD_TIMEOUT_MS / 1000}s)`);
             // tls.ca is the control-plane CA cert — the leaf's SAN covers this host,
-            // so fetch validates by hostname (Bun-specific fetch option).
-            const res = await fetch(url, { tls: { ca: opts.certPem } });
+            // so fetch validates by hostname (Bun-specific fetch option). The signal
+            // bounds the attempt: the agent may have connected via the *alt* endpoint
+            // (the primary being unreachable from here), and without a deadline fetch
+            // black-holes on a dead host's TCP connect — never erroring, never falling
+            // through to the next URL. The timeout makes a stuck endpoint abort so we
+            // try the alt, and surfaces a real error upstream if every URL fails.
+            const res = await fetch(url, { tls: { ca: opts.certPem }, signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
             if (!res.ok) {
                 throw new Error(`HTTP ${res.status} ${(await res.text()).trim()}`);
             }
-            await Bun.write(opts.dest, res);
-            await fs.chmod(opts.dest, 0o755);
+            // Read the body fully via arrayBuffer() rather than streaming the Response
+            // straight into Bun.write: the latter can stall after the last chunk
+            // arrives (it doesn't finalize on EOF), so the download "completes" on the
+            // wire but the write hangs until the AbortSignal.timeout fires. Buffering
+            // is fine — the binary is tens of MB. curl on the install path avoids this
+            // because it terminates cleanly on Content-Length.
+            const bytes = await Bun.write(tmp, await res.arrayBuffer());
+            await fs.chmod(tmp, 0o755);
+            await fs.rename(tmp, opts.dest);
+            console.log(`[update] downloaded ${bytes} bytes from ${url} in ${Date.now() - startedAt}ms`);
             return;
         } catch (err) {
+            await fs.rm(tmp, { force: true }).catch(() => { });
             lastErr = err;
+            console.warn(`[update] download from ${url} failed after ${Date.now() - startedAt}ms: ${(err as Error)?.message ?? err}`);
         }
     }
-    throw new Error(`Failed to download agent binary: ${(lastErr as Error)?.message ?? lastErr}`);
+    throw new Error(`Failed to download agent binary from ${urls.join(", ")}: ${(lastErr as Error)?.message ?? lastErr}`);
 }
 
 /** Preflight install + data dirs: each must be writable and exec-capable, with an
@@ -386,12 +415,14 @@ async function updateSelf(opts: {
     control: string; altControl: string | null; certPem: string; token: string; version: string;
     installDir: string | null; dataDir: string | null;
 }): Promise<void> {
+    console.log(`[update] self-update requested: ${AGENT_VERSION} -> ${opts.version}`);
     if (process.platform !== "linux") {
         throw new Error("Self-update is only supported on Linux");
     }
     // The installed service runs with --config, which carries the install/data dirs,
     // so this resolves to wherever installSelf put things.
     const paths = resolveInstallPaths(opts.installDir, opts.dataDir);
+    console.log(`[update] install dir ${paths.dir}, data dir ${paths.dataDir}, symlink ${paths.bin}`);
     if (!(await isInstalled(paths))) {
         throw new Error("sc-agent is not installed as a service");
     }
@@ -401,10 +432,11 @@ async function updateSelf(opts: {
 
     const bin = paths.versionedBin(opts.version);
     await downloadBinary({ control: opts.control, altControl: opts.altControl, certPem: opts.certPem, token: opts.token, dest: bin });
+    console.log(`[update] repointing symlink ${paths.bin} -> ${bin}`);
     await pointSymlink(bin, paths.bin);
     await pruneOldBinaries(paths, bin);
 
-    console.log(`Updated to ${opts.version}; restarting into the new binary.`);
+    console.log(`[update] updated to ${opts.version}; exiting in 1.5s so the supervisor re-execs the new binary.`);
     // Exit so the supervisor re-execs the symlink → the new version. Delay so the
     // success reply is sent before we drop the connection.
     setTimeout(() => process.exit(0), 1500);

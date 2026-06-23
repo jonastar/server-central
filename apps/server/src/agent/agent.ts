@@ -21,6 +21,8 @@ const HISTORY_MAX = 720;
 const MAX_FILE_BYTES = 1024 * 1024;
 /** Images can be larger than text files since they're previewed, not edited. */
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
+/** Upload cap — kept within the control plane's request timeout and body limits. */
+const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
 
 /** Recognized image extensions → MIME type, for in-browser preview. */
 const IMAGE_MIME: Record<string, string> = {
@@ -190,6 +192,16 @@ export class Agent {
                 break;
             }
 
+            case "uploadFileRequest": {
+                try {
+                    await this.runUploadFile(msg.path, msg.contentBase64);
+                    this.transport.send({ type: "uploadFileResponse", requestId: msg.requestId });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
+
             case "deletePathRequest": {
                 try {
                     await this.runDeletePath(msg.path);
@@ -258,12 +270,14 @@ export class Agent {
 
             case "updateService": {
                 try {
+                    console.log(`[update] received updateService request ${msg.requestId} for version ${msg.version}`);
                     if (!this.onUpdateService) {
                         throw new Error("This agent cannot update itself");
                     }
                     await this.onUpdateService(msg.version);
                     this.transport.send({ type: "updateServiceResponse", requestId: msg.requestId });
                 } catch (e) {
+                    console.error(`[update] updateService request ${msg.requestId} failed: ${String(e)}`);
                     this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
                 }
                 break;
@@ -353,6 +367,14 @@ export class Agent {
 
     private async runWriteFile(filePath: string, content: string): Promise<void> {
         await fs.writeFile(normalizePath(filePath), content, "utf8");
+    }
+
+    private async runUploadFile(filePath: string, contentBase64: string): Promise<void> {
+        const data = Buffer.from(contentBase64, "base64");
+        if (data.length > MAX_UPLOAD_BYTES) {
+            throw new Error(`File too large: ${data.length} bytes (max ${MAX_UPLOAD_BYTES})`);
+        }
+        await fs.writeFile(normalizePath(filePath), data);
     }
 
     private async runDeletePath(targetPath: string): Promise<void> {

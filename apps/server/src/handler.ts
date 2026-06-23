@@ -104,6 +104,10 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
         await this.fleet.get(data.serverId).writeFile(data.path, data.content);
     }
 
+    async uploadFile(data: { serverId: string; path: string; contentBase64: string }): Promise<void> {
+        await this.fleet.get(data.serverId).uploadFile(data.path, data.contentBase64);
+    }
+
     async createDir(data: { serverId: string; path: string }): Promise<void> {
         await this.fleet.get(data.serverId).createDir(data.path);
     }
@@ -201,16 +205,19 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     async updateNodeService(data: { serverId: string }): Promise<void> {
         const agent = this.fleet.get(data.serverId);
+        const current = agent.status().info?.agentVersion;
+        console.log(`[update] updateNodeService for ${data.serverId}: ${current ?? "?"} -> ${AGENT_VERSION} (state ${agent.status().state}, mode ${agent.mode})`);
         if (agent.status().state !== "online") {
             throw new Error("Agent is not connected");
         }
         if (agent.mode !== "installed") {
             throw new Error("Only installed agents can be updated");
         }
-        if (agent.status().info?.agentVersion === AGENT_VERSION) {
+        if (current === AGENT_VERSION) {
             throw new Error("Agent is already up to date");
         }
         await agent.updateService(AGENT_VERSION);
+        console.log(`[update] ${data.serverId} acknowledged update to ${AGENT_VERSION}`);
     }
 
     // ---- Config ------------------------------------------------------------------------

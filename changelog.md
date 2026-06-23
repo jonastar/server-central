@@ -4,6 +4,26 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-06-22 - File browser: upload, move
+
+## Added
+
+- **File upload** in the file browser. An `Upload` button (multi-select) reads files in the browser, base64-encodes them, and sends them to a new binary-safe `uploadFile` op (`uploadFileRequest`/`uploadFileResponse` over the node protocol) — the agent decodes to a `Buffer` and writes raw bytes, unlike `writeFile`'s utf8-only path. Capped at `MAX_UPLOAD_BYTES` (64 MB) to stay within the control plane's RPC timeout and HTTP body limits.
+- **Move** per-row action (↗): prompts for a destination directory and reuses the existing `renamePath` op (`fs.rename` already handles cross-directory moves). Rename was already supported.
+
+# 2026-06-22 - Observability: trace the agent self-update flow
+
+## Added
+
+- **`[update]`-prefixed logging across the self-update path** so a stuck or failed update can be traced end to end without guesswork. Control plane logs the `updateNodeService` trigger (current → target version, agent state/mode), the agent's acknowledgement, and each `/node-binary` fetch (served or token-rejected). The agent logs the incoming `updateService` request and any handler failure, and `updateSelf`/`downloadBinary` log resolved install/data dirs, each binary URL attempted (with per-attempt success bytes/duration or failure reason), the symlink repoint, and the pending restart.
+
+# 2026-06-22 - Fix: node self-update hung instead of falling through / reporting
+
+## Fixed
+
+- **Agent self-update no longer black-holes on an unreachable endpoint.** `downloadBinary` tried the URLs (`control` then `altControl`) in order but its `fetch` had no deadline, so when the primary endpoint was unreachable from the agent (e.g. it had connected via the alt endpoint), the connect stalled indefinitely: it never errored, never fell through to the working alt, and never reported anything. The control plane's 30s RPC timeout fired first, surfacing only a generic "timed out" with no binary downloaded. Each download attempt now has a deadline (`DOWNLOAD_TIMEOUT_MS`), sized so trying every URL still fits inside the RPC timeout — a dead endpoint aborts and falls through to the next, and an all-endpoints failure now propagates the real error (with the URLs tried) upstream.
+- The download also writes to a temp sibling and renames into place, so a failed/partial download can't leave a corrupt versioned binary for the stable symlink to point at.
+
 # 2026-06-22 - Docker rework (Portainer-lite)
 
 ## Added

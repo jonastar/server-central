@@ -182,6 +182,12 @@ export class HostAgent {
         });
     }
 
+    async uploadFile(filePath: string, contentBase64: string): Promise<void> {
+        await this.request<Extract<NodeMessage, { type: "uploadFileResponse" }>>({
+            type: "uploadFileRequest", requestId: crypto.randomUUID(), path: filePath, contentBase64,
+        });
+    }
+
     async createDir(dirPath: string): Promise<void> {
         const result = await this.exec(`mkdir -p "${dirPath.replace(/"/g, '\\"')}"`);
         if (result.code !== 0) {

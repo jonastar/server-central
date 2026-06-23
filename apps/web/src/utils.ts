@@ -56,6 +56,16 @@ export function fmtUptime(seconds: number): string {
     return `${m}m`;
 }
 
+/** Base64-encode raw bytes, chunked to avoid blowing the call stack on large files. */
+export function bytesToBase64(bytes: Uint8Array): string {
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+}
+
 export function fmtDateTime(msEpoch: number): string {
     return new Date(msEpoch).toLocaleString(undefined, {
         month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",

@@ -270,8 +270,10 @@ export class NodeServer {
                 if (req.method === "GET" && binaryMatch) {
                     const [, token, platform] = binaryMatch;
                     if (!self.validateToken(token)) {
+                        console.warn(`[update] node-binary fetch rejected (platform ${platform}): invalid or expired token`);
                         return new Response("Invalid or expired token", { status: 403 });
                     }
+                    console.log(`[update] serving self-update binary (platform ${platform})`);
                     return NodeServer.binaryResponse(platform);
                 }
 

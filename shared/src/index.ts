@@ -413,6 +413,8 @@ export type CentralApiOperations = {
     listDir: { data: { serverId: string; path: string }; response: { path: string; entries: DirEntry[] } };
     readFile: { data: { serverId: string; path: string }; response: FileContent };
     writeFile: { data: { serverId: string; path: string; content: string }; response: void };
+    // Upload raw bytes (base64-encoded) — binary-safe, unlike writeFile's utf8 text.
+    uploadFile: { data: { serverId: string; path: string; contentBase64: string }; response: void };
     createDir: { data: { serverId: string; path: string }; response: void };
     deletePath: { data: { serverId: string; path: string }; response: void };
     renamePath: { data: { serverId: string; from: string; to: string }; response: void };
