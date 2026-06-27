@@ -1,6 +1,6 @@
 {
   "name": "@central/server",
-  "version": "0.2.0",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "dev": "bun --watch --env-file ../../.env src/index.ts",
