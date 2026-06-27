@@ -8,6 +8,9 @@
 - Agents should maybe track the valid control url if there's multiple
 - View agent config in the agents section
 - base64 encoding of the blob to manually send it in the body is not ideal, can we support multipart somehow?
+- Prefix API endpoints with /api/
+- Networking "remote ip" (seen by control panel)
+  - Lets add a "Stun" one as well, we have detection on the control plane at least but lets also add it to the nodes?
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 
