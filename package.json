@@ -11,6 +11,7 @@
     "build:agent:mac": "bash scripts/build-agent.sh mac",
     "build:agent:windows": "bash scripts/build-agent.sh windows",
     "build:agent": "bash scripts/build-agent.sh",
+    "release": "bun run scripts/create-release.ts",
     "typecheck": "bun run --filter @central/shared typecheck && bun run --filter @central/server typecheck && bun run --filter @central/web typecheck"
   }
 }
