@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Role, UserInfo } from "@central/shared";
-import { CONFIG_DIR } from "./config";
+import { CONFIG_DIR, writeFileAtomic } from "./config";
 
 /** Sessions older than this (since last use) are rejected and pruned. */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -25,7 +25,14 @@ interface SessionRecord {
 export interface AuthContext {
     token: string | null;
     user: UserInfo | null;
+    /** Source IP of the request, used to rate-limit login attempts. */
+    ip: string | null;
 }
+
+/** Login throttle: after this many consecutive failures from one source, further
+ *  attempts are blocked for the cooldown window. */
+const MAX_LOGIN_FAILURES = 10;
+const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 
 function toUserInfo(rec: UserRecord): UserInfo {
     return { id: rec.id, username: rec.username, role: rec.role, createdAt: rec.createdAt };
@@ -43,6 +50,8 @@ export class AuthStore {
     // A real argon2id hash of a random secret, used to equalize login timing for
     // unknown usernames so they can't be distinguished from wrong passwords.
     private dummyHash = "";
+    // Consecutive failed logins per source (IP, or username when no IP), for throttling.
+    private loginFailures = new Map<string, { count: number; blockedUntil: number }>();
     private readonly usersFile: string;
     private readonly sessionsFile: string;
 
@@ -73,15 +82,34 @@ export class AuthStore {
         return { token, user };
     }
 
-    async login(username: string, password: string): Promise<{ token: string; user: UserInfo }> {
+    async login(username: string, password: string, ip: string | null = null): Promise<{ token: string; user: UserInfo }> {
+        const key = ip ?? normalizeUsername(username);
+        const blocked = this.loginFailures.get(key);
+        if (blocked && blocked.blockedUntil > Date.now()) {
+            throw new Error("Too many failed attempts — try again later");
+        }
+
         const rec = Object.values(this.users).find((u) => u.username === normalizeUsername(username));
         // Verify against a dummy hash when the user is unknown to keep timing uniform.
         const ok = await Bun.password.verify(password, rec?.passwordHash ?? this.dummyHash);
         if (!rec || !ok) {
+            this.recordLoginFailure(key);
             throw new Error("Invalid username or password");
         }
+        this.loginFailures.delete(key);
         const token = await this.createSession(rec.id);
         return { token, user: toUserInfo(rec) };
+    }
+
+    /** Count a failed login for `key`, arming a cooldown once the threshold is hit. */
+    private recordLoginFailure(key: string): void {
+        const entry = this.loginFailures.get(key) ?? { count: 0, blockedUntil: 0 };
+        entry.count += 1;
+        if (entry.count >= MAX_LOGIN_FAILURES) {
+            entry.blockedUntil = Date.now() + LOGIN_BLOCK_MS;
+            entry.count = 0;
+        }
+        this.loginFailures.set(key, entry);
     }
 
     async logout(token: string | null): Promise<void> {
@@ -182,5 +210,5 @@ async function readJson<T>(file: string): Promise<T> {
 
 async function writeJson(file: string, value: unknown): Promise<void> {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, JSON.stringify(value, null, 2));
+    await writeFileAtomic(file, JSON.stringify(value, null, 2));
 }

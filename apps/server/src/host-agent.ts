@@ -189,10 +189,9 @@ export class HostAgent {
     }
 
     async createDir(dirPath: string): Promise<void> {
-        const result = await this.exec(`mkdir -p "${dirPath.replace(/"/g, '\\"')}"`);
-        if (result.code !== 0) {
-            throw new Error(`mkdir failed: ${result.stderr}`);
-        }
+        await this.request<Extract<NodeMessage, { type: "createDirResponse" }>>({
+            type: "createDirRequest", requestId: crypto.randomUUID(), path: dirPath,
+        });
     }
 
     async deletePath(targetPath: string): Promise<void> {

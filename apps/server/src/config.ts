@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { randomBytes } from "node:crypto";
 import type { AgentMode, SystemInfo } from "@central/shared";
 
 export const CONFIG_DIR = ".sc-data";
@@ -25,6 +26,18 @@ async function ensureDir(): Promise<void> {
     await fs.mkdir(CONFIG_DIR, { recursive: true });
 }
 
+/**
+ * Write a file atomically: write to a temp sibling, then rename over the target.
+ * rename(2) is atomic within a filesystem, so a crash mid-write leaves the old
+ * file intact rather than a truncated one — important for the user/session/token
+ * stores, where a corrupt file would lock everyone out or orphan every agent.
+ */
+export async function writeFileAtomic(file: string, content: string): Promise<void> {
+    const tmp = `${file}.${randomBytes(6).toString("hex")}.tmp`;
+    await fs.writeFile(tmp, content);
+    await fs.rename(tmp, file);
+}
+
 export async function readConfig(): Promise<Config> {
     try {
         const text = await fs.readFile(CONFIG_FILE, "utf8");
@@ -36,7 +49,7 @@ export async function readConfig(): Promise<Config> {
 
 export async function writeConfig(config: Config): Promise<void> {
     await ensureDir();
-    await fs.writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+    await writeFileAtomic(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
 export async function setDomain(domain: string | null): Promise<void> {
@@ -60,7 +73,7 @@ export async function readAgentState(): Promise<Record<string, AgentRecord>> {
 
 export async function writeAgentState(agents: Record<string, AgentRecord>): Promise<void> {
     await ensureDir();
-    await fs.writeFile(AGENT_STATE_FILE, JSON.stringify(agents, null, 2));
+    await writeFileAtomic(AGENT_STATE_FILE, JSON.stringify(agents, null, 2));
 }
 
 /**
@@ -79,5 +92,5 @@ export async function readAgentTokens(): Promise<Record<string, string>> {
 
 export async function writeAgentTokens(tokens: Record<string, string>): Promise<void> {
     await ensureDir();
-    await fs.writeFile(AGENT_TOKENS_FILE, JSON.stringify(tokens, null, 2));
+    await writeFileAtomic(AGENT_TOKENS_FILE, JSON.stringify(tokens, null, 2));
 }

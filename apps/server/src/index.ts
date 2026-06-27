@@ -149,7 +149,10 @@ const server = Bun.serve<WsData>({
         }
 
         const command = url.pathname.replace(/^\//, "") as Command;
-        const fn = (handler[command] as ((data: unknown, ctx: AuthContext) => Promise<unknown>) | undefined)?.bind(handler);
+        // Dispatch only ever reaches `handle*` methods — never an arbitrary property
+        // off the handler (constructor, toString, …) — by prefixing the derived name.
+        const method = `handle${command.charAt(0).toUpperCase()}${command.slice(1)}` as keyof CentralHandler;
+        const fn = (handler[method] as ((data: unknown, ctx: AuthContext) => Promise<unknown>) | undefined)?.bind(handler);
         if (!fn) {
             return Response.json({ error: `Unknown command: ${command}` }, { status: 404, headers: corsHeaders });
         }
@@ -160,9 +163,10 @@ const server = Bun.serve<WsData>({
             return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
         }
 
+        const ip = serverCtx.requestIP(req)?.address ?? null;
         const data = await req.json().catch(() => null);
         try {
-            const result = await fn(data ?? undefined, { token, user });
+            const result = await fn(data ?? undefined, { token, user, ip });
             return new Response(result === undefined ? "null" : JSON.stringify(result), {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });

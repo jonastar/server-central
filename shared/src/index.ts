@@ -17,6 +17,17 @@ export type ApiHandler<T extends ProtocolSchema> = {
     [K in keyof T]: (data: T[K]["data"]) => Promise<T[K]["response"]>;
 };
 
+/**
+ * Like {@link ApiHandler}, but every method name is prefixed with `handle`
+ * (e.g. `login` → `handleLogin`). The HTTP dispatcher derives the method name
+ * from the request path and prefixes it before indexing the handler, so a
+ * request can only ever reach a `handle*` method — never an arbitrary property
+ * off the object/prototype chain (`constructor`, `toString`, …).
+ */
+export type ApiHandlerPrefixed<T extends ProtocolSchema> = {
+    [K in keyof T as `handle${Capitalize<string & K>}`]: (data: T[K]["data"]) => Promise<T[K]["response"]>;
+};
+
 // ---- Servers -----------------------------------------------------------------
 //
 // Each managed host runs an agent. For now the only agent lives in the same

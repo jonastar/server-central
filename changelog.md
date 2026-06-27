@@ -4,6 +4,21 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-06-24 - Hardening: createDir injection, dispatch isolation, atomic writes, login throttle
+
+## Fixed
+
+- **Command injection in `createDir` (root RCE).** `HostAgent.createDir` ran `mkdir -p "<path>"` through the shell, escaping only `"` — but `$(…)`/backticks still expand inside double quotes, so an authenticated path like `/tmp/$(reboot)` executed as root. Replaced with a structured `createDirRequest`/`createDirResponse` node-protocol message backed by `fs.mkdir(path, { recursive: true })` on the agent — no shell involved, matching the other file ops. This was the only file operation still going through `exec`.
+- **HTTP dispatch could index arbitrary handler properties.** The router did `handler[command]` straight off the URL path, so a path like `/constructor` or `/toString` resolved to prototype members. Handler methods are now prefixed (`login` → `handleLogin`, etc.) via a new `ApiHandlerPrefixed<T>` mapped type in `@central/shared`, and the dispatcher derives `handle<Capitalize<command>>` before indexing — a request can now only ever reach an explicitly-defined `handle*` method. (Stopgap until the spec layer is reworked with richer per-op metadata / zod.)
+
+## Changed
+
+- **All persisted JSON is now written atomically** (`writeFileAtomic` in `config.ts`: write temp sibling → `rename`). Covers users, sessions, agent state, agent tokens, and config — a crash mid-write can no longer corrupt the user store (locking everyone out) or the durable token store (orphaning every installed agent).
+
+## Added
+
+- **Login throttling.** After `MAX_LOGIN_FAILURES` (10) consecutive failures from one source (client IP, or username when no IP), logins from that source are blocked for `LOGIN_BLOCK_MS` (15 min). Client IP is threaded through `AuthContext.ip` from `server.requestIP()`; a successful login clears the counter.
+
 # 2026-06-22 - File browser: upload, move
 
 ## Added

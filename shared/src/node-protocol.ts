@@ -16,6 +16,7 @@ export type NodeMessage =
     | { type: "readFileResponse"; requestId: string; result: FileContent }
     | { type: "writeFileResponse"; requestId: string }
     | { type: "uploadFileResponse"; requestId: string }
+    | { type: "createDirResponse"; requestId: string }
     | { type: "deletePathResponse"; requestId: string }
     | { type: "renameResponse"; requestId: string }
     | { type: "shellData"; sessionId: string; data: string }
@@ -34,6 +35,7 @@ export type ControlMessage =
     | { type: "readFileRequest"; requestId: string; path: string }
     | { type: "writeFileRequest"; requestId: string; path: string; content: string }
     | { type: "uploadFileRequest"; requestId: string; path: string; contentBase64: string }
+    | { type: "createDirRequest"; requestId: string; path: string }
     | { type: "deletePathRequest"; requestId: string; path: string }
     | { type: "renamePathRequest"; requestId: string; from: string; to: string }
     | { type: "openShell"; sessionId: string; cols: number; rows: number }

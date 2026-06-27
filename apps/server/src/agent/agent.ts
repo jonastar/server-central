@@ -202,6 +202,16 @@ export class Agent {
                 break;
             }
 
+            case "createDirRequest": {
+                try {
+                    await this.runCreateDir(msg.path);
+                    this.transport.send({ type: "createDirResponse", requestId: msg.requestId });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
+
             case "deletePathRequest": {
                 try {
                     await this.runDeletePath(msg.path);
@@ -375,6 +385,10 @@ export class Agent {
             throw new Error(`File too large: ${data.length} bytes (max ${MAX_UPLOAD_BYTES})`);
         }
         await fs.writeFile(normalizePath(filePath), data);
+    }
+
+    private async runCreateDir(dirPath: string): Promise<void> {
+        await fs.mkdir(normalizePath(dirPath), { recursive: true });
     }
 
     private async runDeletePath(targetPath: string): Promise<void> {

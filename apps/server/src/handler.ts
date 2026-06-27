@@ -1,5 +1,5 @@
 import type {
-    ApiHandler,
+    ApiHandlerPrefixed,
     CentralApiOperations,
     ContainerAction,
     DirEntry,
@@ -42,7 +42,7 @@ import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
 import { readConfig, setDomain as persistSetDomain } from "./config";
 
-export class CentralHandler implements ApiHandler<CentralApiOperations> {
+export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> {
     constructor(
         private readonly fleet: Fleet,
         private readonly auth: AuthStore,
@@ -51,23 +51,23 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     // ---- Auth -----------------------------------------------------------------
 
-    async getAuthState(_data: void, ctx?: AuthContext): Promise<{ needsSetup: boolean; user: UserInfo | null }> {
+    async handleGetAuthState(_data: void, ctx?: AuthContext): Promise<{ needsSetup: boolean; user: UserInfo | null }> {
         return { needsSetup: this.auth.needsSetup(), user: ctx?.user ?? null };
     }
 
-    async setupOwner(data: { username: string; password: string }): Promise<{ token: string; user: UserInfo }> {
+    async handleSetupOwner(data: { username: string; password: string }): Promise<{ token: string; user: UserInfo }> {
         return this.auth.setupOwner(data.username, data.password);
     }
 
-    async login(data: { username: string; password: string }): Promise<{ token: string; user: UserInfo }> {
-        return this.auth.login(data.username, data.password);
+    async handleLogin(data: { username: string; password: string }, ctx?: AuthContext): Promise<{ token: string; user: UserInfo }> {
+        return this.auth.login(data.username, data.password, ctx?.ip ?? null);
     }
 
-    async logout(_data: void, ctx?: AuthContext): Promise<void> {
+    async handleLogout(_data: void, ctx?: AuthContext): Promise<void> {
         await this.auth.logout(ctx?.token ?? null);
     }
 
-    async me(_data: void, ctx?: AuthContext): Promise<UserInfo> {
+    async handleMe(_data: void, ctx?: AuthContext): Promise<UserInfo> {
         if (!ctx?.user) {
             throw new Error("Not authenticated");
         }
@@ -76,99 +76,99 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     // ---- Servers --------------------------------------------------------------
 
-    async getServers(): Promise<ServerEntry[]> {
+    async handleGetServers(): Promise<ServerEntry[]> {
         return this.fleet.entries();
     }
 
-    async deleteServer(data: { serverId: string }): Promise<void> {
+    async handleDeleteServer(data: { serverId: string }): Promise<void> {
         this.fleet.remove(data.serverId);
     }
 
     // ---- Metrics ----------------------------------------------------------------
 
-    async getMetricsHistory(data: { serverId: string }): Promise<MetricsSnapshot[]> {
+    async handleGetMetricsHistory(data: { serverId: string }): Promise<MetricsSnapshot[]> {
         return this.fleet.get(data.serverId).history;
     }
 
     // ---- Files --------------------------------------------------------------------
 
-    async listDir(data: { serverId: string; path: string }): Promise<{ path: string; entries: DirEntry[] }> {
+    async handleListDir(data: { serverId: string; path: string }): Promise<{ path: string; entries: DirEntry[] }> {
         return this.fleet.get(data.serverId).listDir(data.path);
     }
 
-    async readFile(data: { serverId: string; path: string }): Promise<FileContent> {
+    async handleReadFile(data: { serverId: string; path: string }): Promise<FileContent> {
         return this.fleet.get(data.serverId).readFile(data.path);
     }
 
-    async writeFile(data: { serverId: string; path: string; content: string }): Promise<void> {
+    async handleWriteFile(data: { serverId: string; path: string; content: string }): Promise<void> {
         await this.fleet.get(data.serverId).writeFile(data.path, data.content);
     }
 
-    async uploadFile(data: { serverId: string; path: string; contentBase64: string }): Promise<void> {
+    async handleUploadFile(data: { serverId: string; path: string; contentBase64: string }): Promise<void> {
         await this.fleet.get(data.serverId).uploadFile(data.path, data.contentBase64);
     }
 
-    async createDir(data: { serverId: string; path: string }): Promise<void> {
+    async handleCreateDir(data: { serverId: string; path: string }): Promise<void> {
         await this.fleet.get(data.serverId).createDir(data.path);
     }
 
-    async deletePath(data: { serverId: string; path: string }): Promise<void> {
+    async handleDeletePath(data: { serverId: string; path: string }): Promise<void> {
         await this.fleet.get(data.serverId).deletePath(data.path);
     }
 
-    async renamePath(data: { serverId: string; from: string; to: string }): Promise<void> {
+    async handleRenamePath(data: { serverId: string; from: string; to: string }): Promise<void> {
         await this.fleet.get(data.serverId).renamePath(data.from, data.to);
     }
 
     // ---- Docker ----------------------------------------------------------------------
 
-    async dockerList(data: { serverId: string }): Promise<DockerState> {
+    async handleDockerList(data: { serverId: string }): Promise<DockerState> {
         return dockerList(this.fleet.get(data.serverId));
     }
 
-    async dockerContainerAction(data: { serverId: string; containerId: string; action: ContainerAction }): Promise<void> {
+    async handleDockerContainerAction(data: { serverId: string; containerId: string; action: ContainerAction }): Promise<void> {
         await dockerContainerAction(this.fleet.get(data.serverId), data.containerId, data.action);
     }
 
-    async dockerContainerLogs(data: { serverId: string; containerId: string; tail?: number }): Promise<{ logs: string }> {
+    async handleDockerContainerLogs(data: { serverId: string; containerId: string; tail?: number }): Promise<{ logs: string }> {
         return { logs: await dockerContainerLogs(this.fleet.get(data.serverId), data.containerId, data.tail ?? 500) };
     }
 
-    async dockerOverview(data: { serverId: string }): Promise<DockerOverview> {
+    async handleDockerOverview(data: { serverId: string }): Promise<DockerOverview> {
         return dockerOverview(this.fleet.get(data.serverId));
     }
 
-    async dockerStacks(data: { serverId: string }): Promise<DockerStacksState> {
+    async handleDockerStacks(data: { serverId: string }): Promise<DockerStacksState> {
         return dockerStacks(this.fleet.get(data.serverId));
     }
 
-    async dockerStackAction(data: { serverId: string; project: string; action: StackAction }): Promise<void> {
+    async handleDockerStackAction(data: { serverId: string; project: string; action: StackAction }): Promise<void> {
         await dockerStackAction(this.fleet.get(data.serverId), data.project, data.action);
     }
 
-    async dockerContainerInspect(data: { serverId: string; containerId: string }): Promise<DockerContainerDetail> {
+    async handleDockerContainerInspect(data: { serverId: string; containerId: string }): Promise<DockerContainerDetail> {
         return dockerContainerInspect(this.fleet.get(data.serverId), data.containerId);
     }
 
-    async dockerVolumeInspect(data: { serverId: string; name: string }): Promise<DockerVolumeDetail> {
+    async handleDockerVolumeInspect(data: { serverId: string; name: string }): Promise<DockerVolumeDetail> {
         return dockerVolumeInspect(this.fleet.get(data.serverId), data.name);
     }
 
-    async dockerVolumeRemove(data: { serverId: string; name: string }): Promise<void> {
+    async handleDockerVolumeRemove(data: { serverId: string; name: string }): Promise<void> {
         await dockerVolumeRemove(this.fleet.get(data.serverId), data.name);
     }
 
-    async dockerImageAction(data: { serverId: string; imageId: string; action: ImageAction }): Promise<void> {
+    async handleDockerImageAction(data: { serverId: string; imageId: string; action: ImageAction }): Promise<void> {
         await dockerImageAction(this.fleet.get(data.serverId), data.imageId, data.action);
     }
 
-    async dockerImagePull(data: { serverId: string; ref: string }): Promise<{ ok: boolean; message: string }> {
+    async handleDockerImagePull(data: { serverId: string; ref: string }): Promise<{ ok: boolean; message: string }> {
         return dockerImagePull(this.fleet.get(data.serverId), data.ref);
     }
 
     // ---- Node enrollment ---------------------------------------------------------------
 
-    async generateNodeInstallCommand(data: { platform: "linux" | "mac" | "windows"; useExternal?: boolean }): Promise<{ command: string; expiresAt: number; externalHost: string | null }> {
+    async handleGenerateNodeInstallCommand(data: { platform: "linux" | "mac" | "windows"; useExternal?: boolean }): Promise<{ command: string; expiresAt: number; externalHost: string | null }> {
         if (!this.nodeServer) {
             throw new Error("Node server not initialized");
         }
@@ -176,11 +176,11 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
         return this.nodeServer.generateInstallCommand(data.platform, config.domain ?? null, data.useExternal ?? false);
     }
 
-    async probeInstallPath(data: { serverId: string; path: string }): Promise<InstallProbeResult> {
+    async handleProbeInstallPath(data: { serverId: string; path: string }): Promise<InstallProbeResult> {
         return this.fleet.get(data.serverId).probeInstallPath(data.path);
     }
 
-    async installNodeService(data: { serverId: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism }): Promise<{ startCommand: string | null }> {
+    async handleInstallNodeService(data: { serverId: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism }): Promise<{ startCommand: string | null }> {
         if (!this.nodeServer) {
             throw new Error("Node server not initialized");
         }
@@ -203,7 +203,7 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
         return { startCommand };
     }
 
-    async updateNodeService(data: { serverId: string }): Promise<void> {
+    async handleUpdateNodeService(data: { serverId: string }): Promise<void> {
         const agent = this.fleet.get(data.serverId);
         const current = agent.status().info?.agentVersion;
         console.log(`[update] updateNodeService for ${data.serverId}: ${current ?? "?"} -> ${AGENT_VERSION} (state ${agent.status().state}, mode ${agent.mode})`);
@@ -222,12 +222,12 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     // ---- Config ------------------------------------------------------------------------
 
-    async getConfig(): Promise<{ domain: string | null }> {
+    async handleGetConfig(): Promise<{ domain: string | null }> {
         const config = await readConfig();
         return { domain: config.domain ?? null };
     }
 
-    async setDomain(data: { domain: string | null }): Promise<void> {
+    async handleSetDomain(data: { domain: string | null }): Promise<void> {
         await persistSetDomain(data.domain);
         // Re-issue the leaf so it carries the new domain in its SAN; agents trust the
         // CA, so this takes effect without re-enrolling anything.
@@ -236,7 +236,7 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     // ---- Processes ---------------------------------------------------------------------
 
-    async getProcesses(data: { serverId: string }): Promise<ProcessInfo[]> {
+    async handleGetProcesses(data: { serverId: string }): Promise<ProcessInfo[]> {
         const res = await this.fleet.get(data.serverId).exec("ps aux");
         const out: ProcessInfo[] = [];
         for (const line of res.stdout.split("\n").slice(1)) {
@@ -259,25 +259,25 @@ export class CentralHandler implements ApiHandler<CentralApiOperations> {
 
     // ---- Networking --------------------------------------------------------------------
 
-    async getNetworkInfo(data: { serverId: string }): Promise<NetworkInfo> {
+    async handleGetNetworkInfo(data: { serverId: string }): Promise<NetworkInfo> {
         return getNetworkInfo(this.fleet.get(data.serverId));
     }
 
     // ---- Systemd -----------------------------------------------------------------------
 
-    async systemdList(data: { serverId: string }): Promise<SystemdState> {
+    async handleSystemdList(data: { serverId: string }): Promise<SystemdState> {
         return systemdList(this.fleet.get(data.serverId));
     }
 
-    async systemdServiceAction(data: { serverId: string; unit: string; action: ServiceAction }): Promise<void> {
+    async handleSystemdServiceAction(data: { serverId: string; unit: string; action: ServiceAction }): Promise<void> {
         await systemdServiceAction(this.fleet.get(data.serverId), data.unit, data.action);
     }
 
-    async systemdServiceLogs(data: { serverId: string; unit: string; lines?: number }): Promise<{ logs: string }> {
+    async handleSystemdServiceLogs(data: { serverId: string; unit: string; lines?: number }): Promise<{ logs: string }> {
         return { logs: await systemdServiceLogs(this.fleet.get(data.serverId), data.unit, data.lines ?? 300) };
     }
 
-    async systemdUnitFile(data: { serverId: string; unit: string }): Promise<{ content: string }> {
+    async handleSystemdUnitFile(data: { serverId: string; unit: string }): Promise<{ content: string }> {
         return { content: await systemdUnitFile(this.fleet.get(data.serverId), data.unit) };
     }
 }
