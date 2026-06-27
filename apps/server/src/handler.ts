@@ -41,6 +41,7 @@ import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
 import { readConfig, setDomain as persistSetDomain } from "./config";
+import { controlPlaneStatus, updateControlPlane } from "./server-install";
 
 export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> {
     constructor(
@@ -218,6 +219,15 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         }
         await agent.updateService(AGENT_VERSION);
         console.log(`[update] ${data.serverId} acknowledged update to ${AGENT_VERSION}`);
+    }
+
+    async handleGetControlPlaneStatus(): Promise<{ version: string; installed: boolean; latestVersion: string | null; updateAvailable: boolean }> {
+        return controlPlaneStatus();
+    }
+
+    async handleUpdateControlPlane(): Promise<void> {
+        console.log(`[update] control-plane self-update requested (current ${AGENT_VERSION})`);
+        await updateControlPlane();
     }
 
     // ---- Config ------------------------------------------------------------------------

@@ -18,11 +18,12 @@ import { ensureTls, type TlsBundle } from "../../src/tls";
 // Mirror NodeServer's DIST_DIR + PLATFORM_BINARY so we can plant the served binary.
 const DIST_DIR = path.resolve(import.meta.dir, "../../../../dist");
 const PLATFORM_BINARY: Record<string, string> = {
-    linux: "sc-agent-linux",
-    mac: "sc-agent-mac",
-    windows: "sc-agent-windows.exe",
+    "linux-x64": "sc-agent-linux-x64",
+    "mac-x64": "sc-agent-mac-x64",
+    "windows-x64": "sc-agent-windows-x64.exe",
 };
-const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "mac" : "linux";
+const osName = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "mac" : "linux";
+const platform = `${osName}-${process.arch}`;
 const binPath = path.join(DIST_DIR, PLATFORM_BINARY[platform]);
 
 // A real binary is tens of MB; 8 MB is enough to span many stream chunks (which is

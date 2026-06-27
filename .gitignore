@@ -4,7 +4,7 @@ build
 .toolchain
 .env
 .env.local
-bun.lock
 bun.lockb
 data/
 apps/server/.sc-data
+.sc-data

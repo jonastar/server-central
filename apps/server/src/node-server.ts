@@ -7,17 +7,9 @@ import { ensureTls, localIps, type TlsBundle } from "./tls";
 import { HostAgent } from "./host-agent";
 import type { Fleet } from "./fleet";
 import { readAgentTokens, readConfig, writeAgentTokens } from "./config";
+import { BinaryStoreError, resolveAgentBinary } from "./binary-store";
 
 export const NODE_SERVER_PORT = 4142;
-
-/** Dist directory relative to the server package root. */
-const DIST_DIR = path.resolve(import.meta.dir, "../../../dist");
-
-const PLATFORM_BINARY: Record<string, string> = {
-    linux: "sc-agent-linux",
-    mac: "sc-agent-mac",
-    windows: "sc-agent-windows.exe",
-};
 
 type NodeWsData = { channel: "node"; connId: string | null; remoteIp: string | null };
 
@@ -107,7 +99,7 @@ export class NodeServer {
         if (platform === "windows") {
             const altFlag = altControlWs ? ` --alt-control "${altControlWs}"` : "";
             command =
-                `curl.exe ${pinned} -fsSL "${baseUrl}/node-bootstrap/${token}/windows" -o "$env:TEMP\\sc-agent.exe"` +
+                `curl.exe ${pinned} -fsSL "${baseUrl}/node-bootstrap/${token}/windows-x64" -o "$env:TEMP\\sc-agent.exe"` +
                 `; curl.exe ${pinned} -fsSL "${baseUrl}/node-cert" -o "$env:TEMP\\sc-agent.crt"` +
                 `; & "$env:TEMP\\sc-agent.exe" --agent --control "${controlWs}"${altFlag} --token "${token}" --cert "$env:TEMP\\sc-agent.crt"`;
         } else {
@@ -147,19 +139,20 @@ export class NodeServer {
         return (NodeServer.scriptPromise ??= Bun.file(path.resolve(import.meta.dir, "agent/bootstrap.sh")).text());
     }
 
-    /** Serve the compiled agent binary for `platform` from dist/. */
-    private static binaryResponse(platform: string): Response {
-        const binary = PLATFORM_BINARY[platform];
-        if (!binary) {
-            return new Response("Unknown platform", { status: 400 });
-        }
-        const binPath = path.join(DIST_DIR, binary);
+    /** Serve the agent binary for `platform`, resolved by the binary store (local
+     *  cache → dist/ → release source). Maps store errors to HTTP statuses. */
+    private static async binaryResponse(platform: string): Promise<Response> {
         try {
+            const binPath = await resolveAgentBinary(platform);
             return new Response(Bun.file(binPath), {
                 headers: { "Content-Type": "application/octet-stream" },
             });
-        } catch {
-            return new Response(`Binary not found: build with 'bun run build:agent'`, { status: 404 });
+        } catch (err) {
+            if (err instanceof BinaryStoreError) {
+                return new Response(err.message, { status: err.status });
+            }
+            console.error(`[binary-store] failed to resolve ${platform}: ${(err as Error)?.message ?? err}`);
+            return new Response("Failed to resolve agent binary", { status: 502 });
         }
     }
 
@@ -260,7 +253,7 @@ export class NodeServer {
                         return new Response("Invalid or expired token", { status: 403 });
                     }
                     self.tokens.get(token)!.downloaded = true;
-                    return NodeServer.binaryResponse(platform);
+                    return await NodeServer.binaryResponse(platform);
                 }
 
                 // Binary fetch for an installed agent's self-update — same binaries
@@ -274,7 +267,7 @@ export class NodeServer {
                         return new Response("Invalid or expired token", { status: 403 });
                     }
                     console.log(`[update] serving self-update binary (platform ${platform})`);
-                    return NodeServer.binaryResponse(platform);
+                    return await NodeServer.binaryResponse(platform);
                 }
 
                 if (url.pathname === "/node") {

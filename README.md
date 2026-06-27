@@ -36,3 +36,17 @@ There's a lot of similar services and tools out there, but æm not satisfied wit
 - Reverse Proxy integration (unimplemented)
 
 As you can see im still a bit away from just the prototype being done, there's still some concepts and things im gonna have to figure out.
+
+# Install (control plane)
+
+The whole thing ships as a single self-contained binary (control plane + host agent + web UI). To install the control plane, download one binary for your platform from the latest [GitHub release](https://github.com/jonastar/server-central/releases) and let it install itself:
+
+```sh
+curl -fsSL -o sc-agent https://github.com/jonastar/server-central/releases/latest/download/sc-agent-linux-x64
+chmod +x sc-agent
+sudo ./sc-agent --install-server          # or just `sudo ./sc-agent` for an interactive prompt
+```
+
+This installs a `sc-central` systemd service (binary in `/usr/local/bin`, state in `/var/lib/sc-central`) and serves the web UI + API on `:4141`. Override locations with `--install-dir` / `--data-dir`.
+
+You only download the **one** binary for the control plane's own platform. When an agent of another platform enrolls, the control plane fetches that platform's binary from the release source on demand (checksum-verified) and caches it — so agents still install/update by downloading from the control plane, never directly from GitHub. The control plane updates itself from **Settings → Control plane** when a newer release is available.

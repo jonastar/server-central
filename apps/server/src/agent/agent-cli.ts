@@ -1,9 +1,19 @@
 import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import type { AgentMode, InstallMechanism, NodeMessage, SystemInfo } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, DEFAULT_DATA_DIR, DEFAULT_INSTALL_DIR, resolveMachineId } from "./agent";
-import { probeDir } from "./mounts";
+import {
+    type InstallPaths,
+    type ServiceSpec,
+    copySelfToVersionedBin,
+    ensureInstallPathsUsable,
+    installSystemd as installSystemdUnit,
+    isInstalled,
+    pointSymlink,
+    pruneOldBinaries,
+    resolveServicePaths,
+    writeManifest,
+} from "./self-install";
 
 // ---- CLI argument parsing ----------------------------------------------------
 
@@ -123,9 +133,8 @@ interface Identity {
 
 // ---- Self-install (live → installed service) ---------------------------------
 
-const UNIT_PATH = "/etc/systemd/system/sc-agent.service";
-/** How many versioned binaries to keep (current + this many for rollback). */
-const KEEP_VERSIONS = 2;
+/** The host-agent role: systemd unit + symlink + versioned-binary base name. */
+const AGENT_SPEC: ServiceSpec = { name: "sc-agent", description: "Server Central Agent" };
 /** Per-URL deadline for a self-update binary download. Sized so trying every URL
  *  (currently at most two: control + alt) still fits inside the control plane's
  *  30s RPC timeout — a dead endpoint aborts and falls through to the next, and an
@@ -134,27 +143,9 @@ const KEEP_VERSIONS = 2;
  *  link, so this only bites unreachable hosts. */
 const DOWNLOAD_TIMEOUT_MS = 12_000;
 
-interface InstallManifest {
-    mechanism: InstallMechanism;
-}
-
-interface InstallPaths {
-    /** Dir holding versioned binaries + the stable symlink. */
-    dir: string;
-    /** Stable symlink the service execs; repointed at a versioned binary. */
-    bin: string;
-    /** Writable, exec-capable dir for cert, config, manifest, and scratch/state. */
-    dataDir: string;
-    cert: string;
-    /** The launch config the installed agent reads via --config. */
-    config: string;
-    /** Records which persistence mechanism installSelf used, so updateSelf and the
-     *  "already installed?" check work regardless of where (or whether) a unit lives. */
-    manifest: string;
-    /** Exec-capable scratch (Bun extracts its native addons here, via TMPDIR). */
-    tmpDir: string;
-    versionedBin(version: string): string;
-}
+/** Agent install layout: the shared service layout plus the agent's cert + launch
+ *  config under the data dir. */
+type AgentInstallPaths = InstallPaths & { cert: string; config: string };
 
 /**
  * Resolve where the agent installs: the binary under `installDir` (default
@@ -162,63 +153,9 @@ interface InstallPaths {
  * /var/lib/sc-agent). On an appliance OS where the defaults aren't writable or are
  * mounted noexec, the setup wizard supplies pool paths for both.
  */
-function resolveInstallPaths(installDir: string | null, dataDir: string | null): InstallPaths {
-    const dir = installDir || DEFAULT_INSTALL_DIR;
-    const data = dataDir || DEFAULT_DATA_DIR;
-    return {
-        dir,
-        bin: `${dir}/sc-agent`,
-        dataDir: data,
-        cert: `${data}/agent.crt`,
-        config: `${data}/config.json`,
-        manifest: `${data}/install.json`,
-        tmpDir: `${data}/tmp`,
-        versionedBin: (version) => `${dir}/sc-agent-${version}`,
-    };
-}
-
-async function run(cmd: string, args: string[]): Promise<void> {
-    const proc = Bun.spawn([cmd, ...args], { stdout: "pipe", stderr: "pipe" });
-    const code = await proc.exited;
-    if (code !== 0) {
-        const err = (await new Response(proc.stderr).text()).trim();
-        throw new Error(`${cmd} ${args.join(" ")} failed (exit ${code})${err ? `: ${err}` : ""}`);
-    }
-}
-
-/** Atomically point `link` at `target` (replacing any existing file/symlink). */
-async function pointSymlink(target: string, link: string): Promise<void> {
-    const tmp = `${link}.tmp-${process.pid}`;
-    await fs.symlink(target, tmp);
-    await fs.rename(tmp, link); // rename over an existing path is atomic on Linux
-}
-
-/**
- * Drop all but the newest KEEP_VERSIONS `sc-agent-<version>` binaries so rollback
- * stays possible without unbounded disk use. Never removes `keep` (the version
- * just installed, which the symlink now points at). The bare `sc-agent` symlink
- * doesn't match the `sc-agent-` prefix, so it's untouched.
- */
-async function pruneOldBinaries(paths: InstallPaths, keep: string): Promise<void> {
-    const entries = await fs.readdir(paths.dir);
-    const versioned = await Promise.all(
-        entries
-            .filter((n) => n.startsWith("sc-agent-"))
-            .map(async (n) => {
-                const full = path.join(paths.dir, n);
-                const st = await fs.stat(full).catch(() => null);
-                return st ? { full, mtime: st.mtimeMs } : null;
-            }),
-    );
-    const sorted = versioned
-        .filter((e): e is { full: string; mtime: number } => e !== null)
-        .sort((a, b) => b.mtime - a.mtime);
-    for (const { full } of sorted.slice(KEEP_VERSIONS)) {
-        if (full === keep) {
-            continue;
-        }
-        await fs.rm(full, { force: true }).catch(() => { });
-    }
+function resolveInstallPaths(installDir: string | null, dataDir: string | null): AgentInstallPaths {
+    const base = resolveServicePaths(AGENT_SPEC, installDir || DEFAULT_INSTALL_DIR, dataDir || DEFAULT_DATA_DIR);
+    return { ...base, cert: `${base.dataDir}/agent.crt`, config: `${base.dataDir}/config.json` };
 }
 
 /**
@@ -226,7 +163,9 @@ async function pruneOldBinaries(paths: InstallPaths, keep: string): Promise<void
  * the control-plane cert, authenticated by the durable token) into `dest`.
  */
 export async function downloadBinary(opts: { control: string; altControl: string | null; certPem: string; token: string; dest: string }): Promise<void> {
-    const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "mac" : "linux";
+    const os = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "mac" : "linux";
+    // process.arch is "x64" / "arm64" — exactly the suffix used in the binary names.
+    const platform = `${os}-${process.arch}`;
     const urls = [opts.control, ...(opts.altControl ? [opts.altControl] : [])]
         .map((ws) => ws.replace(/^wss:\/\//, "https://").replace(/\/node$/, "") + `/node-binary/${opts.token}/${platform}`);
 
@@ -271,67 +210,20 @@ export async function downloadBinary(opts: { control: string; altControl: string
     throw new Error(`Failed to download agent binary from ${urls.join(", ")}: ${(lastErr as Error)?.message ?? lastErr}`);
 }
 
-/** Preflight install + data dirs: each must be writable and exec-capable, with an
- *  actionable error so an appliance OS (read-only root / noexec mount) tells the
- *  operator to choose pool paths in the setup wizard. */
-async function ensureInstallPathsUsable(paths: InstallPaths): Promise<void> {
-    for (const dir of [paths.dir, paths.dataDir]) {
-        const probe = await probeDir(dir);
-        if (!probe.writable || !probe.execCapable) {
-            const why = !probe.writable ? "not writable" : "mounted noexec";
-            throw new Error(
-                `Install path "${dir}" is ${why}. Choose install and data directories on `
-                + `writable, exec-capable storage (e.g. a storage pool like /mnt/pool/sc-agent).`,
-            );
-        }
-    }
-}
-
-async function writeManifest(paths: InstallPaths, m: InstallManifest): Promise<void> {
-    await fs.writeFile(paths.manifest, JSON.stringify(m));
-}
-
-async function readManifest(paths: InstallPaths): Promise<InstallManifest | null> {
-    try {
-        return JSON.parse(await Bun.file(paths.manifest).text()) as InstallManifest;
-    } catch {
-        return null;
-    }
-}
-
-/** Whether an installed service already exists, by either persistence mechanism. */
-async function isInstalled(paths: InstallPaths): Promise<boolean> {
-    return (await Bun.file(UNIT_PATH).exists()) || (await readManifest(paths)) !== null;
-}
-
 /** The command that launches the installed agent from its config file. The systemd
  *  unit and the manual start command both use this; TMPDIR points at the exec-capable
  *  scratch so Bun can extract its native addons even when /tmp is noexec. */
-function launchCommand(paths: InstallPaths): string {
+function launchCommand(paths: AgentInstallPaths): string {
     return `TMPDIR=${paths.tmpDir} ${paths.bin} --agent --config ${paths.config}`;
 }
 
-/** Install via a systemd unit at UNIT_PATH. Restart=always gives crash recovery and
- *  re-execs the symlink after a self-update. */
-async function installSystemd(paths: InstallPaths): Promise<void> {
-    const unit = `[Unit]
-Description=Server Central Agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-Environment=TMPDIR=${paths.tmpDir}
-ExecStart=${paths.bin} --agent --config ${paths.config}
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-`;
-    await fs.writeFile(UNIT_PATH, unit);
-    await run("systemctl", ["daemon-reload"]);
-    await run("systemctl", ["enable", "--now", "sc-agent"]);
+/** Install via a systemd unit. Restart=always gives crash recovery and re-execs the
+ *  symlink after a self-update. */
+async function installSystemd(paths: AgentInstallPaths): Promise<void> {
+    await installSystemdUnit(AGENT_SPEC, paths, {
+        execStart: `${paths.bin} --agent --config ${paths.config}`,
+        env: { TMPDIR: paths.tmpDir },
+    });
 }
 
 /**
@@ -340,7 +232,7 @@ WantedBy=multi-user.target
  * reboot, and return the command for the operator to wire into their own init
  * system (e.g. a TrueNAS POSTINIT Init/Shutdown script, or cron @reboot).
  */
-function installManual(paths: InstallPaths): string {
+function installManual(paths: AgentInstallPaths): string {
     const cmd = launchCommand(paths);
     try {
         // setsid + detach so it survives this (exiting) live agent; failure is fine —
@@ -365,16 +257,14 @@ async function installSelf(opts: {
         throw new Error("Service install is only supported on Linux");
     }
     const paths = resolveInstallPaths(opts.installDir, opts.dataDir);
-    if (await isInstalled(paths)) {
+    if (await isInstalled(AGENT_SPEC, paths)) {
         throw new Error("sc-agent service is already installed");
     }
 
     await ensureInstallPathsUsable(paths);
     await fs.mkdir(paths.tmpDir, { recursive: true });
 
-    const bin = paths.versionedBin(AGENT_VERSION);
-    await fs.copyFile(process.execPath, bin);
-    await fs.chmod(bin, 0o755);
+    const bin = await copySelfToVersionedBin(paths, AGENT_VERSION);
     await pointSymlink(bin, paths.bin);
     await fs.writeFile(paths.cert, opts.certPem, { mode: 0o600 });
 
@@ -423,7 +313,7 @@ async function updateSelf(opts: {
     // so this resolves to wherever installSelf put things.
     const paths = resolveInstallPaths(opts.installDir, opts.dataDir);
     console.log(`[update] install dir ${paths.dir}, data dir ${paths.dataDir}, symlink ${paths.bin}`);
-    if (!(await isInstalled(paths))) {
+    if (!(await isInstalled(AGENT_SPEC, paths))) {
         throw new Error("sc-agent is not installed as a service");
     }
     if (opts.version === AGENT_VERSION) {
@@ -434,7 +324,7 @@ async function updateSelf(opts: {
     await downloadBinary({ control: opts.control, altControl: opts.altControl, certPem: opts.certPem, token: opts.token, dest: bin });
     console.log(`[update] repointing symlink ${paths.bin} -> ${bin}`);
     await pointSymlink(bin, paths.bin);
-    await pruneOldBinaries(paths, bin);
+    await pruneOldBinaries(AGENT_SPEC, paths, bin);
 
     console.log(`[update] updated to ${opts.version}; exiting in 1.5s so the supervisor re-execs the new binary.`);
     // Exit so the supervisor re-execs the symlink → the new version. Delay so the

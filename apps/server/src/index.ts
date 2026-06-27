@@ -10,6 +10,8 @@ import { ensureTls, localIps } from "./tls";
 import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
 import { runAgentCli } from "./agent/agent-cli";
+import { serveStatic } from "./static";
+import { offerInteractiveInstall, runServerInstallCli } from "./server-install";
 
 // This single binary is both the control plane and the host agent. With
 // `--agent` it connects to a control plane and runs the managed-host logic
@@ -17,6 +19,17 @@ import { runAgentCli } from "./agent/agent-cli";
 const cliArgs = process.argv.slice(2);
 if (cliArgs.includes("--agent")) {
     await runAgentCli(cliArgs);
+    process.exit(0);
+}
+
+// Self-install as a supervised control-plane service. `--install-server` is the
+// scripted path; running the bare binary on a TTY offers the same interactively.
+// The installed systemd unit runs with no TTY, so it skips both and boots below.
+if (cliArgs.includes("--install-server")) {
+    await runServerInstallCli(cliArgs);
+    process.exit(0);
+}
+if (cliArgs.length === 0 && process.stdin.isTTY && await offerInteractiveInstall()) {
     process.exit(0);
 }
 
@@ -142,6 +155,15 @@ const server = Bun.serve<WsData>({
                 return undefined as unknown as Response;
             }
             return new Response("Upgrade failed", { status: 400, headers: corsHeaders });
+        }
+
+        // Serve the embedded SPA for browser GETs. Returns null in dev (UI comes from
+        // Vite), so we fall through to the API's POST-only contract below.
+        if (req.method === "GET" || req.method === "HEAD") {
+            const asset = serveStatic(url.pathname);
+            if (asset) {
+                return asset;
+            }
         }
 
         if (req.method !== "POST") {

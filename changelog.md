@@ -4,6 +4,49 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-06-27 - Control-plane self-update from the web UI
+
+## Added
+
+- **Control-plane self-update.** Settings now shows the control plane's running version and, when it's installed as a service and a newer release exists, an "Update to X" button. It downloads the control plane's own-platform binary for the latest release (checksum-verified via the binary store), points the `sc-central` symlink at it, and exits so systemd re-execs the new version — mirroring the host-agent self-update. Two new API ops: `getControlPlaneStatus` (current/latest version + `updateAvailable`) and `updateControlPlane`.
+- **Latest-release lookup** (`getLatestVersion` in `binary-store.ts`): queries the GitHub releases/latest API derived from the release-source base URL (or `releaseSource.latestUrl` for a custom mirror), cached 10 min so UI polling doesn't exhaust the anonymous rate limit. A failed check degrades to "no update offered" rather than erroring.
+
+# 2026-06-27 - Single-binary control-plane self-install
+
+## Added
+
+- **The control plane installs itself**, like a host agent does. `sc-agent --install-server [--install-dir … --data-dir … --mechanism systemd|manual]` copies the running binary to a versioned path, points a stable `sc-central` symlink at it, and supervises it (systemd `Restart=always`, or a returned start command for "manual"). Running the bare binary on a TTY offers the same interactively with sensible defaults; the installed unit runs with no TTY so it skips the prompt and just boots. Combined with the lazy binary registry, **installing the control plane is now a single downloaded file** that needs no other platform binaries up front.
+- **`SC_DATA_DIR`** env override for the control plane's state dir (config, TLS, tokens, agent-binary cache), defaulting to `.sc-data` in dev. The installed unit sets it to the data dir (default `/var/lib/sc-central`) so the service is location-independent.
+
+## Changed
+
+- **Extracted the shared self-install primitives** (`agent/self-install.ts`): service layout, atomic symlink swap, versioned-binary pruning (rollback), exec/writable preflight, manifest, and the systemd unit writer — now parameterized by a `ServiceSpec` (name + description) and used by both the host agent and the control plane. `agent-cli.ts` keeps only its agent-specific cert/config handling on top. No behavior change for agents.
+
+# 2026-06-27 - Control plane as a lazy agent-binary registry
+
+## Added
+
+- **Lazy binary store** (`binary-store.ts`). The control plane no longer needs every platform's agent binary present on disk to serve agents. It resolves a requested `(os, arch)` binary in order: local cache (`<dataDir>/agent-binaries/sc-agent-<platform>-<version>`) → `dist/` (dev/custom builds) → **release source** (download, verify, cache). Agents still only ever download from the control plane; this just backfills what the control plane is missing, the first time a platform is actually requested. A homogeneous fleet never fetches the other platforms. `dist/` taking precedence keeps the dev/test loop offline, and dropping a binary into `dist/`/the cache (or pointing the release source elsewhere) is the custom-build hook.
+- **Release-source config** (`Config.releaseSource`: `baseUrl` + optional `token`). Defaults to this repo's public GitHub Releases (`…/releases/download/v<version>/<asset>`); override for a self-hosted/custom or authenticated mirror.
+- **Checksum integrity.** The release workflow now emits a `SHA256SUMS` asset, and the store verifies a downloaded binary against it before caching/serving — **failing closed** on a missing entry or mismatch. The control plane hands these binaries to root-running agents, so an unverified one is RCE; the agent→control-plane hop is already cert-pinned, so this closes the control-plane→source hop.
+
+## Changed
+
+- `NodeServer` serves `/node-binary` and `/node-bootstrap` via the store instead of reading `dist/` directly; store errors map to HTTP statuses (400 unsupported platform, 404/502 source failures). Concurrent requests for the same uncached platform are de-duped to a single download.
+
+# 2026-06-27 - All-in-one binary serves the web UI + release CI
+
+## Added
+
+- **Embedded web UI.** The compiled binary now serves the React SPA itself, so a single `sc-agent-*` file is the whole product (control plane + host agent + UI) with no separate static host. A new codegen step (`scripts/gen-web-assets.ts`) scans the Vite `dist/` output and emits `apps/server/src/web-assets.generated.ts`, which statically imports every asset with `{ type: "file" }` so `bun build --compile` bundles them into the binary. `static.ts` resolves request paths against that map — exact-match assets get `immutable` caching, unknown extensionless paths fall back to `index.html` for client-side routing, and missing files 404. Served on the same `:4141` as the API, so the existing `location.hostname:4141` API base is same-origin with no config. The committed generated file is empty (dev still serves the UI via Vite); release builds regenerate it.
+- **Release CI** (`.github/workflows/release.yml`). On a pushed `v*` tag (or manual dispatch) it typechecks, runs `build:agent` to build the web bundle and cross-compile all three targets, and attaches the binaries to a draft GitHub Release.
+- **Architecture in binary names.** Binaries are now `sc-agent-<os>-<arch>` (`sc-agent-linux-x64`, `sc-agent-mac-x64`, `sc-agent-windows-x64.exe`) so arm64 targets can be added later without colliding. The agent/bootstrap report `<os>-<arch>` (`process.arch` / `uname -m`) and the control plane keys `PLATFORM_BINARY` and the `/node-binary` + `/node-bootstrap` routes by that combined key. Only x64 is built today.
+
+## Changed
+
+- **`build:agent`** now builds the web SPA and embeds it before compiling (set `SKIP_WEB=1` to reuse an existing `apps/web/dist`). The web bundle is platform-agnostic, so it's built once up front and shared across all compile targets.
+- **`bun.lock` is now committed** (removed from `.gitignore`) so dependency changes show up in diffs and CI installs with `--frozen-lockfile` — catching unintended upgrades.
+
 # 2026-06-24 - Hardening: createDir injection, dispatch isolation, atomic writes, login throttle
 
 ## Fixed

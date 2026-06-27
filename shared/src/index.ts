@@ -482,6 +482,15 @@ export type CentralApiOperations = {
     // Update an installed agent to the control plane's current AGENT_VERSION.
     updateNodeService: { data: { serverId: string }; response: void };
 
+    // Control plane (the server itself): its running version vs. the latest release,
+    // and a self-update that swaps the binary and restarts. updateAvailable is false
+    // unless the control plane is installed as a service and a newer release exists.
+    getControlPlaneStatus: {
+        data: void;
+        response: { version: string; installed: boolean; latestVersion: string | null; updateAvailable: boolean };
+    };
+    updateControlPlane: { data: void; response: void };
+
     // Config
     getConfig: { data: void; response: { domain: string | null } };
     setDomain: { data: { domain: string | null }; response: void };

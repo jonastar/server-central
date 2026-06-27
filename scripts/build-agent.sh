@@ -32,9 +32,24 @@ fi
 cd "$ROOT"
 mkdir -p dist
 
-build_linux()   { echo "Building linux (glibc, portable)…"; "$BUN" build --compile --target=bun-linux-x64   "$ENTRY" --outfile dist/sc-agent-linux; }
-build_mac()     { echo "Building mac…";                       "$BUN" build --compile --target=bun-darwin-x64  "$ENTRY" --outfile dist/sc-agent-mac; }
-build_windows() { echo "Building windows…";                   "$BUN" build --compile --target=bun-windows-x64 "$ENTRY" --outfile dist/sc-agent-windows.exe; }
+# Build the web SPA and embed it into the binary. The web bundle is platform-agnostic,
+# so do it once up front; each compile target then bundles the generated asset imports.
+# Set SKIP_WEB=1 to reuse an existing apps/web/dist (e.g. fast iteration on the server).
+if [ "${SKIP_WEB:-0}" != "1" ]; then
+    echo "Building web SPA…"
+    bun run --filter @central/web build
+fi
+echo "Embedding web assets…"
+# Restore the committed (empty) generated file on exit so the working tree stays
+# clean — the assets are already compiled into the binaries by then.
+trap 'git checkout -- apps/server/src/web-assets.generated.ts 2>/dev/null || true' EXIT
+bun run scripts/gen-web-assets.ts
+
+# Output names carry the architecture (sc-agent-<os>-<arch>) so arm64 targets can be
+# added later without colliding. Only x64 is built today.
+build_linux()   { echo "Building linux x64 (glibc, portable)…"; "$BUN" build --compile --target=bun-linux-x64   "$ENTRY" --outfile dist/sc-agent-linux-x64; }
+build_mac()     { echo "Building mac x64…";                     "$BUN" build --compile --target=bun-darwin-x64  "$ENTRY" --outfile dist/sc-agent-mac-x64; }
+build_windows() { echo "Building windows x64…";                 "$BUN" build --compile --target=bun-windows-x64 "$ENTRY" --outfile dist/sc-agent-windows-x64.exe; }
 
 case "${1:-all}" in
     linux)   build_linux ;;

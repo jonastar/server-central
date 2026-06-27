@@ -16,10 +16,16 @@ CONTROL_WS="__CONTROL_WS__"
 ALT_FLAG="__ALT_FLAG__"
 
 case "$(uname -s)" in
-    Linux)  PLATFORM="linux" ;;
-    Darwin) PLATFORM="mac" ;;
+    Linux)  OS="linux" ;;
+    Darwin) OS="mac" ;;
     *) echo "sc-agent: unsupported OS $(uname -s)" >&2; exit 1 ;;
 esac
+case "$(uname -m)" in
+    x86_64|amd64)  ARCH="x64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    *) echo "sc-agent: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+esac
+PLATFORM="$OS-$ARCH"
 
 # Stage in the current directory (SC_STAGE overrides). The binary runs from here
 # and Bun extracts its native addons into TMPDIR here, so this dir must be writable

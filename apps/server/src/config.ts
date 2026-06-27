@@ -3,13 +3,30 @@ import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { AgentMode, SystemInfo } from "@central/shared";
 
-export const CONFIG_DIR = ".sc-data";
+// State dir for config, TLS, tokens, and the agent-binary cache. Relative ".sc-data"
+// in dev (resolved against cwd); an installed control plane sets SC_DATA_DIR to an
+// absolute path (e.g. /var/lib/sc-central) via its systemd unit.
+export const CONFIG_DIR = process.env.SC_DATA_DIR || ".sc-data";
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const AGENT_STATE_FILE = path.join(CONFIG_DIR, "agents.json");
 const AGENT_TOKENS_FILE = path.join(CONFIG_DIR, "agent-tokens.json");
 
 export interface Config {
     domain?: string;
+    /**
+     * Where the control plane backfills agent binaries it doesn't already have
+     * locally (cache or dist/). Defaults to this repo's GitHub Releases; override
+     * baseUrl for a self-hosted/custom mirror, and set token for an authenticated
+     * source. See binary-store.ts.
+     */
+    releaseSource?: {
+        baseUrl?: string;
+        token?: string;
+        /** Endpoint returning the latest release `tag_name` (for the control plane's
+         *  own update check). Defaults to the GitHub releases/latest API derived from
+         *  a github.com baseUrl; set explicitly for a custom mirror. */
+        latestUrl?: string;
+    };
 }
 
 /** Persisted record for a known agent, kept across server restarts. */
