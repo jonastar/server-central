@@ -1,4 +1,4 @@
-import type { ApiEvent, MetricsSnapshot, ServerEntry } from "@central/shared";
+import type { ApiEvent, MetricsSnapshot, ServerEntry, TaskRun } from "@central/shared";
 import { api, API_HOST, getToken } from "./api";
 
 const METRICS_CLIENT_MAX = 720;
@@ -9,6 +9,8 @@ export type ConnectionState = {
     servers: ServerEntry[];
     /** serverId → snapshots, oldest first. */
     metrics: Record<string, MetricsSnapshot[]>;
+    /** Recent task runs, newest first. */
+    tasks: TaskRun[];
     conn: { sendCommand: typeof api };
 };
 
@@ -24,6 +26,7 @@ class ConnectionManager {
         connecting: true,
         servers: [],
         metrics: {},
+        tasks: [],
     };
 
     /** Open the events socket. Called once the user is authenticated. */
@@ -44,7 +47,7 @@ class ConnectionManager {
         this.reconnectTimer = null;
         this.ws?.close();
         this.ws = null;
-        this.update({ connected: false, connecting: true, servers: [], metrics: {} });
+        this.update({ connected: false, connecting: true, servers: [], metrics: {}, tasks: [] });
     }
 
     private connect() {
@@ -73,7 +76,7 @@ class ConnectionManager {
     private handleEvent(event: ApiEvent): void {
         switch (event.kind) {
             case "init":
-                this.update({ servers: event.data.servers, metrics: event.data.metricsHistory });
+                this.update({ servers: event.data.servers, metrics: event.data.metricsHistory, tasks: event.data.tasks });
                 break;
             case "serversUpdate":
                 this.update({ servers: event.data });
@@ -89,6 +92,12 @@ class ConnectionManager {
                 const { serverId, snapshot } = event.data;
                 const history = [...(this.state.metrics[serverId] ?? []), snapshot].slice(-METRICS_CLIENT_MAX);
                 this.update({ metrics: { ...this.state.metrics, [serverId]: history } });
+                break;
+            }
+            case "taskUpdate": {
+                const run = event.data;
+                const rest = this.state.tasks.filter((t) => t.id !== run.id);
+                this.update({ tasks: [run, ...rest] });
                 break;
             }
         }

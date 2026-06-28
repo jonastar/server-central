@@ -4,6 +4,15 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-06-28 - Task system (first slice: WAN IP check)
+
+## Added
+
+- **A control-plane task system.** Tasks are a unit of work the control plane runs (optionally against a host agent), each carrying a uniform envelope — id, status (`pending`/`running`/`succeeded`/`failed`/`cancelled`), a *typed* result, trigger, and timestamps — so any kind gets run history, last-result inspection, and a "run now" affordance for free. A task's spec is a closed discriminated union keyed by `kind` in `@central/shared` (`TaskSpec` = `TaskCmd | TaskFindWanIp`), with a parallel `TaskResult` union on the same `kind`; the server has one handler per kind (`apps/server/src/tasks/types.ts`, `taskHandlers`), mirroring the API operation layer. Adding a kind = spec variant + result variant + handler.
+- **Runner + store.** `TaskRunner` owns the lifecycle (status transitions, resolved-agent + cancellation context, broadcasting each change as a `taskUpdate` event); `TaskStore` persists runs to `.sc-data/tasks.json`, newest-first, capped at 200. New API ops `runTask`/`listTasks`/`getTask`; the `/events` `init` payload now seeds recent runs so the web client has history on connect.
+- **First migrated kind: `find_wan_ip`** (control-plane STUN, wrapping `discoverWanIp`). Settings has an "External (WAN) IP" card with a "Check now" button that starts the task and shows the latest run's IP + timestamp, updating live over the events socket.
+- Deferred for later slices (wire types already present where noted): scheduled tasks (`TaskSchedule`), task logs (`TaskLogLine`), cancellation, and agent-targeted kinds (e.g. per-node STUN, agent update with resume-across-reconnect).
+
 # 2026-06-27 - Control-plane self-update from the web UI
 
 ## Added

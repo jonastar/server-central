@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
+import { useConnection } from "../hooks/useConnection";
 
 interface ControlPlaneStatus {
     version: string;
@@ -17,6 +18,17 @@ export function SettingsView() {
     const [cp, setCp] = useState<ControlPlaneStatus | null>(null);
     const [updating, setUpdating] = useState(false);
     const [cpMsg, setCpMsg] = useState<string | null>(null);
+
+    // Latest control-plane WAN IP check (a `find_wan_ip` task run, newest first).
+    const { tasks } = useConnection();
+    const wanRun = tasks.find((t) => t.target === null && t.spec.kind === "find_wan_ip");
+    const wanInFlight = wanRun?.status === "pending" || wanRun?.status === "running";
+
+    async function checkWanIp() {
+        try {
+            await api("runTask", { spec: { kind: "find_wan_ip" }, target: null });
+        } catch { /* surfaced via the run's failed status */ }
+    }
 
     useEffect(() => {
         api("getConfig", undefined).then((c) => {
@@ -103,6 +115,28 @@ export function SettingsView() {
                 ) : (
                     <p style={{ margin: 0, color: "var(--fg-muted)", fontSize: 13 }}>Loading…</p>
                 )}
+            </div>
+
+            <div style={{ maxWidth: 480, marginBottom: 28 }}>
+                <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>External (WAN) IP</h2>
+                <p style={{ margin: "0 0 12px", color: "var(--fg-muted)", fontSize: 13 }}>
+                    The control plane's public IP, discovered via STUN.
+                </p>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button className="btn" type="button" disabled={wanInFlight} onClick={checkWanIp}>
+                        {wanInFlight ? "Checking…" : "Check now"}
+                    </button>
+                    {wanRun && !wanInFlight && (
+                        <span style={{ fontSize: 13, color: "var(--fg-muted)" }}>
+                            {wanRun.status === "failed"
+                                ? `Failed: ${wanRun.error ?? "unknown error"}`
+                                : <>
+                                    <code>{wanRun.result?.kind === "find_wan_ip" ? wanRun.result.ip ?? "not detected" : "—"}</code>
+                                    {wanRun.finishedAt && ` · ${new Date(wanRun.finishedAt).toLocaleString()}`}
+                                </>}
+                        </span>
+                    )}
+                </div>
             </div>
 
             <div style={{ maxWidth: 480 }}>

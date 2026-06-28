@@ -1,7 +1,10 @@
 import pkg from "../package.json" with { type: "json" };
 
+import type { TaskRun, TaskSpec } from "./tasks";
+
 export * from "./node-protocol";
 export * from "./metrics";
+export * from "./tasks";
 
 // ---- Protocol plumbing -------------------------------------------------------
 //
@@ -494,15 +497,25 @@ export type CentralApiOperations = {
     // Config
     getConfig: { data: void; response: { domain: string | null } };
     setDomain: { data: { domain: string | null }; response: void };
+
+    // Tasks — the uniform envelope (history, typed last-result, run-now).
+    // (Logs, cancellation, and schedules are deferred until a task kind needs
+    // them; the wire types for those already live in ./tasks.)
+    listTasks: { data: { target?: string | null; kind?: TaskSpec["kind"]; limit?: number }; response: TaskRun[] };
+    getTask: { data: { id: string }; response: TaskRun | null };
+    // Run-now: create + start a run immediately. Returns its id to navigate to.
+    runTask: { data: { spec: TaskSpec; target: string | null }; response: { id: string } };
 };
 
 // ---- WebSocket events ----------------------------------------------------------
 
 export type ApiEvent =
-    | { kind: "init"; data: { servers: ServerEntry[]; metricsHistory: Record<string, MetricsSnapshot[]> } }
+    | { kind: "init"; data: { servers: ServerEntry[]; metricsHistory: Record<string, MetricsSnapshot[]>; tasks: TaskRun[] } }
     | { kind: "serversUpdate"; data: ServerEntry[] }
     | { kind: "statusUpdate"; data: ServerStatus }
-    | { kind: "metrics"; data: { serverId: string; snapshot: MetricsSnapshot } };
+    | { kind: "metrics"; data: { serverId: string; snapshot: MetricsSnapshot } }
+    // A run was created or changed status. Carries the full envelope.
+    | { kind: "taskUpdate"; data: TaskRun };
 
 // ---- Terminal protocol (WebSocket at /terminal?serverId=...) --------------------
 

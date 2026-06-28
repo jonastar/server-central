@@ -6,6 +6,8 @@ import { CONFIG_DIR, readConfig } from "./config";
 import { AuthStore, type AuthContext } from "./auth";
 import { Fleet } from "./fleet";
 import { CentralHandler } from "./handler";
+import { TaskStore } from "./tasks/store";
+import { TaskRunner } from "./tasks/runner";
 import { ensureTls, localIps } from "./tls";
 import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
@@ -82,7 +84,11 @@ const nodeServer = await startNodeServer(
     tlsDir,
 );
 
-const handler = new CentralHandler(fleet, auth, nodeServer);
+const taskStore = new TaskStore();
+await taskStore.init();
+const taskRunner = new TaskRunner(taskStore, fleet, (run) => broadcast({ kind: "taskUpdate", data: run }));
+
+const handler = new CentralHandler(fleet, auth, nodeServer, taskRunner, taskStore);
 
 /** Commands callable without a session (first-run setup + login). */
 const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]);
@@ -203,7 +209,7 @@ const server = Bun.serve<WsData>({
                 eventSockets.add(ws);
                 ws.send(JSON.stringify({
                     kind: "init",
-                    data: { servers: fleet.entries(), metricsHistory: fleet.metricsHistory() },
+                    data: { servers: fleet.entries(), metricsHistory: fleet.metricsHistory(), tasks: taskStore.list() },
                 } satisfies ApiEvent));
             } else {
                 void openTerminal(ws);

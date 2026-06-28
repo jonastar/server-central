@@ -11,8 +11,17 @@
 - Prefix API endpoints with /api/
 - Networking "remote ip" (seen by control panel)
   - Lets add a "Stun" one as well, we have detection on the control plane at least but lets also add it to the nodes?
+- Terminal needs some inner padding, the last line is slightly cut off
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
+
+### Manual-install supervisor script
+
+> Design spec: [docs/manual-install-supervisor.md](docs/manual-install-supervisor.md).
+> Manual (custom) installs currently spawn the agent one-shot, so self-update's
+> "exit and let the supervisor re-exec" leaves them dead. Plan: write a
+> self-restarting `sc-agent-run.sh` into the install dir (Restart=always equivalent)
+> + emit the agent pid to a file. Not yet implemented.
 
 ## Stack management
 
@@ -20,16 +29,27 @@ TODO
 
 ### Task system
 
+> Design spec: [docs/task-system.md](docs/task-system.md). First slice
+> (`find_wan_ip`) is implemented; schedules/logs/cancel/resume are designed but
+> deferred there.
+
 Some things could benefit from a task system, for example:
 
 - Agent updates could be a task
 - Start/Stop services of various kinds
 - Agent install?
 - Backups of various kinds (not implemented yet)
+- Stun IP check
 
 The task system could have task scoped logs, time tracking, status updates etc
 
 Further down the road (not for v1) we could have long running tasks that might need things such as progress tracking for resuming and such, but yeah.
+
+**Scheduled tasks**
+
+A sub feature would be scheduled tasks which runs at an interval. Unsure about the naming, the goal would be: On the interval, trigger, or whatever: create a task instance.
+
+So maybe this could be a flows thing? with various triggers?
 
 ### Better process list?
 

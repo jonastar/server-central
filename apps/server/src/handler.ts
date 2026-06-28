@@ -19,6 +19,8 @@ import type {
     ServiceAction,
     StackAction,
     SystemdState,
+    TaskRun,
+    TaskSpec,
     UserInfo,
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
@@ -40,6 +42,8 @@ import { systemdList, systemdServiceAction, systemdServiceLogs, systemdUnitFile 
 import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
+import type { TaskRunner } from "./tasks/runner";
+import type { TaskStore } from "./tasks/store";
 import { readConfig, setDomain as persistSetDomain } from "./config";
 import { controlPlaneStatus, updateControlPlane } from "./server-install";
 
@@ -48,6 +52,8 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         private readonly fleet: Fleet,
         private readonly auth: AuthStore,
         private readonly nodeServer: NodeServer | null = null,
+        private readonly tasks: TaskRunner,
+        private readonly taskStore: TaskStore,
     ) { }
 
     // ---- Auth -----------------------------------------------------------------
@@ -242,6 +248,21 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         // Re-issue the leaf so it carries the new domain in its SAN; agents trust the
         // CA, so this takes effect without re-enrolling anything.
         await this.nodeServer?.refreshTls();
+    }
+
+    // ---- Tasks -------------------------------------------------------------------------
+
+    async handleRunTask(data: { spec: TaskSpec; target: string | null }, ctx?: AuthContext): Promise<{ id: string }> {
+        const run = await this.tasks.start(data.spec, data.target, { kind: "manual", userId: ctx?.user?.id });
+        return { id: run.id };
+    }
+
+    async handleListTasks(data: { target?: string | null; kind?: TaskSpec["kind"]; limit?: number }): Promise<TaskRun[]> {
+        return this.taskStore.list(data);
+    }
+
+    async handleGetTask(data: { id: string }): Promise<TaskRun | null> {
+        return this.taskStore.get(data.id);
     }
 
     // ---- Processes ---------------------------------------------------------------------

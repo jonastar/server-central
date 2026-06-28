@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
-import type { AgentMode, SystemInfo } from "@central/shared";
+import type { AgentMode, SystemInfo, TaskRun } from "@central/shared";
 
 // State dir for config, TLS, tokens, and the agent-binary cache. Relative ".sc-data"
 // in dev (resolved against cwd); an installed control plane sets SC_DATA_DIR to an
@@ -10,6 +10,7 @@ export const CONFIG_DIR = process.env.SC_DATA_DIR || ".sc-data";
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const AGENT_STATE_FILE = path.join(CONFIG_DIR, "agents.json");
 const AGENT_TOKENS_FILE = path.join(CONFIG_DIR, "agent-tokens.json");
+const TASK_STATE_FILE = path.join(CONFIG_DIR, "tasks.json");
 
 export interface Config {
     domain?: string;
@@ -110,4 +111,23 @@ export async function readAgentTokens(): Promise<Record<string, string>> {
 export async function writeAgentTokens(tokens: Record<string, string>): Promise<void> {
     await ensureDir();
     await writeFileAtomic(AGENT_TOKENS_FILE, JSON.stringify(tokens, null, 2));
+}
+
+/**
+ * Persisted task runs, newest last. The store caps how many it keeps before
+ * writing, so this file stays bounded.
+ */
+export async function readTaskState(): Promise<TaskRun[]> {
+    try {
+        const text = await fs.readFile(TASK_STATE_FILE, "utf8");
+        const parsed = JSON.parse(text);
+        return Array.isArray(parsed) ? (parsed as TaskRun[]) : [];
+    } catch {
+        return [];
+    }
+}
+
+export async function writeTaskState(runs: TaskRun[]): Promise<void> {
+    await ensureDir();
+    await writeFileAtomic(TASK_STATE_FILE, JSON.stringify(runs, null, 2));
 }
