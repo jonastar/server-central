@@ -36,6 +36,19 @@ export class BinaryStoreError extends Error {
     }
 }
 
+/** Legacy platform names from older agents, mapped to their current equivalent.
+ *  Pre-x64 builds reported a bare arch-less "linux"; keep enrolling them working. */
+const LEGACY_PLATFORM_ALIASES: Record<string, Platform> = {
+    linux: "linux-x64",
+    mac: "mac-x64",
+    windows: "windows-x64",
+};
+
+/** Map a legacy platform name to its current equivalent (pass-through otherwise). */
+function normalizePlatform(platform: string): string {
+    return LEGACY_PLATFORM_ALIASES[platform] ?? platform;
+}
+
 function isSupported(platform: string): platform is Platform {
     return (SUPPORTED_PLATFORMS as readonly string[]).includes(platform);
 }
@@ -67,6 +80,7 @@ const inflight = new Map<string, Promise<string>>();
  * platforms or an unreachable/invalid release source.
  */
 export async function resolveAgentBinary(platform: string, version: string = AGENT_VERSION): Promise<string> {
+    platform = normalizePlatform(platform);
     if (!isSupported(platform)) {
         throw new BinaryStoreError(`Unsupported platform: ${platform}`, 400);
     }
@@ -106,6 +120,7 @@ export async function resolveAgentBinary(platform: string, version: string = AGE
  * the cache and to fetch the control plane's own self-update binary.
  */
 export async function downloadVerifiedBinary(platform: string, version: string, dest: string): Promise<string> {
+    platform = normalizePlatform(platform);
     if (!isSupported(platform)) {
         throw new BinaryStoreError(`Unsupported platform: ${platform}`, 400);
     }

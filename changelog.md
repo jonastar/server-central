@@ -4,6 +4,24 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-06-29 - Unified log viewer for Docker and systemd
+
+## Added
+
+- **One log viewer for both Docker containers and systemd services.** systemd logs now render in the same ANSI-aware `LogViewer` (search, wrap) that Docker already used, replacing the plain `<pre>`. A new `LogViewerModal` wrapper owns the fetch controls so both sources share them.
+- **Exposed log controls:** line limit (200/500/1k/5k), time window (`since`: 15m/1h/6h/24h), and an oldest-vs-newest order toggle. Source-specific extras: journald severity filter (`-p err/warning/info/debug`) and a Docker timestamps toggle. Plus a live line count, Copy, and Download.
+- **Bigger window.** Log modals now open near-fullscreen (`Modal` gained a `large` variant with a flex-fill body, sized 96vw × 94vh) instead of the old fixed-width modal.
+- **More legible data tables.** Zebra striping and a clear row hover (so it's obvious which row's buttons you're clicking), plus a status-colored accent bar and row tint — applied to the Docker containers and systemd services tables via `row-status-{ok,warn,err}`.
+- **Status filters** on both tables, as an inline segmented control (shared `StatusFilter`) so every state is visible at once with a live count and a status-colored dot: systemd services by Active/Inactive/Failed (replacing the old "Active only" checkbox) and Docker containers by Running/Paused/Stopped, keyed to the same status tokens as the row colors.
+
+## Changed
+
+- `dockerContainerLogs`/`systemdServiceLogs` API ops now take a shared `LogQuery` (`limit`/`order`/`since`) plus their source-specific option. Backend translation (journald `--since`/`-p`/`--reverse`, Docker `--since`/`--timestamps`, line-reversal for Docker newest-first) lives in `apps/server/src/log-query.ts`.
+
+## Deferred
+
+- Live follow/tail mode — needs a streaming exec RPC (current `runExec` is one-shot); the `LogViewerModal` Refresh button is the interim.
+
 # 2026-06-28 - Task system (first slice: WAN IP check)
 
 ## Added

@@ -1,5 +1,6 @@
-import type { ServiceAction, ServiceInfo, SystemdState } from "@central/shared";
+import type { LogQuery, ServiceAction, ServiceInfo, SystemdState } from "@central/shared";
 import type { HostAgent } from "./host-agent";
+import { journalPriority, journalSince } from "./log-query";
 
 // Unit names: letters, digits, and the punctuation systemd allows (`. _ - @ : \`).
 const SAFE_UNIT_RE = /^[A-Za-z0-9_.@:\\-]+$/;
@@ -79,10 +80,22 @@ export async function systemdServiceAction(
 export async function systemdServiceLogs(
     server: HostAgent,
     unit: string,
-    lines: number,
+    opts: LogQuery & { priority?: string },
 ): Promise<string> {
     assertUnit(unit);
-    const res = await server.exec(`journalctl -u ${unit} -n ${Math.floor(lines)} --no-pager --output short-iso 2>&1`);
+    const flags = [`-u ${unit}`, `-n ${Math.floor(opts.limit ?? 300)}`, "--no-pager", "--output short-iso"];
+    const since = journalSince(opts.since);
+    if (since) {
+        flags.push(`--since "${since}"`);
+    }
+    const priority = journalPriority(opts.priority);
+    if (priority) {
+        flags.push(`-p ${priority}`);
+    }
+    if (opts.order === "newest") {
+        flags.push("--reverse");
+    }
+    const res = await server.exec(`journalctl ${flags.join(" ")} 2>&1`);
     return res.stdout;
 }
 

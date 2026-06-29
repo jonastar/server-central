@@ -2,26 +2,22 @@ import { useCallback, useEffect, useState } from "react";
 import type { ContainerAction, ContainerInfo, DockerState } from "@central/shared";
 import { api } from "../../api";
 import { cx } from "../../utils";
-import { EmptyState, ErrorBanner, Modal } from "../ui";
-import { LogViewer } from "../LogViewer";
+import { EmptyState, ErrorBanner } from "../ui";
+import { LogViewerModal } from "../LogViewerModal";
+import { StatusFilter, type StatusToken } from "../StatusFilter";
 import { ContainerDetail } from "./ContainerDetail";
 
 const REFRESH_MS = 10_000;
 
-function stateBadge(state: string): string {
+/** Maps a container state to a status token used for both the badge and the row accent. */
+function stateStatus(state: string): "ok" | "warn" | "err" {
     if (state === "running") {
-        return "badge-ok";
+        return "ok";
     }
     if (state === "paused" || state === "restarting") {
-        return "badge-warn";
+        return "warn";
     }
-    return "badge-err";
-}
-
-interface LogState {
-    container: ContainerInfo;
-    text: string;
-    loading: boolean;
+    return "err";
 }
 
 export function DockerContainers({ serverId, initialFilter }: { serverId: string; initialFilter?: string }) {
@@ -29,7 +25,8 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [filter, setFilter] = useState(initialFilter ?? "");
-    const [logs, setLogs] = useState<LogState | null>(null);
+    const [statusFilter, setStatusFilter] = useState<StatusToken>("all");
+    const [logTarget, setLogTarget] = useState<ContainerInfo | null>(null);
     const [detail, setDetail] = useState<ContainerInfo | null>(null);
 
     const load = useCallback(async () => {
@@ -63,18 +60,7 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
         }
     }
 
-    const fetchLogs = useCallback(async (container: ContainerInfo) => {
-        setLogs((prev) => (prev ? { ...prev, loading: true } : { container, text: "", loading: true }));
-        try {
-            const res = await api("dockerContainerLogs", { serverId, containerId: container.id, tail: 2000 });
-            setLogs({ container, text: res.logs || "(no output)", loading: false });
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-            setLogs(null);
-        }
-    }, [serverId]);
-
-    const shown = (docker?.containers ?? []).filter((c) => {
+    const textFiltered = (docker?.containers ?? []).filter((c) => {
         if (!filter) {
             return true;
         }
@@ -83,6 +69,11 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
             || c.image.toLowerCase().includes(q)
             || (c.project ?? "").toLowerCase().includes(q);
     });
+    const counts = { all: textFiltered.length, ok: 0, warn: 0, err: 0 };
+    for (const c of textFiltered) {
+        counts[stateStatus(c.state)]++;
+    }
+    const shown = textFiltered.filter((c) => statusFilter === "all" || stateStatus(c.state) === statusFilter);
 
     return (
         <section className="panel">
@@ -93,6 +84,16 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
                     placeholder="Filter by name, image or stack…"
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
+                />
+                <StatusFilter
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    options={[
+                        { value: "all", label: "All", count: counts.all },
+                        { value: "ok", label: "Running", count: counts.ok },
+                        { value: "warn", label: "Paused", count: counts.warn },
+                        { value: "err", label: "Stopped", count: counts.err },
+                    ]}
                 />
             </div>
 
@@ -111,13 +112,13 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
                     </thead>
                     <tbody>
                         {shown.map((c) => (
-                            <tr key={c.id} className={cx(busyId === c.id && "row-busy")}>
+                            <tr key={c.id} className={cx(`row-status-${stateStatus(c.state)}`, busyId === c.id && "row-busy")}>
                                 <td>
                                     <button className="link-btn" onClick={() => setDetail(c)}><b>{c.name}</b></button>
                                 </td>
                                 <td className="dim">{c.project ?? "—"}</td>
                                 <td className="dim">{c.image}</td>
-                                <td><span className={cx("badge", stateBadge(c.state))}>{c.state}</span></td>
+                                <td><span className={cx("badge", `badge-${stateStatus(c.state)}`)}>{c.state}</span></td>
                                 <td className="dim">{c.status}</td>
                                 <td className="dim mono ports-cell" title={c.ports}>{c.ports}</td>
                                 <td className="row-actions-always">
@@ -132,7 +133,7 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
                                     ) : (
                                         <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "start")}>Start</button>
                                     )}
-                                    <button className="btn btn-sm" onClick={() => void fetchLogs(c)}>Logs</button>
+                                    <button className="btn btn-sm" onClick={() => setLogTarget(c)}>Logs</button>
                                     <button className="btn btn-sm btn-danger" disabled={busyId !== null} onClick={() => void action(c, "remove")}>✕</button>
                                 </td>
                             </tr>
@@ -141,10 +142,13 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
                 </table>
             ))}
 
-            {logs && (
-                <Modal title={`Logs — ${logs.container.name}`} onClose={() => setLogs(null)} width={900}>
-                    <LogViewer text={logs.text} loading={logs.loading} onRefresh={() => void fetchLogs(logs.container)} />
-                </Modal>
+            {logTarget && (
+                <LogViewerModal
+                    title={`Logs — ${logTarget.name}`}
+                    onClose={() => setLogTarget(null)}
+                    caps={{ timestamps: true }}
+                    fetchLogs={(q) => api("dockerContainerLogs", { serverId, containerId: logTarget.id, ...q }).then((r) => r.logs)}
+                />
             )}
 
             {detail && (
@@ -153,7 +157,7 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
                     containerId={detail.id}
                     name={detail.name}
                     onClose={() => setDetail(null)}
-                    onShowLogs={() => { void fetchLogs(detail); setDetail(null); }}
+                    onShowLogs={() => { setLogTarget(detail); setDetail(null); }}
                 />
             )}
         </section>

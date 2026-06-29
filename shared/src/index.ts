@@ -404,6 +404,22 @@ export interface UserInfo {
     createdAt: number;
 }
 
+// ---- Log viewing ---------------------------------------------------------------
+
+/** Display order for log output: oldest line first (classic tail) or newest first. */
+export type LogOrder = "oldest" | "newest";
+/** Relative time window for log queries. "" means no window (limit only). */
+export type LogSince = "" | "15m" | "1h" | "6h" | "24h";
+/** Options shared by every log endpoint (docker, journald, …). */
+export interface LogQuery {
+    /** Max number of lines/entries to return (tail size). */
+    limit?: number;
+    /** Display order; defaults to "oldest". */
+    order?: LogOrder;
+    /** Only return entries newer than this window. */
+    since?: LogSince;
+}
+
 // ---- HTTP API operations -------------------------------------------------------
 
 export type CentralApiOperations = {
@@ -436,7 +452,7 @@ export type CentralApiOperations = {
     // Docker
     dockerList: { data: { serverId: string }; response: DockerState };
     dockerContainerAction: { data: { serverId: string; containerId: string; action: ContainerAction }; response: void };
-    dockerContainerLogs: { data: { serverId: string; containerId: string; tail?: number }; response: { logs: string } };
+    dockerContainerLogs: { data: { serverId: string; containerId: string; timestamps?: boolean } & LogQuery; response: { logs: string } };
     dockerOverview: { data: { serverId: string }; response: DockerOverview };
     dockerStacks: { data: { serverId: string }; response: DockerStacksState };
     dockerStackAction: { data: { serverId: string; project: string; action: StackAction }; response: void };
@@ -455,7 +471,7 @@ export type CentralApiOperations = {
     // Systemd — list services, control them, view logs and unit files.
     systemdList: { data: { serverId: string }; response: SystemdState };
     systemdServiceAction: { data: { serverId: string; unit: string; action: ServiceAction }; response: void };
-    systemdServiceLogs: { data: { serverId: string; unit: string; lines?: number }; response: { logs: string } };
+    systemdServiceLogs: { data: { serverId: string; unit: string; priority?: string } & LogQuery; response: { logs: string } };
     systemdUnitFile: { data: { serverId: string; unit: string }; response: { content: string } };
 
     // Node enrollment

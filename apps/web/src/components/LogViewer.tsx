@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { LogOrder } from "@central/shared";
 import { ansiStyleToCss, ansiToSegments, type AnsiSegment } from "../ansi";
 import { cx } from "../utils";
 
@@ -9,12 +10,15 @@ function escapeRegExp(s: string): string {
 /**
  * Renders log text with ANSI colors and a find-in-text box (highlight, prev/next,
  * match counter). Fetches nothing itself — the caller supplies the raw text — so it
- * can be reused for container logs, journald output, etc.
+ * can be reused for container logs, journald output, etc. `controls` is an optional
+ * slot for fetch controls (limit, order, …) owned by the caller.
  */
-export function LogViewer({ text, loading, onRefresh }: {
+export function LogViewer({ text, order = "oldest", loading, onRefresh, controls }: {
     text: string;
+    order?: LogOrder;
     loading?: boolean;
     onRefresh?: () => void;
+    controls?: ReactNode;
 }) {
     const [query, setQuery] = useState("");
     const [wrap, setWrap] = useState(true);
@@ -22,6 +26,7 @@ export function LogViewer({ text, loading, onRefresh }: {
     const bodyRef = useRef<HTMLDivElement>(null);
 
     const lines = useMemo(() => text.split("\n").map((line) => ansiToSegments(line)), [text]);
+    const lineCount = lines.length;
 
     const matcher = useMemo(() => (query ? new RegExp(escapeRegExp(query), "gi") : null), [query]);
 
@@ -38,12 +43,13 @@ export function LogViewer({ text, loading, onRefresh }: {
         setCurrent((c) => (matchCount === 0 ? 0 : Math.min(c, matchCount - 1)));
     }, [matchCount]);
 
-    // Auto-scroll to the bottom on new content while not searching.
+    // Auto-scroll on new content while not searching: to the newest line, which is
+    // at the bottom for oldest-first and at the top for newest-first.
     useLayoutEffect(() => {
         if (!query && bodyRef.current) {
-            bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+            bodyRef.current.scrollTop = order === "newest" ? 0 : bodyRef.current.scrollHeight;
         }
-    }, [text, query]);
+    }, [text, query, order]);
 
     // Scroll the active match into view.
     useEffect(() => {
@@ -58,6 +64,15 @@ export function LogViewer({ text, loading, onRefresh }: {
             return;
         }
         setCurrent((c) => (c + delta + matchCount) % matchCount);
+    }
+
+    function downloadLog() {
+        const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "logs.txt";
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     // Render a single ANSI segment, splitting on search matches. `counter` is a
@@ -101,6 +116,7 @@ export function LogViewer({ text, loading, onRefresh }: {
 
     return (
         <div className="log-viewer">
+            {controls && <div className="log-controls">{controls}</div>}
             <div className="log-toolbar">
                 <input
                     className="filter-input"
@@ -123,6 +139,9 @@ export function LogViewer({ text, loading, onRefresh }: {
                 <label className="log-toolbar-toggle">
                     <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} /> Wrap
                 </label>
+                <span className="log-line-count">{lineCount.toLocaleString()} lines</span>
+                <button className="btn btn-sm" title="Copy" onClick={() => void navigator.clipboard.writeText(text)}>Copy</button>
+                <button className="btn btn-sm" title="Download" onClick={downloadLog}>Download</button>
                 {onRefresh && (
                     <button className="btn btn-sm" disabled={loading} onClick={onRefresh}>
                         {loading ? "…" : "Refresh"}

@@ -11,9 +11,11 @@ import type {
     DockerVolumeDetail,
     DockerVolumeInfo,
     ImageAction,
+    LogQuery,
     StackAction,
 } from "@central/shared";
 import type { HostAgent } from "./host-agent";
+import { dockerSince, reverseLines } from "./log-query";
 
 const SAFE_ID_RE = /^[A-Za-z0-9_.-]+$/;
 const SAFE_REF_RE = /^[A-Za-z0-9_./:@-]+$/;
@@ -284,13 +286,21 @@ export async function dockerContainerInspect(server: HostAgent, containerId: str
 export async function dockerContainerLogs(
     server: HostAgent,
     containerId: string,
-    tail: number,
+    opts: LogQuery & { timestamps?: boolean },
 ): Promise<string> {
     if (!SAFE_ID_RE.test(containerId)) {
         throw new Error(`Invalid container id: ${containerId}`);
     }
-    const res = await server.exec(`docker logs --tail ${Math.floor(tail)} ${containerId} 2>&1`);
-    return res.stdout;
+    const flags = [`--tail ${Math.floor(opts.limit ?? 500)}`];
+    const since = dockerSince(opts.since);
+    if (since) {
+        flags.push(`--since ${since}`);
+    }
+    if (opts.timestamps) {
+        flags.push("--timestamps");
+    }
+    const res = await server.exec(`docker logs ${flags.join(" ")} ${containerId} 2>&1`);
+    return opts.order === "newest" ? reverseLines(res.stdout) : res.stdout;
 }
 
 export async function dockerVolumeInspect(server: HostAgent, name: string): Promise<DockerVolumeDetail> {

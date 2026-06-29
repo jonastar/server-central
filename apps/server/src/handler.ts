@@ -137,8 +137,9 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         await dockerContainerAction(this.fleet.get(data.serverId), data.containerId, data.action);
     }
 
-    async handleDockerContainerLogs(data: { serverId: string; containerId: string; tail?: number }): Promise<{ logs: string }> {
-        return { logs: await dockerContainerLogs(this.fleet.get(data.serverId), data.containerId, data.tail ?? 500) };
+    async handleDockerContainerLogs(data: CentralApiOperations["dockerContainerLogs"]["data"]): Promise<{ logs: string }> {
+        const { serverId, containerId, ...opts } = data;
+        return { logs: await dockerContainerLogs(this.fleet.get(serverId), containerId, opts) };
     }
 
     async handleDockerOverview(data: { serverId: string }): Promise<DockerOverview> {
@@ -304,8 +305,9 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         await systemdServiceAction(this.fleet.get(data.serverId), data.unit, data.action);
     }
 
-    async handleSystemdServiceLogs(data: { serverId: string; unit: string; lines?: number }): Promise<{ logs: string }> {
-        return { logs: await systemdServiceLogs(this.fleet.get(data.serverId), data.unit, data.lines ?? 300) };
+    async handleSystemdServiceLogs(data: CentralApiOperations["systemdServiceLogs"]["data"]): Promise<{ logs: string }> {
+        const { serverId, unit, ...opts } = data;
+        return { logs: await systemdServiceLogs(this.fleet.get(serverId), unit, opts) };
     }
 
     async handleSystemdUnitFile(data: { serverId: string; unit: string }): Promise<{ content: string }> {

@@ -412,9 +412,54 @@ input:focus, select:focus, textarea:focus {
 
 .th-sortable { cursor: pointer; user-select: none; }
 .row-clickable { cursor: pointer; }
-.row-clickable:hover td { background: var(--panel-2); }
-.row-active td { background: var(--accent-soft); }
+
+/* Cascade order matters here: zebra < status tint < hover < active. */
+
+/* Zebra striping. */
+.data-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel-2) 55%, transparent); }
+
+/* Status tint across the whole row + a bold accent bar on the leading cell,
+   set via .row-status-* on the row. */
+.data-table td:first-child { box-shadow: inset 4px 0 0 transparent; }
+.data-table tbody tr.row-status-ok td { background: color-mix(in srgb, var(--ok) 9%, var(--panel)); }
+.data-table tbody tr.row-status-warn td { background: color-mix(in srgb, var(--warn) 11%, var(--panel)); }
+.data-table tbody tr.row-status-err td { background: color-mix(in srgb, var(--err) 10%, var(--panel)); }
+.data-table tbody tr.row-status-muted td { background: color-mix(in srgb, var(--muted) 6%, var(--panel)); }
+.row-status-ok td:first-child { box-shadow: inset 4px 0 0 var(--ok); }
+.row-status-warn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
+.row-status-err td:first-child { box-shadow: inset 4px 0 0 var(--err); }
+.row-status-muted td:first-child { box-shadow: inset 4px 0 0 color-mix(in srgb, var(--muted) 50%, transparent); }
+
+/* A clear hover so it's obvious which row's buttons you're on (wins over status tint). */
+.data-table tbody tr:hover td { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.data-table tbody tr:hover td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.data-table tbody tr:hover .row-actions-always .btn { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.data-table tbody tr.row-active td { background: var(--accent-soft); }
+
 .row-busy { opacity: 0.5; }
+
+/* Segmented status filter — all states visible at once, each with a count. */
+.status-filter { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+}
+.status-pill:hover { background: var(--panel-2); }
+.status-pill.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.status-pill-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.status-pill.active .status-pill-count { color: inherit; }
+.pill-dot { width: 7px; height: 7px; border-radius: 50%; }
+.pill-dot-ok { background: var(--ok); }
+.pill-dot-warn { background: var(--warn); }
+.pill-dot-err { background: var(--err); }
 
 .row-actions { visibility: hidden; white-space: nowrap; text-align: right; }
 tr:hover .row-actions { visibility: visible; }
@@ -619,6 +664,21 @@ tr:hover .row-actions { visibility: visible; }
 .modal-header h2 { margin: 0; font-size: 15px; }
 .modal-body { padding: 16px; overflow-y: auto; }
 
+/* Near-fullscreen modal with a flex-fill body (log viewer, etc.). */
+.modal-large {
+    width: min(1600px, 96vw);
+    max-width: 96vw;
+    height: 94vh;
+    max-height: 94vh;
+}
+.modal-body-fill {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
 .form-grid { display: flex; flex-direction: column; gap: 10px; }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
 .form-grid input, .form-grid select, .form-grid textarea { font-weight: 400; color: var(--text); }
@@ -808,7 +868,16 @@ tr:hover .row-actions { visibility: visible; }
 
 /* ---- Log viewer --------------------------------------------------------------------- */
 
-.log-viewer { display: flex; flex-direction: column; gap: 8px; }
+.log-viewer { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; }
+.log-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.log-select {
+    font-size: 12px;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--text);
+}
 .log-toolbar { display: flex; align-items: center; gap: 6px; }
 .log-toolbar-toggle {
     display: flex;
@@ -818,9 +887,11 @@ tr:hover .row-actions { visibility: visible; }
     font-size: 13px;
 }
 .log-match-count { color: var(--muted); font-size: 12px; min-width: 44px; text-align: center; }
+.log-line-count { color: var(--muted); font-size: 12px; margin-left: auto; white-space: nowrap; }
 .log-body {
     margin: 0;
-    max-height: 60vh;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
     background: #1d2026;
     color: #d6d9de;

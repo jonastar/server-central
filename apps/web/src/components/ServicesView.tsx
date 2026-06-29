@@ -3,17 +3,20 @@ import type { ServiceAction, ServiceInfo, SystemdState } from "@central/shared";
 import { api } from "../api";
 import { cx } from "../utils";
 import { EmptyState, ErrorBanner, Modal } from "./ui";
+import { LogViewerModal } from "./LogViewerModal";
+import { StatusFilter, type StatusToken } from "./StatusFilter";
 
 const REFRESH_MS = 15_000;
 
-function activeBadge(active: string): string {
+/** Maps a unit's active state to a status token used for both the badge and the row accent. */
+function activeStatus(active: string): "ok" | "warn" | "err" {
     if (active === "active") {
-        return "badge-ok";
+        return "ok";
     }
     if (active === "failed") {
-        return "badge-err";
+        return "err";
     }
-    return "badge-warn";
+    return "warn";
 }
 
 type Detail = { unit: string; title: string; text: string };
@@ -22,9 +25,10 @@ export function ServicesView({ serverId }: { serverId: string }) {
     const [state, setState] = useState<SystemdState | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [filter, setFilter] = useState("");
-    const [activeOnly, setActiveOnly] = useState(false);
+    const [statusFilter, setStatusFilter] = useState<StatusToken>("all");
     const [busyUnit, setBusyUnit] = useState<string | null>(null);
     const [detail, setDetail] = useState<Detail | null>(null);
+    const [logUnit, setLogUnit] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -57,15 +61,6 @@ export function ServicesView({ serverId }: { serverId: string }) {
         }
     }
 
-    async function showLogs(svc: ServiceInfo) {
-        try {
-            const res = await api("systemdServiceLogs", { serverId, unit: svc.unit, lines: 500 });
-            setDetail({ unit: svc.unit, title: `Logs — ${svc.unit}`, text: res.logs || "(no output)" });
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        }
-    }
-
     async function showUnitFile(svc: ServiceInfo) {
         try {
             const res = await api("systemdUnitFile", { serverId, unit: svc.unit });
@@ -75,9 +70,13 @@ export function ServicesView({ serverId }: { serverId: string }) {
         }
     }
 
-    const shown = (state?.services ?? [])
-        .filter((s) => !activeOnly || s.active === "active")
+    const textFiltered = (state?.services ?? [])
         .filter((s) => !filter || s.unit.toLowerCase().includes(filter.toLowerCase()) || s.description.toLowerCase().includes(filter.toLowerCase()));
+    const counts = { all: textFiltered.length, ok: 0, warn: 0, err: 0 };
+    for (const s of textFiltered) {
+        counts[activeStatus(s.active)]++;
+    }
+    const shown = textFiltered.filter((s) => statusFilter === "all" || activeStatus(s.active) === statusFilter);
 
     return (
         <div className="view">
@@ -89,9 +88,16 @@ export function ServicesView({ serverId }: { serverId: string }) {
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
                 />
-                <label style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 13 }}>
-                    <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} /> Active only
-                </label>
+                <StatusFilter
+                    value={statusFilter}
+                    onChange={setStatusFilter}
+                    options={[
+                        { value: "all", label: "All", count: counts.all },
+                        { value: "ok", label: "Active", count: counts.ok },
+                        { value: "warn", label: "Inactive", count: counts.warn },
+                        { value: "err", label: "Failed", count: counts.err },
+                    ]}
+                />
                 <button className="btn" onClick={() => void load()}>Refresh</button>
             </header>
 
@@ -113,9 +119,9 @@ export function ServicesView({ serverId }: { serverId: string }) {
                             </thead>
                             <tbody>
                                 {shown.map((s) => (
-                                    <tr key={s.unit} className={cx(busyUnit === s.unit && "row-busy")}>
+                                    <tr key={s.unit} className={cx(`row-status-${activeStatus(s.active)}`, busyUnit === s.unit && "row-busy")}>
                                         <td><b>{s.unit.replace(/\.service$/, "")}</b></td>
-                                        <td><span className={cx("badge", activeBadge(s.active))}>{s.active}</span></td>
+                                        <td><span className={cx("badge", `badge-${activeStatus(s.active)}`)}>{s.active}</span></td>
                                         <td className="dim">{s.sub}</td>
                                         <td className="dim">{s.enabledState ?? "—"}</td>
                                         <td className="dim cmd-cell" title={s.description}>{s.description}</td>
@@ -133,7 +139,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
                                             ) : s.enabledState === "disabled" ? (
                                                 <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "enable")}>Enable</button>
                                             ) : null}
-                                            <button className="btn btn-sm" onClick={() => void showLogs(s)}>Logs</button>
+                                            <button className="btn btn-sm" onClick={() => setLogUnit(s.unit)}>Logs</button>
                                             <button className="btn btn-sm" onClick={() => void showUnitFile(s)}>Unit</button>
                                         </td>
                                     </tr>
@@ -148,6 +154,15 @@ export function ServicesView({ serverId }: { serverId: string }) {
                 <Modal title={detail.title} onClose={() => setDetail(null)} width={820}>
                     <pre className="logs-pre">{detail.text}</pre>
                 </Modal>
+            )}
+
+            {logUnit && (
+                <LogViewerModal
+                    title={`Logs — ${logUnit}`}
+                    onClose={() => setLogUnit(null)}
+                    caps={{ priority: true }}
+                    fetchLogs={(q) => api("systemdServiceLogs", { serverId, unit: logUnit, ...q }).then((r) => r.logs)}
+                />
             )}
         </div>
     );
