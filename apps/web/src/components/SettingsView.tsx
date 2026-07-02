@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
+import { UsersTab } from "./settings/UsersTab";
+import { OidcClientsTab } from "./settings/OidcClientsTab";
 
 interface ControlPlaneStatus {
     version: string;
@@ -9,11 +11,24 @@ interface ControlPlaneStatus {
     updateAvailable: boolean;
 }
 
-export function SettingsView() {
+type SettingsTab = "general" | "users" | "sso";
+
+const TABS: Array<{ id: SettingsTab; label: string }> = [
+    { id: "general", label: "General" },
+    { id: "users", label: "Users" },
+    { id: "sso", label: "SSO Clients" },
+];
+
+function GeneralSettings() {
     const [domain, setDomain] = useState<string>("");
     const [saved, setSaved] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    const [issuerUrl, setIssuerUrl] = useState<string>("");
+    const [issuerSaved, setIssuerSaved] = useState<string | null>(null);
+    const [issuerSaving, setIssuerSaving] = useState(false);
+    const [issuerError, setIssuerError] = useState<string | null>(null);
 
     const [cp, setCp] = useState<ControlPlaneStatus | null>(null);
     const [updating, setUpdating] = useState(false);
@@ -34,9 +49,26 @@ export function SettingsView() {
         api("getConfig", undefined).then((c) => {
             setDomain(c.domain ?? "");
             setSaved(c.domain ?? null);
+            setIssuerUrl(c.issuerUrl ?? "");
+            setIssuerSaved(c.issuerUrl ?? null);
         }).catch(() => { /* ignore */ });
         api("getControlPlaneStatus", undefined).then(setCp).catch(() => { /* ignore */ });
     }, []);
+
+    async function handleSaveIssuerUrl(e: React.FormEvent) {
+        e.preventDefault();
+        setIssuerSaving(true);
+        setIssuerError(null);
+        try {
+            const trimmed = issuerUrl.trim() || null;
+            await api("setIssuerUrl", { issuerUrl: trimmed });
+            setIssuerSaved(trimmed);
+        } catch (err) {
+            setIssuerError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setIssuerSaving(false);
+        }
+    }
 
     async function handleUpdateControlPlane() {
         if (!confirm("Update the control plane? It downloads the new version and restarts — this page will briefly disconnect, then reconnect.")) {
@@ -83,11 +115,7 @@ export function SettingsView() {
     }
 
     return (
-        <div className="view">
-            <header className="view-header">
-                <h1>Settings</h1>
-            </header>
-
+        <div>
             <div style={{ maxWidth: 480, marginBottom: 28 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>Control plane</h2>
                 {cp ? (
@@ -173,6 +201,77 @@ export function SettingsView() {
                     </div>
                 )}
             </div>
+
+            <div style={{ maxWidth: 480, marginTop: 28 }}>
+                <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>OIDC issuer URL</h2>
+                <p style={{ margin: "0 0 12px", color: "var(--fg-muted)", fontSize: 13 }}>
+                    Required before registering SSO clients. The stable, absolute URL relying parties
+                    will reach this server at — used as the token issuer, so it shouldn't change once
+                    a client trusts it.
+                </p>
+
+                <form onSubmit={handleSaveIssuerUrl} style={{ display: "flex", gap: 8 }}>
+                    <input
+                        type="text"
+                        className="input"
+                        placeholder="https://central.example.com"
+                        value={issuerUrl}
+                        onChange={(e) => setIssuerUrl(e.target.value)}
+                        style={{ flex: 1 }}
+                    />
+                    <button className="btn btn-primary" type="submit" disabled={issuerSaving}>
+                        {issuerSaving ? "Saving…" : "Save"}
+                    </button>
+                </form>
+
+                {saved && (
+                    <button
+                        className="btn btn-sm"
+                        type="button"
+                        style={{ marginTop: 8 }}
+                        onClick={() => setIssuerUrl(`https://${saved}`)}
+                        disabled={issuerUrl === `https://${saved}`}
+                    >
+                        Use external domain (<code>https://{saved}</code>)
+                    </button>
+                )}
+
+                {issuerError && <div className="error-banner" style={{ marginTop: 8 }}>{issuerError}</div>}
+
+                {issuerSaved && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: "var(--fg-muted)" }}>
+                        Current: <code>{issuerSaved}</code>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+export function SettingsView() {
+    const [tab, setTab] = useState<SettingsTab>("general");
+
+    return (
+        <div className="view">
+            <header className="view-header">
+                <h1>Settings</h1>
+            </header>
+
+            <div className="tab-strip" style={{ marginBottom: 20 }}>
+                {TABS.map((t) => (
+                    <button
+                        key={t.id}
+                        className={`btn${tab === t.id ? " btn-primary" : ""}`}
+                        onClick={() => setTab(t.id)}
+                    >
+                        {t.label}
+                    </button>
+                ))}
+            </div>
+
+            {tab === "general" && <GeneralSettings />}
+            {tab === "users" && <UsersTab />}
+            {tab === "sso" && <OidcClientsTab />}
         </div>
     );
 }

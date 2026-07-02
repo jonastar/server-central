@@ -12,6 +12,11 @@
 - Networking "remote ip" (seen by control panel)
   - Lets add a "Stun" one as well, we have detection on the control plane at least but lets also add it to the nodes?
 - Terminal needs some inner padding, the last line is slightly cut off
+- RBAC gap: only the Users/OIDC-client admin endpoints (`requireOwner` in `handler.ts`) have any
+  permission check. Every other endpoint (servers, files, docker, systemd, network, tasks, config,
+  install) runs for any authenticated user regardless of role — admin/operator/viewer are currently
+  indistinguishable once logged in. See the `Role` doc comment in `shared/src/index.ts`. Don't forget
+  to close this before leaning on roles for anything real.
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 

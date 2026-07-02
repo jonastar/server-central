@@ -15,6 +15,12 @@ const TASK_STATE_FILE = path.join(CONFIG_DIR, "tasks.json");
 export interface Config {
     domain?: string;
     /**
+     * Absolute base URL (e.g. "https://central.example.com") used as the OIDC
+     * `iss` claim and discovery-document base. Must stay stable once any OIDC
+     * client trusts it, so it's set explicitly rather than derived per-request.
+     */
+    issuerUrl?: string;
+    /**
      * Where the control plane backfills agent binaries it doesn't already have
      * locally (cache or dist/). Defaults to this repo's GitHub Releases; override
      * baseUrl for a self-hosted/custom mirror, and set token for an authenticated
@@ -76,6 +82,16 @@ export async function setDomain(domain: string | null): Promise<void> {
         current.domain = domain;
     } else {
         delete current.domain;
+    }
+    await writeConfig(current);
+}
+
+export async function setIssuerUrl(issuerUrl: string | null): Promise<void> {
+    const current = await readConfig();
+    if (issuerUrl) {
+        current.issuerUrl = issuerUrl.replace(/\/+$/, "");
+    } else {
+        delete current.issuerUrl;
     }
     await writeConfig(current);
 }

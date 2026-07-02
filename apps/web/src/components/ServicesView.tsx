@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ServiceAction, ServiceInfo, SystemdState } from "@central/shared";
 import { api } from "../api";
 import { cx } from "../utils";
-import { EmptyState, ErrorBanner, Modal } from "./ui";
+import { DetailPair, EmptyState, ErrorBanner, Modal } from "./ui";
 import { LogViewerModal } from "./LogViewerModal";
+import { LogPreview } from "./LogPreview";
 import { StatusFilter, type StatusToken } from "./StatusFilter";
 
 const REFRESH_MS = 15_000;
@@ -29,6 +30,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
     const [busyUnit, setBusyUnit] = useState<string | null>(null);
     const [detail, setDetail] = useState<Detail | null>(null);
     const [logUnit, setLogUnit] = useState<string | null>(null);
+    const [expandedUnit, setExpandedUnit] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -82,23 +84,6 @@ export function ServicesView({ serverId }: { serverId: string }) {
         <div className="view">
             <header className="view-header">
                 <h1>Services</h1>
-                <input
-                    className="filter-input"
-                    placeholder="Filter by unit or description…"
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                />
-                <StatusFilter
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    options={[
-                        { value: "all", label: "All", count: counts.all },
-                        { value: "ok", label: "Active", count: counts.ok },
-                        { value: "warn", label: "Inactive", count: counts.warn },
-                        { value: "err", label: "Failed", count: counts.err },
-                    ]}
-                />
-                <button className="btn" onClick={() => void load()}>Refresh</button>
             </header>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -109,41 +94,90 @@ export function ServicesView({ serverId }: { serverId: string }) {
 
             {state?.available && (
                 <section className="panel">
-                    <h3>Services ({shown.length})</h3>
+                    <div className="panel-head">
+                        <h3>Services ({shown.length})</h3>
+                        <input
+                            className="filter-input"
+                            placeholder="Filter by unit or description…"
+                            value={filter}
+                            onChange={(e) => setFilter(e.target.value)}
+                        />
+                        <StatusFilter
+                            value={statusFilter}
+                            onChange={setStatusFilter}
+                            options={[
+                                { value: "all", label: "All", count: counts.all },
+                                { value: "ok", label: "Active", count: counts.ok },
+                                { value: "warn", label: "Inactive", count: counts.warn },
+                                { value: "err", label: "Failed", count: counts.err },
+                            ]}
+                        />
+                        <button className="btn" onClick={() => void load()}>Refresh</button>
+                    </div>
                     {shown.length === 0 ? (
                         <EmptyState>No matching services.</EmptyState>
                     ) : (
                         <table className="data-table">
                             <thead>
-                                <tr><th>Unit</th><th>Active</th><th>Sub</th><th>Startup</th><th>Description</th><th /></tr>
+                                <tr><th className="col-expander" /><th>Unit</th><th>Active</th><th>Sub</th><th>Startup</th><th>Description</th></tr>
                             </thead>
                             <tbody>
-                                {shown.map((s) => (
-                                    <tr key={s.unit} className={cx(`row-status-${activeStatus(s.active)}`, busyUnit === s.unit && "row-busy")}>
-                                        <td><b>{s.unit.replace(/\.service$/, "")}</b></td>
-                                        <td><span className={cx("badge", `badge-${activeStatus(s.active)}`)}>{s.active}</span></td>
-                                        <td className="dim">{s.sub}</td>
-                                        <td className="dim">{s.enabledState ?? "—"}</td>
-                                        <td className="dim cmd-cell" title={s.description}>{s.description}</td>
-                                        <td className="row-actions-always">
-                                            {s.active === "active" ? (
-                                                <>
-                                                    <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "restart")}>Restart</button>
-                                                    <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "stop")}>Stop</button>
-                                                </>
-                                            ) : (
-                                                <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "start")}>Start</button>
+                                {shown.map((s) => {
+                                    const expanded = expandedUnit === s.unit;
+                                    return (
+                                        <Fragment key={s.unit}>
+                                            <tr
+                                                className={cx("row-clickable", `row-status-${activeStatus(s.active)}`, busyUnit === s.unit && "row-busy", expanded && "row-active")}
+                                                onClick={() => setExpandedUnit(expanded ? null : s.unit)}
+                                            >
+                                                <td className="col-expander"><span className={cx("row-expander", expanded && "open")}>▸</span></td>
+                                                <td><b>{s.unit.replace(/\.service$/, "")}</b></td>
+                                                <td><span className={cx("badge", `badge-${activeStatus(s.active)}`)}>{s.active}</span></td>
+                                                <td className="dim">{s.sub}</td>
+                                                <td className="dim">{s.enabledState ?? "—"}</td>
+                                                <td className="dim cmd-cell" title={s.description}>{s.description}</td>
+                                            </tr>
+                                            {expanded && (
+                                                <tr className="row-detail-tr">
+                                                    <td />
+                                                    <td colSpan={5}>
+                                                        <div className="row-detail-wrap"><div className="row-detail">
+                                                            <div className="row-detail-actions">
+                                                                {s.active === "active" ? (
+                                                                    <>
+                                                                        <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "restart")}>Restart</button>
+                                                                        <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "stop")}>Stop</button>
+                                                                    </>
+                                                                ) : (
+                                                                    <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "start")}>Start</button>
+                                                                )}
+                                                                {s.enabledState === "enabled" ? (
+                                                                    <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "disable")}>Disable</button>
+                                                                ) : s.enabledState === "disabled" ? (
+                                                                    <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "enable")}>Enable</button>
+                                                                ) : null}
+                                                                <button className="btn btn-sm" onClick={() => void showUnitFile(s)}>Unit file</button>
+                                                            </div>
+                                                            <div className="row-detail-body">
+                                                                <div className="row-detail-meta">
+                                                                    <DetailPair label="Unit"><span className="mono">{s.unit}</span></DetailPair>
+                                                                    <DetailPair label="Description">{s.description || "—"}</DetailPair>
+                                                                    <DetailPair label="Active">{s.active} <span className="dim">({s.sub})</span></DetailPair>
+                                                                    <DetailPair label="Loaded">{s.load}</DetailPair>
+                                                                    <DetailPair label="Startup">{s.enabledState ?? "—"}</DetailPair>
+                                                                </div>
+                                                                <LogPreview
+                                                                    fetchLogs={(q) => api("systemdServiceLogs", { serverId, unit: s.unit, ...q }).then((r) => r.logs)}
+                                                                    onOpenFull={() => setLogUnit(s.unit)}
+                                                                />
+                                                            </div>
+                                                        </div></div>
+                                                    </td>
+                                                </tr>
                                             )}
-                                            {s.enabledState === "enabled" ? (
-                                                <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "disable")}>Disable</button>
-                                            ) : s.enabledState === "disabled" ? (
-                                                <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "enable")}>Enable</button>
-                                            ) : null}
-                                            <button className="btn btn-sm" onClick={() => setLogUnit(s.unit)}>Logs</button>
-                                            <button className="btn btn-sm" onClick={() => void showUnitFile(s)}>Unit</button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                        </Fragment>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     )}

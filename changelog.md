@@ -4,6 +4,58 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-07-02 - User sessions, admin password reset, issuer URL from domain
+
+## Added
+
+- **Expandable user rows** (Settings → Users): click a row to see last-active time, a list of that
+  user's active sessions (created, last active, IP, device/user-agent), and a "Change password" form.
+  Sessions carry `id`/`ip`/`userAgent` now (`auth.ts`); pre-existing session records without them are
+  backfilled with a fresh id on first load.
+- **Revoke a session** from the expanded row — refuses to revoke the admin's own current session
+  (use logout instead) to avoid an accidental self-lockout mid-request.
+- **Admin password reset** (`adminSetPassword`): owner sets a new password for any account; all of
+  that user's sessions are revoked immediately so the change takes effect right away.
+- **Derive issuer URL from the external domain**: once an External domain is saved (Settings →
+  General), a button next to the OIDC Issuer URL field fills in `https://{domain}` — still requires
+  an explicit Save.
+
+## Notes
+
+- Per-operation RBAC is still only enforced on the Users/SSO-client admin endpoints — see the new
+  note in `next.md`. Every other endpoint (servers, files, docker, systemd, network, tasks, config)
+  runs for any authenticated user today regardless of role.
+
+# 2026-07-01 - OIDC identity provider + multi-user accounts
+
+## Added
+
+- **Server Central is now an OpenID Connect provider**, so other self-hosted apps can "log in with Server Central" for SSO. New endpoints: `/.well-known/openid-configuration`, `/.well-known/jwks.json`, `POST /oidc/token` (form-encoded, authorization_code grant with mandatory PKCE/S256), `GET/POST /oidc/userinfo`. Tokens are RS256-signed JWTs; the signing keypair is generated once and persisted (`apps/server/src/oidc/`).
+- **Roles exposed as a `groups` claim** on the ID token — the reason this shipped alongside a minimal **Users admin screen** (Settings → Users): owner-only create/list/delete + role assignment (admin/operator/viewer), since an SSO provider needs more than one possible user to be meaningful.
+- **SSO Clients admin screen** (Settings → SSO Clients): the owner registers each relying party by hand (name + redirect URIs) — no dynamic client registration. The generated client secret is shown once, hashed like passwords thereafter.
+- **`/oidc/authorize` confirmation screen**: reuses the existing login session, then shows "Continue as `{user}` to `{client}`?" instead of a scope-consent checklist, since every client here was already approved by the owner at registration.
+- New required **Issuer URL** setting (Settings → General) — the stable base URL used as the JWT `iss` claim; OIDC clients can't be created until it's set.
+
+## Notes
+
+- Access/ID tokens are self-contained JWTs with no revocation list, so they can't be invalidated before expiry — mitigated with short lifetimes (ID token 5 min, access token 1 hour) and no refresh tokens in v1.
+- Per-operation RBAC enforcement inside Server Central itself is still not implemented (tracked separately); today only the Users/SSO-client admin ops are owner-gated.
+
+# 2026-07-01 - Expandable rows for containers and services
+
+## Added
+
+- **Click-to-expand rows** on both the Docker containers and systemd services tables. Clicking a row toggles an inline detail drawer instead of jumping straight to a modal, with a leading chevron (`row-expander`) marking expandable rows.
+- **Inline log preview** (`LogPreview`): the expanded drawer tails the last 12 log lines for the container/service, with a refresh and an "Open full logs" jump to the existing `LogViewerModal`.
+- **Detail metadata in the drawer** via a shared `DetailPair` (lifted out of the container modal into `ui.tsx`): containers show image, stack/service, status, ports, created and short id; services show unit, description, active/sub, loaded and startup state.
+- **Container labels** are now parsed by `dockerContainerInspect` (new `labels` field on `DockerContainerDetail`) and listed in the container Inspect modal's Details tab.
+- **Expand animation:** the drawer grows the real row height via a `grid-template-rows: 0fr → 1fr` transition (`row-detail-in`, 0.22s) rather than popping to full height and sliding the content — no layout jump. Honours `prefers-reduced-motion`. The log preview auto-scrolls to the newest line on load/refresh.
+
+## Changed
+
+- **Row actions moved into the expanded drawer.** The always-visible per-row action buttons are gone; start/stop/restart/pause, remove/inspect (containers) and start/stop/restart, enable/disable, unit file (services) now live in the drawer, keeping the row itself scannable. Container Inspect still opens the full inspect modal.
+- **Uniform filter placement.** The systemd Services search + status filter + Refresh moved out of the page `view-header` into a `panel-head` inside the Services panel, matching where the Docker containers filters already live.
+
 # 2026-06-29 - Unified log viewer for Docker and systemd
 
 ## Added

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ContainerAction, ContainerInfo, DockerState } from "@central/shared";
 import { api } from "../../api";
 import { cx } from "../../utils";
-import { EmptyState, ErrorBanner } from "../ui";
+import { DetailPair, EmptyState, ErrorBanner } from "../ui";
 import { LogViewerModal } from "../LogViewerModal";
+import { LogPreview } from "../LogPreview";
 import { StatusFilter, type StatusToken } from "../StatusFilter";
 import { ContainerDetail } from "./ContainerDetail";
 
@@ -28,6 +29,7 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
     const [statusFilter, setStatusFilter] = useState<StatusToken>("all");
     const [logTarget, setLogTarget] = useState<ContainerInfo | null>(null);
     const [detail, setDetail] = useState<ContainerInfo | null>(null);
+    const [expandedId, setExpandedId] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -108,36 +110,66 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
             ) : (
                 <table className="data-table">
                     <thead>
-                        <tr><th>Name</th><th>Stack</th><th>Image</th><th>State</th><th>Status</th><th>Ports</th><th /></tr>
+                        <tr><th className="col-expander" /><th>Name</th><th>Stack</th><th>Image</th><th>State</th><th>Status</th><th>Ports</th></tr>
                     </thead>
                     <tbody>
-                        {shown.map((c) => (
-                            <tr key={c.id} className={cx(`row-status-${stateStatus(c.state)}`, busyId === c.id && "row-busy")}>
-                                <td>
-                                    <button className="link-btn" onClick={() => setDetail(c)}><b>{c.name}</b></button>
-                                </td>
-                                <td className="dim">{c.project ?? "—"}</td>
-                                <td className="dim">{c.image}</td>
-                                <td><span className={cx("badge", `badge-${stateStatus(c.state)}`)}>{c.state}</span></td>
-                                <td className="dim">{c.status}</td>
-                                <td className="dim mono ports-cell" title={c.ports}>{c.ports}</td>
-                                <td className="row-actions-always">
-                                    {c.state === "running" ? (
-                                        <>
-                                            <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "stop")}>Stop</button>
-                                            <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "restart")}>Restart</button>
-                                            <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "pause")}>Pause</button>
-                                        </>
-                                    ) : c.state === "paused" ? (
-                                        <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "unpause")}>Unpause</button>
-                                    ) : (
-                                        <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "start")}>Start</button>
+                        {shown.map((c) => {
+                            const expanded = expandedId === c.id;
+                            return (
+                                <Fragment key={c.id}>
+                                    <tr
+                                        className={cx("row-clickable", `row-status-${stateStatus(c.state)}`, busyId === c.id && "row-busy", expanded && "row-active")}
+                                        onClick={() => setExpandedId(expanded ? null : c.id)}
+                                    >
+                                        <td className="col-expander"><span className={cx("row-expander", expanded && "open")}>▸</span></td>
+                                        <td><b>{c.name}</b></td>
+                                        <td className="dim">{c.project ?? "—"}</td>
+                                        <td className="dim">{c.image}</td>
+                                        <td><span className={cx("badge", `badge-${stateStatus(c.state)}`)}>{c.state}</span></td>
+                                        <td className="dim">{c.status}</td>
+                                        <td className="dim mono ports-cell" title={c.ports}>{c.ports}</td>
+                                    </tr>
+                                    {expanded && (
+                                        <tr className="row-detail-tr">
+                                            <td />
+                                            <td colSpan={6}>
+                                                <div className="row-detail-wrap"><div className="row-detail">
+                                                    <div className="row-detail-actions">
+                                                        {c.state === "running" ? (
+                                                            <>
+                                                                <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "stop")}>Stop</button>
+                                                                <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "restart")}>Restart</button>
+                                                                <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "pause")}>Pause</button>
+                                                            </>
+                                                        ) : c.state === "paused" ? (
+                                                            <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "unpause")}>Unpause</button>
+                                                        ) : (
+                                                            <button className="btn btn-sm" disabled={busyId !== null} onClick={() => void action(c, "start")}>Start</button>
+                                                        )}
+                                                        <button className="btn btn-sm" onClick={() => setDetail(c)}>Inspect</button>
+                                                        <button className="btn btn-sm btn-danger" disabled={busyId !== null} onClick={() => void action(c, "remove")}>Remove</button>
+                                                    </div>
+                                                    <div className="row-detail-body">
+                                                        <div className="row-detail-meta">
+                                                            <DetailPair label="Image"><span className="mono">{c.image}</span></DetailPair>
+                                                            <DetailPair label="Stack">{c.project ?? "—"}{c.service ? ` / ${c.service}` : ""}</DetailPair>
+                                                            <DetailPair label="Status">{c.status}</DetailPair>
+                                                            <DetailPair label="Ports"><span className="mono">{c.ports || "—"}</span></DetailPair>
+                                                            <DetailPair label="Created">{c.createdAt}</DetailPair>
+                                                            <DetailPair label="ID"><span className="mono">{c.id.slice(0, 12)}</span></DetailPair>
+                                                        </div>
+                                                        <LogPreview
+                                                            fetchLogs={(q) => api("dockerContainerLogs", { serverId, containerId: c.id, ...q }).then((r) => r.logs)}
+                                                            onOpenFull={() => setLogTarget(c)}
+                                                        />
+                                                    </div>
+                                                </div></div>
+                                            </td>
+                                        </tr>
                                     )}
-                                    <button className="btn btn-sm" onClick={() => setLogTarget(c)}>Logs</button>
-                                    <button className="btn btn-sm btn-danger" disabled={busyId !== null} onClick={() => void action(c, "remove")}>✕</button>
-                                </td>
-                            </tr>
-                        ))}
+                                </Fragment>
+                            );
+                        })}
                     </tbody>
                 </table>
             ))}

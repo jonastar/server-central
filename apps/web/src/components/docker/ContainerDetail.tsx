@@ -2,16 +2,7 @@ import { useEffect, useState } from "react";
 import type { DockerContainerDetail } from "@central/shared";
 import { api } from "../../api";
 import { cx } from "../../utils";
-import { EmptyState, ErrorBanner, Modal } from "../ui";
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-    return (
-        <div className="detail-row">
-            <div className="detail-label">{label}</div>
-            <div className="detail-value">{children}</div>
-        </div>
-    );
-}
+import { DetailPair, EmptyState, ErrorBanner, Modal } from "../ui";
 
 export function ContainerDetail({ serverId, containerId, name, onClose, onShowLogs }: {
     serverId: string;
@@ -45,28 +36,35 @@ export function ContainerDetail({ serverId, containerId, name, onClose, onShowLo
 
             {detail && tab === "details" && (
                 <div className="detail-grid">
-                    <Row label="State">{detail.state} ({detail.status})</Row>
-                    <Row label="Image">{detail.image}</Row>
-                    <Row label="Command"><span className="mono">{detail.command || "—"}</span></Row>
-                    <Row label="Restart">{detail.restartPolicy}</Row>
-                    <Row label="Networks">{detail.networks.join(", ") || "—"}</Row>
-                    <Row label="Ports">
+                    <DetailPair label="State">{detail.state} ({detail.status})</DetailPair>
+                    <DetailPair label="Image">{detail.image}</DetailPair>
+                    <DetailPair label="Command"><span className="mono">{detail.command || "—"}</span></DetailPair>
+                    <DetailPair label="Restart">{detail.restartPolicy}</DetailPair>
+                    <DetailPair label="Networks">{detail.networks.join(", ") || "—"}</DetailPair>
+                    <DetailPair label="Ports">
                         {detail.ports.length === 0 ? "—" : (
                             <ul className="detail-list mono">{detail.ports.map((p) => <li key={p}>{p}</li>)}</ul>
                         )}
-                    </Row>
-                    <Row label="Mounts">
+                    </DetailPair>
+                    <DetailPair label="Mounts">
                         {detail.mounts.length === 0 ? "—" : (
                             <ul className="detail-list mono">
                                 {detail.mounts.map((m) => <li key={m.destination}>{m.source} → {m.destination} <span className="dim">({m.type})</span></li>)}
                             </ul>
                         )}
-                    </Row>
-                    <Row label="Env">
+                    </DetailPair>
+                    <DetailPair label="Env">
                         {detail.env.length === 0 ? "—" : (
                             <ul className="detail-list mono">{detail.env.map((e) => <li key={e}>{e}</li>)}</ul>
                         )}
-                    </Row>
+                    </DetailPair>
+                    <DetailPair label="Labels">
+                        {detail.labels.length === 0 ? "—" : (
+                            <ul className="detail-list mono">
+                                {detail.labels.map((l) => <li key={l.key}>{l.key}=<span className="dim">{l.value}</span></li>)}
+                            </ul>
+                        )}
+                    </DetailPair>
                 </div>
             )}
 

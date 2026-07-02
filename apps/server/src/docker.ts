@@ -266,6 +266,10 @@ export async function dockerContainerInspect(server: HostAgent, containerId: str
     const networks = Object.keys(c.NetworkSettings?.Networks ?? {});
     const restart = c.HostConfig?.RestartPolicy?.Name || "no";
 
+    const labels = Object.entries(c.Config?.Labels ?? {})
+        .map(([key, value]) => ({ key, value: String(value) }))
+        .sort((a, b) => a.key.localeCompare(b.key));
+
     return {
         id: c.Id ?? containerId,
         name: (c.Name ?? "").replace(/^\//, ""),
@@ -279,6 +283,7 @@ export async function dockerContainerInspect(server: HostAgent, containerId: str
         env: c.Config?.Env ?? [],
         networks,
         restartPolicy: restart,
+        labels,
         raw: JSON.stringify(c, null, 2),
     };
 }

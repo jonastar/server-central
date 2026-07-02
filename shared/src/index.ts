@@ -279,6 +279,8 @@ export interface DockerContainerDetail {
     env: string[];
     networks: string[];
     restartPolicy: string;
+    /** Container labels (`Config.Labels`), as key/value pairs, sorted by key. */
+    labels: { key: string; value: string }[];
     /** Pretty-printed raw `docker inspect` JSON. */
     raw: string;
 }
@@ -392,16 +394,64 @@ export type ServiceAction = "start" | "stop" | "restart" | "enable" | "disable";
 // ---- Auth & users ------------------------------------------------------------
 //
 // Roles are coarse (v1). `owner` is the first account created during first-run
-// setup and can never be deleted. Per-operation enforcement is layered on later;
-// for now every authenticated user is the owner.
+// setup, is a singleton, and can never be deleted or reassigned. The owner can
+// create/delete other accounts and assign them admin/operator/viewer, but
+// per-operation enforcement of those roles is layered on later — for now every
+// authenticated user can do everything the owner can.
 
 export type Role = "owner" | "admin" | "operator" | "viewer";
+/** Roles assignable to non-owner accounts; `owner` is fixed at first-run setup. */
+export type AssignableRole = Exclude<Role, "owner">;
 
 export interface UserInfo {
     id: string;
     username: string;
     role: Role;
     createdAt: number;
+}
+
+/** A single active login session for a user, surfaced on the admin user-detail view. */
+export interface UserSession {
+    id: string;
+    createdAt: number;
+    lastSeenAt: number;
+    ip: string | null;
+    userAgent: string | null;
+    /** True when this is the session the requesting admin is themselves using. */
+    current: boolean;
+}
+
+/** Expanded view of a user shown when an admin drills into a row in the Users tab. */
+export interface UserDetail extends UserInfo {
+    sessions: UserSession[];
+    /** Most recent `lastSeenAt` across all sessions, or null if the user has never logged in. */
+    lastActiveAt: number | null;
+}
+
+// ---- OIDC (SSO) ----------------------------------------------------------------
+//
+// Server Central acts as an OpenID Connect provider so other self-hosted apps can
+// authenticate against it. Relying-party clients are registered by the owner
+// (no dynamic client registration); roles are exposed as a `groups` claim on the
+// ID token. See apps/server/src/oidc/ for the provider implementation.
+
+export interface OidcClient {
+    id: string;
+    name: string;
+    redirectUris: string[];
+    createdAt: number;
+}
+
+/** Query params an authorization request carries, whether read from the RP's
+ *  redirect (`GET /oidc/authorize`) or forwarded by the SPA's confirm screen. */
+export interface OidcAuthorizeParams {
+    clientId: string;
+    redirectUri: string;
+    scope: string;
+    state: string;
+    codeChallenge: string;
+    codeChallengeMethod: "S256";
+    nonce?: string;
 }
 
 // ---- Log viewing ---------------------------------------------------------------
@@ -429,6 +479,30 @@ export type CentralApiOperations = {
     login: { data: { username: string; password: string }; response: { token: string; user: UserInfo } };
     logout: { data: void; response: void };
     me: { data: void; response: UserInfo };
+
+    // Users (owner-only)
+    listUsers: { data: void; response: UserInfo[] };
+    createUser: { data: { username: string; password: string; role: AssignableRole }; response: UserInfo };
+    deleteUser: { data: { userId: string }; response: void };
+    updateUserRole: { data: { userId: string; role: AssignableRole }; response: void };
+    // Sessions + last-active, fetched on demand when a row expands in the Users tab.
+    getUserDetail: { data: { userId: string }; response: UserDetail };
+    revokeUserSession: { data: { userId: string; sessionId: string }; response: void };
+    // Resets a user's password; revokes all of that user's sessions so the new
+    // password takes effect immediately.
+    adminSetPassword: { data: { userId: string; password: string }; response: void };
+
+    // OIDC clients (owner-only admin)
+    listOidcClients: { data: void; response: OidcClient[] };
+    // clientSecret is returned once, at creation, and never again.
+    createOidcClient: { data: { name: string; redirectUris: string[] }; response: { client: OidcClient; clientSecret: string } };
+    deleteOidcClient: { data: { clientId: string }; response: void };
+
+    // OIDC front-channel (authenticated user, driven by the /oidc/authorize SPA route).
+    // The actual code-for-token exchange happens over raw HTTP at POST /oidc/token
+    // (form-encoded, per spec), not through this RPC layer.
+    getOidcAuthorizeRequest: { data: OidcAuthorizeParams; response: { clientName: string; redirectUri: string } };
+    completeOidcAuthorize: { data: OidcAuthorizeParams; response: { redirectUrl: string } };
 
     // Servers
     getServers: { data: void; response: ServerEntry[] };
@@ -511,8 +585,12 @@ export type CentralApiOperations = {
     updateControlPlane: { data: void; response: void };
 
     // Config
-    getConfig: { data: void; response: { domain: string | null } };
+    getConfig: { data: void; response: { domain: string | null; issuerUrl: string | null } };
     setDomain: { data: { domain: string | null }; response: void };
+    // Absolute base URL (e.g. "https://central.example.com") OIDC uses as the
+    // token `iss` claim and discovery-document base. Required before any OIDC
+    // client can be created, since it must stay stable once clients trust it.
+    setIssuerUrl: { data: { issuerUrl: string | null }; response: void };
 
     // Tasks — the uniform envelope (history, typed last-result, run-now).
     // (Logs, cancellation, and schedules are deferred until a task kind needs

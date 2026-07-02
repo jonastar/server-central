@@ -6,6 +6,9 @@ import { CONFIG_DIR, readConfig } from "./config";
 import { AuthStore, type AuthContext } from "./auth";
 import { Fleet } from "./fleet";
 import { CentralHandler } from "./handler";
+import { OidcStore } from "./oidc/store";
+import { discoveryDocument } from "./oidc/discovery";
+import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "./oidc/tokens";
 import { TaskStore } from "./tasks/store";
 import { TaskRunner } from "./tasks/runner";
 import { ensureTls, localIps } from "./tls";
@@ -65,6 +68,9 @@ await fleet.init();
 const auth = new AuthStore();
 await auth.init();
 
+const oidcStore = new OidcStore();
+await oidcStore.init();
+
 const wanIp = await discoverWanIp();
 if (wanIp) {
     console.log(`Discovered WAN IP: ${wanIp}`);
@@ -88,7 +94,7 @@ const taskStore = new TaskStore();
 await taskStore.init();
 const taskRunner = new TaskRunner(taskStore, fleet, (run) => broadcast({ kind: "taskUpdate", data: run }));
 
-const handler = new CentralHandler(fleet, auth, nodeServer, taskRunner, taskStore);
+const handler = new CentralHandler(fleet, auth, nodeServer, taskRunner, taskStore, oidcStore);
 
 /** Commands callable without a session (first-run setup + login). */
 const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]);
@@ -100,6 +106,73 @@ function bearerToken(req: Request): string | null {
     }
     const match = /^Bearer\s+(.+)$/i.exec(header);
     return match ? match[1] : null;
+}
+
+// ---- OIDC token endpoint -------------------------------------------------------
+//
+// Unlike every other route, this is called by the relying party's backend, not
+// the browser — so it's `application/x-www-form-urlencoded` per the OIDC spec,
+// not our usual JSON-RPC shape, and the client authenticates with its own
+// credential (client_secret_post or HTTP Basic / client_secret_basic) instead of
+// a session bearer token.
+
+function clientCredentials(req: Request, body: URLSearchParams): { clientId: string; clientSecret: string } | null {
+    const basic = req.headers.get("Authorization");
+    if (basic?.startsWith("Basic ")) {
+        const decoded = Buffer.from(basic.slice(6), "base64").toString("utf8");
+        const sep = decoded.indexOf(":");
+        if (sep !== -1) {
+            return { clientId: decoded.slice(0, sep), clientSecret: decoded.slice(sep + 1) };
+        }
+    }
+    const clientId = body.get("client_id");
+    const clientSecret = body.get("client_secret");
+    return clientId && clientSecret ? { clientId, clientSecret } : null;
+}
+
+async function handleOidcToken(req: Request): Promise<Response> {
+    const body = new URLSearchParams(await req.text());
+    if (body.get("grant_type") !== "authorization_code") {
+        return Response.json({ error: "unsupported_grant_type" }, { status: 400, headers: corsHeaders });
+    }
+    const code = body.get("code");
+    const redirectUri = body.get("redirect_uri");
+    const codeVerifier = body.get("code_verifier");
+    const creds = clientCredentials(req, body);
+    if (!code || !redirectUri || !codeVerifier || !creds) {
+        return Response.json({ error: "invalid_request" }, { status: 400, headers: corsHeaders });
+    }
+
+    const client = await oidcStore.verifyClientSecret(creds.clientId, creds.clientSecret);
+    if (!client) {
+        return Response.json({ error: "invalid_client" }, { status: 401, headers: corsHeaders });
+    }
+    const grant = oidcStore.consumeCode(code);
+    if (!grant || grant.clientId !== client.id || grant.redirectUri !== redirectUri) {
+        return Response.json({ error: "invalid_grant" }, { status: 400, headers: corsHeaders });
+    }
+    if (!verifyPkce(codeVerifier, grant.codeChallenge)) {
+        return Response.json({ error: "invalid_grant", error_description: "PKCE verification failed" }, { status: 400, headers: corsHeaders });
+    }
+    const user = auth.getUserById(grant.userId);
+    if (!user) {
+        return Response.json({ error: "invalid_grant", error_description: "User no longer exists" }, { status: 400, headers: corsHeaders });
+    }
+    const config = await readConfig();
+    if (!config.issuerUrl) {
+        return Response.json({ error: "server_error", error_description: "Issuer URL is not configured" }, { status: 500, headers: corsHeaders });
+    }
+
+    const key = oidcStore.key;
+    const idToken = buildIdToken(user, { issuer: config.issuerUrl, clientId: client.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000) }, key);
+    const accessToken = buildAccessToken(user, { issuer: config.issuerUrl, clientId: client.id, scope: grant.scope }, key);
+    return Response.json({
+        access_token: accessToken,
+        id_token: idToken,
+        token_type: "Bearer",
+        expires_in: ACCESS_TOKEN_TTL_S,
+        scope: grant.scope,
+    }, { headers: corsHeaders });
 }
 
 // ---- Terminal bridge ---------------------------------------------------------
@@ -136,6 +209,34 @@ const server = Bun.serve<WsData>({
 
         if (req.method === "OPTIONS") {
             return new Response(null, { status: 204, headers: corsHeaders });
+        }
+
+        // ---- OIDC: public discovery/JWKS + the raw (non-RPC) token/userinfo routes.
+        // GET /oidc/authorize needs no special-casing here — it's a plain browser
+        // navigation with no extension, so it already falls through to serveStatic's
+        // SPA-shell fallback below; the React app itself recognizes the path.
+        if (url.pathname === "/.well-known/openid-configuration" || url.pathname === "/.well-known/jwks.json") {
+            const config = await readConfig();
+            if (!config.issuerUrl) {
+                return Response.json({ error: "OIDC issuer URL is not configured" }, { status: 404, headers: corsHeaders });
+            }
+            const body = url.pathname === "/.well-known/jwks.json" ? jwks(oidcStore.key) : discoveryDocument(config.issuerUrl);
+            return Response.json(body, { headers: corsHeaders });
+        }
+
+        if (url.pathname === "/oidc/token" && req.method === "POST") {
+            return handleOidcToken(req);
+        }
+
+        if (url.pathname === "/oidc/userinfo") {
+            const token = bearerToken(req);
+            const payload = token ? verifyJwt(token, oidcStore.key.publicKeyPem) : null;
+            const sub = payload && typeof payload.sub === "string" ? payload.sub : null;
+            const user = sub ? auth.getUserById(sub) : null;
+            if (!user) {
+                return Response.json({ error: "invalid_token" }, { status: 401, headers: corsHeaders });
+            }
+            return Response.json({ sub: user.id, preferred_username: user.username, groups: [user.role] }, { headers: corsHeaders });
         }
 
         // WebSocket channels carry the bearer token as a query param, since
@@ -192,9 +293,10 @@ const server = Bun.serve<WsData>({
         }
 
         const ip = serverCtx.requestIP(req)?.address ?? null;
+        const userAgent = req.headers.get("user-agent");
         const data = await req.json().catch(() => null);
         try {
-            const result = await fn(data ?? undefined, { token, user, ip });
+            const result = await fn(data ?? undefined, { token, user, ip, userAgent });
             return new Response(result === undefined ? "null" : JSON.stringify(result), {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
             });

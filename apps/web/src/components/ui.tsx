@@ -31,6 +31,16 @@ export function EmptyState({ children }: { children: ReactNode }) {
     return <div className="empty-state">{children}</div>;
 }
 
+/** Aligned label/value pair used in detail modals and expanded table rows. */
+export function DetailPair({ label, children }: { label: string; children: ReactNode }) {
+    return (
+        <div className="detail-row">
+            <div className="detail-label">{label}</div>
+            <div className="detail-value">{children}</div>
+        </div>
+    );
+}
+
 export function ErrorBanner({ children }: { children: ReactNode }) {
     return <div className="error-banner">{children}</div>;
 }
