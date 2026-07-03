@@ -20,6 +20,25 @@
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 
+### App system
+
+> No design doc yet — capturing the concept from a 2026-07-02 discussion so it isn't lost.
+> Unify app-scoped configuration (compose stacks, networking/reverse-proxy routes, auth roles, etc.)
+> behind a single "App" entity instead of scattering it across separate admin screens. Example:
+> Jellyfin would be an App with (a) a compose stack (maybe templated), (b) a routes object (TBD —
+> reverse-proxy config), (c) auth roles the app *provides* (e.g. `jellyfin.user.adult`,
+> `jellyfin.user.kid`, `jellyfin.admin`) that get assigned to Server Central users to grant
+> app-scoped access — actual permission mapping still has to be configured inside the app itself,
+> SC only hands it identity + role claims.
+> Prerequisite noted alongside this: `Role` is currently a single enum value per user
+> (`shared/src/index.ts`) — needs redesigning as a set of roles per user so app-provided roles (and
+> things like a standalone "terminal access" role) can be assigned independently and additively,
+> not just swapped for one value.
+> First concrete step taken now (2026-07-02): renamed the SSO-clients concept to "Apps" end to end
+> (`App` type replacing `OidcClient`, `listApps`/`createApp`/`deleteApp` ops, Settings → Apps tab) as
+> a placeholder ahead of the real design — today an App is still just an OIDC relying-party
+> registration (id/secret/redirect URIs), nothing else from the concept above is implemented.
+
 ### Manual-install supervisor script
 
 > Design spec: [docs/manual-install-supervisor.md](docs/manual-install-supervisor.md).

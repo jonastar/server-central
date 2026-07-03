@@ -4,6 +4,25 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-07-02 - Rename SSO clients to Apps (placeholder for a future App system)
+
+## Changed
+
+- **"SSO Clients" renamed to "Apps"** end to end: shared `OidcClient` type → `App`, API ops
+  `listOidcClients`/`createOidcClient`/`deleteOidcClient` → `listApps`/`createApp`/`deleteApp`,
+  `OidcClientsTab.tsx` → `AppsTab.tsx`, Settings tab id `sso` → `apps`. Storage file renamed
+  `.sc-data/oidc-clients.json` → `apps.json` (no migration — pre-release, nothing to carry over).
+  This is purely a rename: an App today is still just an OIDC relying-party registration
+  (id/secret/redirect URIs). It's a placeholder ahead of a bigger App-system concept (compose
+  stacks, reverse-proxy routes, app-provided auth roles) that isn't designed yet — see the new
+  entry in `next.md`.
+
+## Notes
+
+- That `next.md` entry also captures a related idea to design later: `Role` needs to become a set
+  of roles per user (not one value) so app-provided roles and standalone permissions (e.g. a
+  "terminal access" role) can be assigned independently.
+
 # 2026-07-02 - User sessions, admin password reset, issuer URL from domain
 
 ## Added

@@ -34,25 +34,25 @@ describe("OIDC provider", () => {
         await fs.rm(dir, { recursive: true, force: true });
     });
 
-    test("createClient / verifyClientSecret", async () => {
-        const { client, clientSecret } = await oidc.createClient("My App", ["https://app.example.com/callback"]);
-        expect(await oidc.verifyClientSecret(client.id, clientSecret)).toMatchObject({ id: client.id });
-        expect(await oidc.verifyClientSecret(client.id, "wrong-secret")).toBeNull();
+    test("createApp / verifyClientSecret", async () => {
+        const { app, clientSecret } = await oidc.createApp("My App", ["https://app.example.com/callback"]);
+        expect(await oidc.verifyClientSecret(app.id, clientSecret)).toMatchObject({ id: app.id });
+        expect(await oidc.verifyClientSecret(app.id, "wrong-secret")).toBeNull();
         expect(await oidc.verifyClientSecret("unknown-client", clientSecret)).toBeNull();
     });
 
-    test("createClient rejects missing name/redirect URIs", async () => {
-        await expect(oidc.createClient("", ["https://app.example.com"])).rejects.toThrow(/name/i);
-        await expect(oidc.createClient("My App", [])).rejects.toThrow(/redirect uri/i);
-        await expect(oidc.createClient("My App", ["not a url"])).rejects.toThrow(/invalid redirect uri/i);
+    test("createApp rejects missing name/redirect URIs", async () => {
+        await expect(oidc.createApp("", ["https://app.example.com"])).rejects.toThrow(/name/i);
+        await expect(oidc.createApp("My App", [])).rejects.toThrow(/redirect uri/i);
+        await expect(oidc.createApp("My App", ["not a url"])).rejects.toThrow(/invalid redirect uri/i);
     });
 
     test("validateRequest enforces client + redirect_uri + PKCE", async () => {
-        const { client } = await oidc.createClient("My App", ["https://app.example.com/callback"]);
+        const { app } = await oidc.createApp("My App", ["https://app.example.com/callback"]);
         const { challenge } = pkcePair();
-        const base = { clientId: client.id, redirectUri: "https://app.example.com/callback", scope: "openid", state: "s" };
+        const base = { clientId: app.id, redirectUri: "https://app.example.com/callback", scope: "openid", state: "s" };
 
-        expect(oidc.validateRequest({ ...base, codeChallenge: challenge, codeChallengeMethod: "S256" })).toMatchObject({ id: client.id });
+        expect(oidc.validateRequest({ ...base, codeChallenge: challenge, codeChallengeMethod: "S256" })).toMatchObject({ id: app.id });
 
         expect(() => oidc.validateRequest({ ...base, clientId: "unknown", codeChallenge: challenge, codeChallengeMethod: "S256" }))
             .toThrow(/unknown client/i);
@@ -63,18 +63,18 @@ describe("OIDC provider", () => {
     });
 
     test("authorization codes are single-use", async () => {
-        const { client } = await oidc.createClient("My App", ["https://app.example.com/callback"]);
+        const { app } = await oidc.createApp("My App", ["https://app.example.com/callback"]);
         const { challenge } = pkcePair();
         const code = oidc.issueCode({
             userId: "u1",
-            clientId: client.id,
+            clientId: app.id,
             redirectUri: "https://app.example.com/callback",
             scope: "openid",
             codeChallenge: challenge,
             nonce: null,
         });
 
-        expect(oidc.consumeCode(code)).toMatchObject({ userId: "u1", clientId: client.id });
+        expect(oidc.consumeCode(code)).toMatchObject({ userId: "u1", clientId: app.id });
         expect(oidc.consumeCode(code)).toBeNull(); // already consumed
         expect(oidc.consumeCode("never-issued")).toBeNull();
     });
@@ -87,12 +87,12 @@ describe("OIDC provider", () => {
 
     test("full authorization_code + PKCE round trip mints tokens that verify against this server's own key", async () => {
         const { user } = await auth.setupOwner("alice", "supersecret");
-        const { client } = await oidc.createClient("My App", ["https://app.example.com/callback"]);
+        const { app } = await oidc.createApp("My App", ["https://app.example.com/callback"]);
         const { verifier, challenge } = pkcePair();
 
         // 1. Front-channel: SPA resolves + confirms the request, minting a code.
         const resolved = oidc.validateRequest({
-            clientId: client.id,
+            clientId: app.id,
             redirectUri: "https://app.example.com/callback",
             scope: "openid profile groups",
             state: "xyz",
@@ -112,8 +112,8 @@ describe("OIDC provider", () => {
         const grant = oidc.consumeCode(code)!;
         expect(verifyPkce(verifier, grant.codeChallenge)).toBe(true);
         const key = oidc.key;
-        const idToken = buildIdToken(user, { issuer: ISSUER, clientId: client.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000) }, key);
-        const accessToken = buildAccessToken(user, { issuer: ISSUER, clientId: client.id, scope: grant.scope }, key);
+        const idToken = buildIdToken(user, { issuer: ISSUER, clientId: app.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000) }, key);
+        const accessToken = buildAccessToken(user, { issuer: ISSUER, clientId: app.id, scope: grant.scope }, key);
 
         // 3. Relying party verifies the ID token against the published JWKS key.
         const jwk = jwks(key).keys[0];
@@ -124,14 +124,14 @@ describe("OIDC provider", () => {
         expect(idPayload).toMatchObject({
             iss: ISSUER,
             sub: user.id,
-            aud: client.id,
+            aud: app.id,
             nonce: "n-123",
             preferred_username: "alice",
             groups: ["owner"],
         });
 
         const accessPayload = verifyJwt(accessToken, key.publicKeyPem);
-        expect(accessPayload).toMatchObject({ iss: ISSUER, sub: user.id, aud: client.id, scope: "openid profile groups" });
+        expect(accessPayload).toMatchObject({ iss: ISSUER, sub: user.id, aud: app.id, scope: "openid profile groups" });
     });
 
     test("verifyJwt rejects a tampered signature and a token signed by a different key", async () => {

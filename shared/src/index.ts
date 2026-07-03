@@ -428,14 +428,17 @@ export interface UserDetail extends UserInfo {
     lastActiveAt: number | null;
 }
 
-// ---- OIDC (SSO) ----------------------------------------------------------------
+// ---- Apps ------------------------------------------------------------------------
 //
-// Server Central acts as an OpenID Connect provider so other self-hosted apps can
-// authenticate against it. Relying-party clients are registered by the owner
-// (no dynamic client registration); roles are exposed as a `groups` claim on the
-// ID token. See apps/server/src/oidc/ for the provider implementation.
+// An "app" is a relying party registered by the owner to sign in via Server
+// Central's built-in OpenID Connect provider (no dynamic client registration).
+// This is a first cut — App registration today is just OIDC credentials
+// (id/secret + redirect URIs); a broader App system (compose stacks, reverse-proxy
+// routes, app-provided auth roles) is designed separately, see next.md. Roles are
+// exposed as a `groups` claim on the ID token. See apps/server/src/oidc/ for the
+// provider implementation.
 
-export interface OidcClient {
+export interface App {
     id: string;
     name: string;
     redirectUris: string[];
@@ -492,16 +495,16 @@ export type CentralApiOperations = {
     // password takes effect immediately.
     adminSetPassword: { data: { userId: string; password: string }; response: void };
 
-    // OIDC clients (owner-only admin)
-    listOidcClients: { data: void; response: OidcClient[] };
+    // Apps (owner-only admin)
+    listApps: { data: void; response: App[] };
     // clientSecret is returned once, at creation, and never again.
-    createOidcClient: { data: { name: string; redirectUris: string[] }; response: { client: OidcClient; clientSecret: string } };
-    deleteOidcClient: { data: { clientId: string }; response: void };
+    createApp: { data: { name: string; redirectUris: string[] }; response: { app: App; clientSecret: string } };
+    deleteApp: { data: { appId: string }; response: void };
 
     // OIDC front-channel (authenticated user, driven by the /oidc/authorize SPA route).
     // The actual code-for-token exchange happens over raw HTTP at POST /oidc/token
     // (form-encoded, per spec), not through this RPC layer.
-    getOidcAuthorizeRequest: { data: OidcAuthorizeParams; response: { clientName: string; redirectUri: string } };
+    getOidcAuthorizeRequest: { data: OidcAuthorizeParams; response: { appName: string; redirectUri: string } };
     completeOidcAuthorize: { data: OidcAuthorizeParams; response: { redirectUrl: string } };
 
     // Servers

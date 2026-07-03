@@ -1,10 +1,10 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
-import type { OidcAuthorizeParams, OidcClient } from "@central/shared";
+import type { App, OidcAuthorizeParams } from "@central/shared";
 import { CONFIG_DIR, writeFileAtomic } from "../config";
 
-interface ClientRecord {
+interface AppRecord {
     id: string;
     name: string;
     redirectUris: string[];
@@ -12,7 +12,7 @@ interface ClientRecord {
     createdAt: number;
 }
 
-function toPublic(rec: ClientRecord): OidcClient {
+function toPublic(rec: AppRecord): App {
     return { id: rec.id, name: rec.name, redirectUris: rec.redirectUris, createdAt: rec.createdAt };
 }
 
@@ -39,27 +39,27 @@ interface AuthCodeRecord {
 const CODE_TTL_MS = 60 * 1000;
 
 /**
- * File-backed OIDC client registrations (`.sc-data/oidc-clients.json`, same
- * atomic-write shape as `AuthStore`) and the provider's RSA signing keypair
+ * File-backed app registrations (`.sc-data/apps.json`, same atomic-write shape
+ * as `AuthStore`) and the provider's RSA signing keypair
  * (`.sc-data/oidc-signing-key.json`, generated once on first use and reused
  * forever after — see tls.ts's ensureCa for the same "generate once, persist"
  * pattern applied to the TLS CA). Client secrets are hashed with Bun.password
  * exactly like user passwords: shown once at creation, never retrievable again.
  */
 export class OidcStore {
-    private clients: Record<string, ClientRecord> = {};
+    private apps: Record<string, AppRecord> = {};
     private signingKey: SigningKey | null = null;
     private codes = new Map<string, AuthCodeRecord>();
-    private readonly clientsFile: string;
+    private readonly appsFile: string;
     private readonly keyFile: string;
 
     constructor(dataDir: string = CONFIG_DIR) {
-        this.clientsFile = path.join(dataDir, "oidc-clients.json");
+        this.appsFile = path.join(dataDir, "apps.json");
         this.keyFile = path.join(dataDir, "oidc-signing-key.json");
     }
 
     async init(): Promise<void> {
-        this.clients = await readJson<Record<string, ClientRecord>>(this.clientsFile, {});
+        this.apps = await readJson<Record<string, AppRecord>>(this.appsFile, {});
         this.signingKey = await readJson<SigningKey | null>(this.keyFile, null) ?? await this.createSigningKey();
     }
 
@@ -83,14 +83,14 @@ export class OidcStore {
         return key;
     }
 
-    listClients(): OidcClient[] {
-        return Object.values(this.clients).map(toPublic);
+    listApps(): App[] {
+        return Object.values(this.apps).map(toPublic);
     }
 
-    async createClient(name: string, redirectUris: string[]): Promise<{ client: OidcClient; clientSecret: string }> {
+    async createApp(name: string, redirectUris: string[]): Promise<{ app: App; clientSecret: string }> {
         const trimmedName = name.trim();
         if (!trimmedName) {
-            throw new Error("Client name is required");
+            throw new Error("App name is required");
         }
         const uris = redirectUris.map((u) => u.trim()).filter(Boolean);
         if (uris.length === 0) {
@@ -104,30 +104,30 @@ export class OidcStore {
             }
         }
         const clientSecret = randomBytes(32).toString("base64url");
-        const rec: ClientRecord = {
+        const rec: AppRecord = {
             id: randomUUID(),
             name: trimmedName,
             redirectUris: uris,
             secretHash: await Bun.password.hash(clientSecret),
             createdAt: Date.now(),
         };
-        this.clients[rec.id] = rec;
-        await this.persistClients();
-        return { client: toPublic(rec), clientSecret };
+        this.apps[rec.id] = rec;
+        await this.persistApps();
+        return { app: toPublic(rec), clientSecret };
     }
 
-    async deleteClient(clientId: string): Promise<void> {
-        if (this.clients[clientId]) {
-            delete this.clients[clientId];
-            await this.persistClients();
+    async deleteApp(appId: string): Promise<void> {
+        if (this.apps[appId]) {
+            delete this.apps[appId];
+            await this.persistApps();
         }
     }
 
-    /** Validate an authorization request against the registered client, without
+    /** Validate an authorization request against the registered app, without
      *  minting anything — used both for the confirm-screen lookup and as the
      *  first step of actually issuing a code. */
-    validateRequest(params: OidcAuthorizeParams): OidcClient {
-        const rec = this.clients[params.clientId];
+    validateRequest(params: OidcAuthorizeParams): App {
+        const rec = this.apps[params.clientId];
         if (!rec) {
             throw new Error("Unknown client");
         }
@@ -140,9 +140,9 @@ export class OidcStore {
         return toPublic(rec);
     }
 
-    /** Authenticate the client at the token endpoint (client_secret_post/basic). */
-    async verifyClientSecret(clientId: string, secret: string): Promise<OidcClient | null> {
-        const rec = this.clients[clientId];
+    /** Authenticate the app at the token endpoint (client_secret_post/basic). */
+    async verifyClientSecret(clientId: string, secret: string): Promise<App | null> {
+        const rec = this.apps[clientId];
         if (!rec) {
             return null;
         }
@@ -168,8 +168,8 @@ export class OidcStore {
         return rec;
     }
 
-    private async persistClients(): Promise<void> {
-        await writeJson(this.clientsFile, this.clients);
+    private async persistApps(): Promise<void> {
+        await writeJson(this.appsFile, this.apps);
     }
 }
 

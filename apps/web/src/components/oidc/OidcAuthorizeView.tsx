@@ -31,14 +31,14 @@ function parseParams(): OidcAuthorizeParams | null {
  * Top-level route (mounted directly by main.tsx, not the hash router) for
  * `GET /oidc/authorize` redirects from relying parties. Reuses the normal
  * login/setup screens via `useAuth()`, then shows a lightweight identity
- * confirmation ("Continue as X to <client>?") instead of a scope-consent
- * screen — every client here was registered by the owner, so registration
+ * confirmation ("Continue as X to <app>?") instead of a scope-consent
+ * screen — every app here was registered by the owner, so registration
  * itself stands in for consent.
  */
 export function OidcAuthorizeView() {
     const auth = useAuth();
     const [params] = useState(parseParams);
-    const [request, setRequest] = useState<{ clientName: string; redirectUri: string } | null>(null);
+    const [request, setRequest] = useState<{ appName: string; redirectUri: string } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
 
@@ -97,7 +97,7 @@ export function OidcAuthorizeView() {
                 ) : (
                     <>
                         <p className="login-subtitle">
-                            Continue as <strong>{auth.user.username}</strong> to <strong>{request.clientName}</strong>?
+                            Continue as <strong>{auth.user.username}</strong> to <strong>{request.appName}</strong>?
                         </p>
                         <p style={{ fontSize: 12, color: "var(--fg-muted)", marginTop: -8 }}>
                             You'll be redirected to <code>{request.redirectUri}</code>.

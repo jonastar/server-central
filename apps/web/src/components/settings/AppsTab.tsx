@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import type { OidcClient } from "@central/shared";
+import type { App } from "@central/shared";
 import { api } from "../../api";
 import { EmptyState, ErrorBanner, Modal } from "../ui";
 
-function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated: (client: OidcClient) => void }) {
+function AddAppModal({ onClose, onCreated }: { onClose: () => void; onCreated: (app: App) => void }) {
     const [name, setName] = useState("");
     const [redirectUris, setRedirectUris] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
-    const [created, setCreated] = useState<{ client: OidcClient; clientSecret: string } | null>(null);
+    const [created, setCreated] = useState<{ app: App; clientSecret: string } | null>(null);
     const [copied, setCopied] = useState(false);
 
     async function handleSubmit(e: React.FormEvent) {
@@ -17,9 +17,9 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
         setBusy(true);
         try {
             const uris = redirectUris.split("\n").map((s) => s.trim()).filter(Boolean);
-            const result = await api("createOidcClient", { name, redirectUris: uris });
+            const result = await api("createApp", { name, redirectUris: uris });
             setCreated(result);
-            onCreated(result.client);
+            onCreated(result.app);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -40,13 +40,13 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
     // for good (only the hash is persisted server-side).
     if (created) {
         return (
-            <Modal title="SSO client created" onClose={onClose} width={480}>
+            <Modal title="App created" onClose={onClose} width={480}>
                 <p style={{ marginTop: 0, color: "var(--fg-muted)" }}>
-                    This is the only time the client secret is shown — copy it into the relying party's config now.
+                    This is the only time the client secret is shown — copy it into the app's config now.
                 </p>
                 <label className="login-field">
                     <span>Client ID</span>
-                    <input className="input" readOnly value={created.client.id} />
+                    <input className="input" readOnly value={created.app.id} />
                 </label>
                 <label className="login-field">
                     <span>Client secret</span>
@@ -65,7 +65,7 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
     }
 
     return (
-        <Modal title="Add SSO client" onClose={onClose} width={480}>
+        <Modal title="Add app" onClose={onClose} width={480}>
             <form onSubmit={handleSubmit}>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
                 <label className="login-field">
@@ -93,26 +93,26 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
     );
 }
 
-export function OidcClientsTab() {
-    const [clients, setClients] = useState<OidcClient[] | null>(null);
+export function AppsTab() {
+    const [apps, setApps] = useState<App[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
 
     function refresh() {
-        api("listOidcClients", undefined).then(setClients).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+        api("listApps", undefined).then(setApps).catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }
 
     useEffect(refresh, []);
 
-    async function handleDelete(client: OidcClient) {
-        if (!confirm(`Delete SSO client "${client.name}"? Anything using it will stop being able to sign in.`)) {
+    async function handleDelete(app: App) {
+        if (!confirm(`Delete app "${app.name}"? Anything using it will stop being able to sign in.`)) {
             return;
         }
-        setBusyId(client.id);
+        setBusyId(app.id);
         setError(null);
         try {
-            await api("deleteOidcClient", { clientId: client.id });
+            await api("deleteApp", { appId: app.id });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -126,13 +126,13 @@ export function OidcClientsTab() {
             {error && <ErrorBanner>{error}</ErrorBanner>}
 
             <div style={{ marginBottom: 12 }}>
-                <button className="btn btn-primary" onClick={() => setAdding(true)}>Add client</button>
+                <button className="btn btn-primary" onClick={() => setAdding(true)}>Add app</button>
             </div>
 
-            {clients === null ? (
+            {apps === null ? (
                 <EmptyState>Loading…</EmptyState>
-            ) : clients.length === 0 ? (
-                <EmptyState>No SSO clients registered.</EmptyState>
+            ) : apps.length === 0 ? (
+                <EmptyState>No apps registered.</EmptyState>
             ) : (
                 <section className="panel">
                     <table className="data-table">
@@ -146,14 +146,14 @@ export function OidcClientsTab() {
                             </tr>
                         </thead>
                         <tbody>
-                            {clients.map((c) => (
-                                <tr key={c.id}>
-                                    <td className="file-name">{c.name}</td>
-                                    <td className="mono dim">{c.id}</td>
-                                    <td className="dim">{c.redirectUris.join(", ")}</td>
-                                    <td className="dim">{new Date(c.createdAt).toLocaleString()}</td>
+                            {apps.map((a) => (
+                                <tr key={a.id}>
+                                    <td className="file-name">{a.name}</td>
+                                    <td className="mono dim">{a.id}</td>
+                                    <td className="dim">{a.redirectUris.join(", ")}</td>
+                                    <td className="dim">{new Date(a.createdAt).toLocaleString()}</td>
                                     <td className="row-actions-always">
-                                        <button className="btn" disabled={busyId === c.id} onClick={() => void handleDelete(c)}>
+                                        <button className="btn" disabled={busyId === a.id} onClick={() => void handleDelete(a)}>
                                             Delete
                                         </button>
                                     </td>
@@ -165,9 +165,9 @@ export function OidcClientsTab() {
             )}
 
             {adding && (
-                <AddClientModal
+                <AddAppModal
                     onClose={() => setAdding(false)}
-                    onCreated={(client) => setClients((prev) => [...(prev ?? []), client])}
+                    onCreated={(app) => setApps((prev) => [...(prev ?? []), app])}
                 />
             )}
         </div>

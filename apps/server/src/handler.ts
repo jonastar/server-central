@@ -1,5 +1,6 @@
 import type {
     ApiHandlerPrefixed,
+    App,
     AssignableRole,
     CentralApiOperations,
     ContainerAction,
@@ -16,7 +17,6 @@ import type {
     MetricsSnapshot,
     NetworkInfo,
     OidcAuthorizeParams,
-    OidcClient,
     ProcessInfo,
     ServerEntry,
     ServiceAction,
@@ -133,47 +133,51 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         await this.auth.adminSetPassword(data.userId, data.password);
     }
 
-    // ---- OIDC clients (owner-only admin) ---------------------------------------
+    // ---- Apps (owner-only admin) ------------------------------------------------
+    //
+    // Today an "app" is just an OIDC relying-party registration (id/secret +
+    // redirect URIs). See the `App` doc comment in @central/shared — this is a
+    // first cut ahead of the broader App system (compose stacks, routes, roles).
 
-    async handleListOidcClients(_data: void, ctx?: AuthContext): Promise<OidcClient[]> {
+    async handleListApps(_data: void, ctx?: AuthContext): Promise<App[]> {
         requireOwner(ctx);
-        return this.oidc.listClients();
+        return this.oidc.listApps();
     }
 
-    async handleCreateOidcClient(data: { name: string; redirectUris: string[] }, ctx?: AuthContext): Promise<{ client: OidcClient; clientSecret: string }> {
+    async handleCreateApp(data: { name: string; redirectUris: string[] }, ctx?: AuthContext): Promise<{ app: App; clientSecret: string }> {
         requireOwner(ctx);
         const config = await readConfig();
         if (!config.issuerUrl) {
-            throw new Error("Set an Issuer URL in Settings before registering OIDC clients");
+            throw new Error("Set an Issuer URL in Settings before registering apps");
         }
-        return this.oidc.createClient(data.name, data.redirectUris);
+        return this.oidc.createApp(data.name, data.redirectUris);
     }
 
-    async handleDeleteOidcClient(data: { clientId: string }, ctx?: AuthContext): Promise<void> {
+    async handleDeleteApp(data: { appId: string }, ctx?: AuthContext): Promise<void> {
         requireOwner(ctx);
-        await this.oidc.deleteClient(data.clientId);
+        await this.oidc.deleteApp(data.appId);
     }
 
     // ---- OIDC front-channel (authenticated user) -------------------------------
     //
     // Driven by the SPA's /oidc/authorize route: it resolves the request to show
-    // "Continue as X to <client>?", then mints the code on confirm. The actual
+    // "Continue as X to <app>?", then mints the code on confirm. The actual
     // code-for-token exchange is raw HTTP at POST /oidc/token (see index.ts),
     // since that leg is called by the relying party's backend, not the browser.
 
-    async handleGetOidcAuthorizeRequest(data: OidcAuthorizeParams): Promise<{ clientName: string; redirectUri: string }> {
-        const client = this.oidc.validateRequest(data);
-        return { clientName: client.name, redirectUri: data.redirectUri };
+    async handleGetOidcAuthorizeRequest(data: OidcAuthorizeParams): Promise<{ appName: string; redirectUri: string }> {
+        const app = this.oidc.validateRequest(data);
+        return { appName: app.name, redirectUri: data.redirectUri };
     }
 
     async handleCompleteOidcAuthorize(data: OidcAuthorizeParams, ctx?: AuthContext): Promise<{ redirectUrl: string }> {
         if (!ctx?.user) {
             throw new Error("Not authenticated");
         }
-        const client = this.oidc.validateRequest(data);
+        const app = this.oidc.validateRequest(data);
         const code = this.oidc.issueCode({
             userId: ctx.user.id,
-            clientId: client.id,
+            clientId: app.id,
             redirectUri: data.redirectUri,
             scope: data.scope,
             codeChallenge: data.codeChallenge,
