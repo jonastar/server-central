@@ -22,6 +22,8 @@ import type {
     ServiceAction,
     StackAction,
     SystemdState,
+    SystemUserHostStatus,
+    SystemUsersState,
     TaskRun,
     TaskSpec,
     UserDetail,
@@ -43,6 +45,7 @@ import {
 } from "./docker";
 import { getNetworkInfo } from "./network";
 import { systemdList, systemdServiceAction, systemdServiceLogs, systemdUnitFile } from "./systemd";
+import { systemUserCreate, systemUserLookup, systemUserSetGroups, systemUsersList } from "./system-users";
 import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
@@ -131,6 +134,11 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
     async handleAdminSetPassword(data: { userId: string; password: string }, ctx?: AuthContext): Promise<void> {
         requireOwner(ctx);
         await this.auth.adminSetPassword(data.userId, data.password);
+    }
+
+    async handleSetUserSystemUser(data: { userId: string; systemUser: string | null }, ctx?: AuthContext): Promise<void> {
+        requireOwner(ctx);
+        await this.auth.setSystemUser(data.userId, data.systemUser);
     }
 
     // ---- Apps (owner-only admin) ------------------------------------------------
@@ -412,6 +420,40 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
 
     async handleGetNetworkInfo(data: { serverId: string }): Promise<NetworkInfo> {
         return getNetworkInfo(this.fleet.get(data.serverId));
+    }
+
+    // ---- System users --------------------------------------------------------------------
+
+    async handleSystemUsersList(data: { serverId: string }): Promise<SystemUsersState> {
+        return systemUsersList(this.fleet.get(data.serverId), this.auth.listUsers());
+    }
+
+    async handleSystemUserCreate(data: { serverId: string; username: string; groups: string[] }, ctx?: AuthContext): Promise<void> {
+        requireOwner(ctx);
+        await systemUserCreate(this.fleet.get(data.serverId), data.username, data.groups ?? []);
+    }
+
+    async handleSystemUserHostStatus(data: { username: string }): Promise<SystemUserHostStatus[]> {
+        return Promise.all(this.fleet.entries().map(async (entry): Promise<SystemUserHostStatus> => {
+            const base = { serverId: entry.id, serverName: entry.name };
+            if (entry.status.state !== "online") {
+                return { ...base, status: "offline" };
+            }
+            try {
+                const res = await systemUserLookup(this.fleet.get(entry.id), data.username);
+                if (res.error) {
+                    return { ...base, status: "error", error: res.error };
+                }
+                return res.found ? { ...base, status: "exists", user: res.user } : { ...base, status: "missing" };
+            } catch (err) {
+                return { ...base, status: "error", error: err instanceof Error ? err.message : String(err) };
+            }
+        }));
+    }
+
+    async handleSystemUserSetGroups(data: { serverId: string; username: string; groups: string[] }, ctx?: AuthContext): Promise<void> {
+        requireOwner(ctx);
+        await systemUserSetGroups(this.fleet.get(data.serverId), data.username, data.groups ?? []);
     }
 
     // ---- Systemd -----------------------------------------------------------------------

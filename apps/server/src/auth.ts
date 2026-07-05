@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { AssignableRole, Role, UserDetail, UserInfo, UserSession } from "@central/shared";
 import { CONFIG_DIR, writeFileAtomic } from "./config";
+import { assertSystemUsername } from "./system-users";
 
 /** Sessions older than this (since last use) are rejected and pruned. */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -13,6 +14,8 @@ interface UserRecord {
     passwordHash: string;
     role: Role;
     createdAt: number;
+    /** Mapped OS account (see UserInfo.systemUser). Absent on older records. */
+    systemUser?: string | null;
 }
 
 interface SessionRecord {
@@ -40,7 +43,7 @@ const MAX_LOGIN_FAILURES = 10;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 
 function toUserInfo(rec: UserRecord): UserInfo {
-    return { id: rec.id, username: rec.username, role: rec.role, createdAt: rec.createdAt };
+    return { id: rec.id, username: rec.username, role: rec.role, createdAt: rec.createdAt, systemUser: rec.systemUser ?? null };
 }
 
 /**
@@ -188,6 +191,22 @@ export class AuthStore {
             throw new Error("The owner's role can't be changed");
         }
         rec.role = role;
+        await this.persistUsers();
+    }
+
+    /** Map a user to an OS account on managed hosts (null clears the mapping).
+     *  The name is validated for shape only — whether it exists is per-host, and
+     *  the terminal fails with a clear message on hosts where it doesn't. */
+    async setSystemUser(userId: string, systemUser: string | null): Promise<void> {
+        const rec = this.users[userId];
+        if (!rec) {
+            throw new Error("User not found");
+        }
+        const name = systemUser?.trim() || null;
+        if (name) {
+            assertSystemUsername(name);
+        }
+        rec.systemUser = name;
         await this.persistUsers();
     }
 

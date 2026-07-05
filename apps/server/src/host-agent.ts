@@ -242,7 +242,8 @@ export class HostAgent {
         });
     }
 
-    async openShell(cols: number, rows: number): Promise<ShellSession> {
+    /** asUser: OS account the shell runs as (null = the agent's own user, root). */
+    async openShell(cols: number, rows: number, asUser: string | null = null): Promise<ShellSession> {
         const sessionId = crypto.randomUUID();
         let dataCb: (data: string) => void = () => { };
         let exitCb: (code: number | null) => void = () => { };
@@ -252,7 +253,7 @@ export class HostAgent {
             onExit: (code) => exitCb(code),
         });
 
-        this.sendControl({ type: "openShell", sessionId, cols, rows });
+        this.sendControl({ type: "openShell", sessionId, cols, rows, asUser });
 
         return {
             onData(cb) { dataCb = cb; },

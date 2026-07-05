@@ -13,6 +13,7 @@ import { DockerView } from "./components/DockerView";
 import { ProcessesView } from "./components/ProcessesView";
 import { NetworkView } from "./components/NetworkView";
 import { ServicesView } from "./components/ServicesView";
+import { SystemUsersView } from "./components/SystemUsersView";
 import { TerminalView } from "./components/TerminalView";
 import { SettingsView } from "./components/SettingsView";
 import { EmptyState } from "./components/ui";
@@ -99,6 +100,8 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                 return <NetworkView serverId={currentEntry.id} />;
             case "services":
                 return <ServicesView serverId={currentEntry.id} />;
+            case "users":
+                return <SystemUsersView serverId={currentEntry.id} />;
             case "terminal":
                 return <TerminalView serverId={currentEntry.id} />;
         }

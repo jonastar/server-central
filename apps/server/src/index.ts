@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage } from "@central/shared";
+import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
 import type { ShellSession } from "./host-agent";
 import { CONFIG_DIR, readConfig } from "./config";
 import { AuthStore, type AuthContext } from "./auth";
@@ -17,6 +17,7 @@ import { startNodeServer } from "./node-server";
 import { runAgentCli } from "./agent/agent-cli";
 import { serveStatic } from "./static";
 import { offerInteractiveInstall, runServerInstallCli } from "./server-install";
+import { resolveShellUser } from "./system-users";
 
 // This single binary is both the control plane and the host agent. With
 // `--agent` it connects to a control plane and runs the managed-host logic
@@ -42,7 +43,7 @@ type Command = keyof CentralApiOperations;
 
 type WsData =
     | { channel: "events" }
-    | { channel: "terminal"; serverId: string; shell: ShellSession | null };
+    | { channel: "terminal"; serverId: string; user: UserInfo; shell: ShellSession | null };
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -186,8 +187,11 @@ async function openTerminal(ws: ServerWebSocket<WsData>): Promise<void> {
         return;
     }
     try {
+        // Terminals run as the caller's mapped OS account; unmapped operator/
+        // viewer accounts are refused here (null = the agent's own user, root).
+        const asUser = resolveShellUser(ws.data.user);
         const agent = fleet.get(ws.data.serverId);
-        const shell = await agent.openShell(80, 24);
+        const shell = await agent.openShell(80, 24, asUser);
         ws.data.shell = shell;
         shell.onData((data) => sendTerminal(ws, { type: "data", data }));
         shell.onExit((code) => {
@@ -257,7 +261,7 @@ const server = Bun.serve<WsData>({
             if (!serverId) {
                 return Response.json({ error: "serverId required" }, { status: 400, headers: corsHeaders });
             }
-            const data: WsData = { channel: "terminal", serverId, shell: null };
+            const data: WsData = { channel: "terminal", serverId, user, shell: null };
             if (serverCtx.upgrade(req, { data })) {
                 return undefined as unknown as Response;
             }

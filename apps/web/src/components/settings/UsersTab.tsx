@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useState } from "react";
-import type { AssignableRole, Role, UserDetail, UserInfo } from "@central/shared";
+import type { AssignableRole, Role, SystemUserHostStatus, UserDetail, UserInfo } from "@central/shared";
 import { api } from "../../api";
 import { cx } from "../../utils";
 import { DetailPair, EmptyState, ErrorBanner, Modal } from "../ui";
+import { MappedSystemUsersModal } from "./MappedSystemUsersModal";
 
 const ASSIGNABLE_ROLES: AssignableRole[] = ["admin", "operator", "viewer"];
 
@@ -120,7 +121,96 @@ function ChangePasswordForm({ userId, onDone }: { userId: string; onDone: () => 
     );
 }
 
-function UserDetailBody({ user }: { user: UserInfo }) {
+function SystemUserForm({ user, onSaved }: { user: UserInfo; onSaved: () => void }) {
+    const [value, setValue] = useState(user.systemUser ?? "");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [done, setDone] = useState(false);
+
+    async function handleSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        setDone(false);
+        try {
+            await api("setUserSystemUser", { userId: user.id, systemUser: value.trim() || null });
+            setDone(true);
+            onSaved();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <form onSubmit={handleSubmit} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <input
+                className="input mono"
+                placeholder="none"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                style={{ width: 160 }}
+            />
+            <button className="btn btn-sm" type="submit" disabled={busy}>
+                {busy ? "Saving…" : "Save"}
+            </button>
+            <span className="dim" style={{ fontSize: 12 }}>
+                {done
+                    ? "Saved — takes effect on the next terminal they open."
+                    : "Their terminal runs as this OS account on every host. Empty = unmapped: owner/admin get root, others get no terminal."}
+            </span>
+            {error && <span className="dim" style={{ fontSize: 12, color: "var(--err)" }}>{error}</span>}
+        </form>
+    );
+}
+
+/** Notice line under the mapping form: where the mapped account is missing,
+ *  plus the entry point to the per-host modal (create it there, edit groups). */
+function MappedHostsSummary({ user }: { user: UserInfo }) {
+    const systemUser = user.systemUser;
+    const [hosts, setHosts] = useState<SystemUserHostStatus[] | null>(null);
+    const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        setHosts(null);
+        if (!systemUser) {
+            return;
+        }
+        api("systemUserHostStatus", { username: systemUser })
+            .then(setHosts)
+            .catch(() => setHosts([]));
+    }, [systemUser, open]); // re-check after the modal closes — accounts may have been created
+
+    if (!systemUser) {
+        return null;
+    }
+
+    const missing = (hosts ?? []).filter((h) => h.status === "missing");
+    const offline = (hosts ?? []).filter((h) => h.status === "offline");
+
+    return (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+            {hosts === null && <span className="dim" style={{ fontSize: 12 }}>Checking hosts…</span>}
+            {hosts !== null && missing.length > 0 && (
+                <span className="badge badge-warn">
+                    missing on {missing.map((h) => h.serverName).join(", ")}
+                </span>
+            )}
+            {hosts !== null && missing.length === 0 && (
+                <span className="dim" style={{ fontSize: 12 }}>
+                    Account present on all online hosts{offline.length > 0 ? ` (${offline.length} offline, unknown)` : ""}.
+                </span>
+            )}
+            <button className="btn btn-sm" onClick={() => setOpen(true)}>Mapped hosts…</button>
+            {open && (
+                <MappedSystemUsersModal scUsername={user.username} systemUser={systemUser} onClose={() => setOpen(false)} />
+            )}
+        </div>
+    );
+}
+
+function UserDetailBody({ user, onChanged }: { user: UserInfo; onChanged: () => void }) {
     const [detail, setDetail] = useState<UserDetail | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busySessionId, setBusySessionId] = useState<string | null>(null);
@@ -194,6 +284,12 @@ function UserDetailBody({ user }: { user: UserInfo }) {
                             </tbody>
                         </table>
                     )}
+
+                    <div style={{ marginTop: 12 }}>
+                        <div className="detail-label" style={{ marginBottom: 4 }}>System user</div>
+                        <SystemUserForm user={user} onSaved={onChanged} />
+                        <MappedHostsSummary user={user} />
+                    </div>
 
                     <div style={{ marginTop: 12 }}>
                         <div className="detail-label" style={{ marginBottom: 4 }}>Change password</div>
@@ -270,6 +366,7 @@ export function UsersTab() {
                                 <th className="col-expander" />
                                 <th>Username</th>
                                 <th>Role</th>
+                                <th>System user</th>
                                 <th>Created</th>
                                 <th />
                             </tr>
@@ -299,6 +396,7 @@ export function UsersTab() {
                                                     </select>
                                                 )}
                                             </td>
+                                            <td>{u.systemUser ? <span className="mono">{u.systemUser}</span> : <span className="dim">—</span>}</td>
                                             <td className="dim">{new Date(u.createdAt).toLocaleString()}</td>
                                             <td className="row-actions-always" onClick={(e) => e.stopPropagation()}>
                                                 {u.role !== "owner" && (
@@ -311,9 +409,9 @@ export function UsersTab() {
                                         {expanded && (
                                             <tr className="row-detail-tr">
                                                 <td />
-                                                <td colSpan={4}>
+                                                <td colSpan={5}>
                                                     <div className="row-detail-wrap">
-                                                        <UserDetailBody user={u} />
+                                                        <UserDetailBody user={u} onChanged={refresh} />
                                                     </div>
                                                 </td>
                                             </tr>

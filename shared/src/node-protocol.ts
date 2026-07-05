@@ -38,7 +38,9 @@ export type ControlMessage =
     | { type: "createDirRequest"; requestId: string; path: string }
     | { type: "deletePathRequest"; requestId: string; path: string }
     | { type: "renamePathRequest"; requestId: string; from: string; to: string }
-    | { type: "openShell"; sessionId: string; cols: number; rows: number }
+    // asUser: OS account to run the shell as (via runuser/su; the agent runs as
+    // root). Null/absent means the agent's own user — the pre-mapping behavior.
+    | { type: "openShell"; sessionId: string; cols: number; rows: number; asUser?: string | null }
     | { type: "shellInput"; sessionId: string; data: string }
     | { type: "shellResize"; sessionId: string; cols: number; rows: number }
     | { type: "closeShell"; sessionId: string }

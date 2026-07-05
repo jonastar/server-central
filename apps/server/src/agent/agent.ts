@@ -234,7 +234,7 @@ export class Agent {
 
             case "openShell": {
                 try {
-                    const shell = await this.runOpenShell(msg.sessionId, msg.cols, msg.rows);
+                    const shell = await this.runOpenShell(msg.sessionId, msg.cols, msg.rows, msg.asUser ?? null);
                     this.shells.set(msg.sessionId, shell);
                 } catch (e) {
                     this.transport.send({ type: "error", message: String(e) });
@@ -403,10 +403,30 @@ export class Agent {
         await fs.rename(normalizePath(from), normalizePath(to));
     }
 
-    private async runOpenShell(sessionId: string, cols: number, rows: number): Promise<ActiveShell> {
+    /** The argv for a terminal session. Running as another user wraps the login
+     *  shell in runuser/su (login mode, so it lands in their home with their
+     *  environment); that needs the agent to be root, which the installed agent
+     *  always is. A shell as the agent's own user needs no wrapper. */
+    private shellArgv(asUser: string | null): string[] {
+        if (!asUser || asUser === os.userInfo().username) {
+            return [process.env.SHELL || "bash", "-l"];
+        }
+        // Shape-check the name even though argv can't be shell-injected — runuser
+        // option smuggling (e.g. a name starting with "-") is still a thing.
+        if (!/^[a-z_][a-z0-9_-]{0,31}\$?$/.test(asUser)) {
+            throw new Error(`Invalid system username: ${asUser}`);
+        }
+        if (os.userInfo().username !== "root") {
+            throw new Error(`Agent runs as ${os.userInfo().username} and can't open a shell as ${asUser}`);
+        }
+        const runuser = Bun.which("runuser");
+        return runuser ? [runuser, "-l", asUser] : ["su", "-", asUser];
+    }
+
+    private async runOpenShell(sessionId: string, cols: number, rows: number, asUser: string | null): Promise<ActiveShell> {
         const decoder = new TextDecoder();
 
-        const proc = Bun.spawn([process.env.SHELL || "bash", "-l"], {
+        const proc = Bun.spawn(this.shellArgv(asUser), {
             cwd: os.homedir(),
             env: { ...process.env, TERM: "xterm-256color" },
             terminal: {

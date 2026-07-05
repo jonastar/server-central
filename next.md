@@ -17,6 +17,17 @@
   install) runs for any authenticated user regardless of role — admin/operator/viewer are currently
   indistinguishable once logged in. See the `Role` doc comment in `shared/src/index.ts`. Don't forget
   to close this before leaning on roles for anything real.
+  - Terminals are the exception now (2026-07-04): they run as the caller's mapped system user,
+    deny-by-default for unmapped operator/viewer. Files/exec/docker/systemd still bypass this.
+- System users, follow-ups to the 2026-07-04 slice (manual mapping + per-host Users tab):
+  - Agent version skew: an outdated agent ignores `openShell.asUser` and opens a root shell.
+    Consider a minimum-agent-version gate on impersonated shells.
+  - Per-node mapping overrides (map keyed by machine id) once someone actually has divergent
+    usernames per host; today one username applies fleet-wide.
+  - Provisioning polish: per-host manual create + group editing exist now (mapped-hosts modal in
+    Settings → Users); still pending are SC-allocated consistent UIDs across hosts, SSH
+    authorized_keys management, delete users / change shell-home, audit log of who opened which
+    terminal.
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 

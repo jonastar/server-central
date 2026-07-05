@@ -4,6 +4,40 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-07-04 - System users: per-host Users tab + terminal impersonation
+
+## Added
+
+- **System user mapping** (`UserInfo.systemUser`, set via `setUserSystemUser`, owner-only): a
+  Server Central user can be mapped to an OS account, edited in Settings → Users (new column +
+  expanded-row form). Their terminal then runs as that account on every host: the control plane
+  resolves the mapping at shell-open (`resolveShellUser` in `apps/server/src/system-users.ts`)
+  and the agent wraps the PTY spawn in `runuser -l <user>` (falls back to `su -`; requires the
+  agent to run as root, which installed agents do).
+- **Terminal policy — deny by default**: unmapped owner/admin still get the agent's own user
+  (root) so admins aren't locked out; unmapped operator/viewer get no terminal at all, with a
+  clear error in the terminal pane. Mapping someone to `root` is the explicit root-terminal grant.
+- **Per-server Users tab** (`SystemUsersView`, route tab `users`): lists real accounts from
+  `getent passwd`/`getent group` (uid ≥ 1000 plus root; daemons/nobody hidden) with uid, groups,
+  home, shell, and which SC users map to each. "Add user" (owner-only, `systemUserCreate`) runs
+  `useradd -m` with optional supplementary groups and prefers `/bin/bash` as the login shell.
+- **Mapped-hosts view**: Settings → Users now shows, under the mapping form, where the mapped
+  account actually exists — a "missing on <hosts>" badge (`systemUserHostStatus`: per-host
+  exists/missing/offline/error via `getent passwd <name>`, exit 2 = missing, uid filter lifted so
+  mapped daemon accounts still count) and a "Mapped hosts…" modal (`MappedSystemUsersModal`) with
+  a one-click "Create account" on missing hosts and supplementary-group editing on existing ones
+  (`systemUserSetGroups`, owner-only, `usermod -G`; `SystemUserInfo.primaryGroup` added so the UI
+  can split primary from supplementary). Accounts are never created implicitly — creation is
+  always an explicit owner action, here or in the per-server tab.
+
+## Notes
+
+- Protocol: `openShell` gained `asUser` — an **outdated installed agent silently ignores it and
+  opens a root shell**, so update agents before relying on the mapping (noted in next.md).
+- File operations, exec, docker, and systemd are still root-backed regardless of mapping; this
+  slice covers terminals only. Verified end-to-end via a root agent harness: `runuser` shell
+  reports the target identity and home, unknown users fail visibly, non-root agents refuse.
+
 # 2026-07-02 - Rename SSO clients to Apps (placeholder for a future App system)
 
 ## Changed

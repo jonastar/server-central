@@ -1,4 +1,4 @@
-export type ServerTab = "overview" | "files" | "docker" | "processes" | "network" | "services" | "terminal";
+export type ServerTab = "overview" | "files" | "docker" | "processes" | "network" | "services" | "users" | "terminal";
 
 export type DockerSection = "overview" | "stacks" | "containers" | "volumes" | "images";
 
@@ -29,6 +29,7 @@ export const SERVER_TABS: Array<{ id: ServerTab; label: string }> = [
     { id: "processes", label: "Processes" },
     { id: "network", label: "Network" },
     { id: "services", label: "Services" },
+    { id: "users", label: "Users" },
     { id: "terminal", label: "Terminal" },
 ];
 
