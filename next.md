@@ -28,8 +28,8 @@
     Settings → Users); still pending are SC-allocated consistent UIDs across hosts, SSH
     authorized_keys management, delete users / change shell-home, audit log of who opened which
     terminal.
-- Proper versioning with unrelease section, track down what happened in which releases
 - Shorcut to sc logs
+- ctrl-w catch in terminal
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 
@@ -110,6 +110,14 @@ So maybe this could be a flows thing? with various triggers?
 But at some point maybe it's better to just jump into htop in the terminal?
 
 # Already implemented, archive
+
+- [DONE] Version-based changelog (2026-07-22)
+  - `changelog.md` restructured from flat dated entries into `## Unreleased` / `## [x.y.z] - date` /
+    `## Pre-0.8` sections (existing dated entries nested underneath, unchanged content — no
+    backfill of which pre-0.8 entry shipped in which of the 3 existing tags, not worth the
+    ambiguity). `scripts/create-release.ts` now has `cutChangelog()`: on release it renames
+    `## Unreleased` to `## [<version>] - <date>` and reopens an empty `## Unreleased` above it,
+    committed alongside the version bump. New entries just get written under Unreleased as they land.
 
 - [DONE] Docker rework — Portainer-lite (2026-06-22)
   - Docker tab is now a nested sub-tabbed view (Overview · Stacks · Containers · Volumes · Images), routed as `#/server/<id>/docker/<section>` (`routes.ts` `DockerSection` + volume-browser drill-down). Shell + sections live in `apps/web/src/components/docker/`.

@@ -14,6 +14,7 @@ import * as path from "node:path";
 const ROOT = path.resolve(import.meta.dir, "..");
 // shared first: it's the version of record (AGENT_VERSION reads it).
 const PACKAGES = ["shared/package.json", "apps/server/package.json", "apps/web/package.json"];
+const CHANGELOG = "changelog.md";
 
 function fail(msg: string): never {
     console.error(`✗ ${msg}`);
@@ -75,6 +76,22 @@ async function setVersion(file: string, version: string): Promise<void> {
     await Bun.write(full, updated);
 }
 
+// Cuts the "## Unreleased" section over to "## [x.y.z] - <date>" and opens a fresh
+// empty "## Unreleased" above it, so changelog entries land under the right version
+// with no extra step beyond writing them under Unreleased as they're made.
+async function cutChangelog(version: string): Promise<void> {
+    const full = path.join(ROOT, CHANGELOG);
+    const text = await Bun.file(full).text();
+    // Match only the heading on its own line — "Unreleased" also appears in the intro prose.
+    const headingLine = /^## Unreleased$/m;
+    if (!headingLine.test(text)) {
+        fail(`Could not find a "## Unreleased" heading line in ${CHANGELOG}`);
+    }
+    const date = new Date().toISOString().slice(0, 10);
+    const updated = text.replace(headingLine, `## Unreleased\n\n## [${version}] - ${date}`);
+    await Bun.write(full, updated);
+}
+
 const bump = process.argv[2] ?? "patch";
 
 // Preflight: a clean tree so the release commit only contains the version bump +
@@ -98,10 +115,13 @@ for (const pkg of PACKAGES) {
     console.log(`  bumped ${pkg}`);
 }
 
+await cutChangelog(version);
+console.log(`  cut ${CHANGELOG} Unreleased → [${version}]`);
+
 // Refresh the committed lockfile (versions changed) so CI's --frozen-lockfile passes.
 await $`bun install`.cwd(ROOT);
 
-await $`git -C ${ROOT} add ${PACKAGES} bun.lock`;
+await $`git -C ${ROOT} add ${PACKAGES} bun.lock ${CHANGELOG}`;
 await $`git -C ${ROOT} commit -m ${`release ${tag}`}`;
 await $`git -C ${ROOT} tag -a ${tag} -m ${`Release ${tag}`}`;
 
