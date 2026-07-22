@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
-import * as path from "node:path";
 import type { Server } from "bun";
+import BOOTSTRAP_SCRIPT from "./agent/bootstrap.sh" with { type: "text" };
 import type { MetricsSnapshot, NodeMessage } from "@central/shared";
 import { ensureTls, localIps, type TlsBundle } from "./tls";
 import { HostAgent } from "./host-agent";
@@ -133,10 +133,12 @@ export class NodeServer {
             .replaceAll("__CERT__", () => this.tls.caCertPem.trim());
     }
 
-    /** Read + cache the bootstrap.sh template (from source, like DIST_DIR). */
-    private static scriptPromise: Promise<string> | null = null;
+    /** The bootstrap.sh template. Statically imported (not read via `Bun.file` at a
+     *  dynamic path) so `bun build --compile` embeds its contents into the single-file
+     *  binary — a dynamic `path.resolve(import.meta.dir, …)` read only works from source,
+     *  since the compiled binary's virtual `/$bunfs` tree has no on-disk bootstrap.sh. */
     private static bootstrapScript(): Promise<string> {
-        return (NodeServer.scriptPromise ??= Bun.file(path.resolve(import.meta.dir, "agent/bootstrap.sh")).text());
+        return Promise.resolve(BOOTSTRAP_SCRIPT);
     }
 
     /** Serve the agent binary for `platform`, resolved by the binary store (local
