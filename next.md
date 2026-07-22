@@ -5,13 +5,14 @@
 - "already installed" during agent install
   - We should have a force option to overwrite config, certs, and binaries.
   - This is to fix a potentially broken install
+
 - Agents should maybe track the valid control url if there's multiple
 - View agent config in the agents section
+
 - base64 encoding of the blob to manually send it in the body is not ideal, can we support multipart somehow?
+
 - Prefix API endpoints with /api/
-- Networking "remote ip" (seen by control panel)
-  - Lets add a "Stun" one as well, we have detection on the control plane at least but lets also add it to the nodes?
-- Terminal needs some inner padding, the last line is slightly cut off
+
 - RBAC gap: only the Users/OIDC-client admin endpoints (`requireOwner` in `handler.ts`) have any
   permission check. Every other endpoint (servers, files, docker, systemd, network, tasks, config,
   install) runs for any authenticated user regardless of role — admin/operator/viewer are currently
@@ -29,7 +30,6 @@
     authorized_keys management, delete users / change shell-home, audit log of who opened which
     terminal.
 - Shorcut to sc logs
-- ctrl-w catch in terminal
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 
@@ -55,7 +55,7 @@
 > Unify app-scoped configuration (compose stacks, networking/reverse-proxy routes, auth roles, etc.)
 > behind a single "App" entity instead of scattering it across separate admin screens. Example:
 > Jellyfin would be an App with (a) a compose stack (maybe templated), (b) a routes object (TBD —
-> reverse-proxy config), (c) auth roles the app _provides_ (e.g. `jellyfin.user.adult`,
+> reverse-proxy config), (c) auth roles the app provides (e.g. `jellyfin.user.adult`,
 > `jellyfin.user.kid`, `jellyfin.admin`) that get assigned to Server Central users to grant
 > app-scoped access — actual permission mapping still has to be configured inside the app itself,
 > SC only hands it identity + role claims.
@@ -110,6 +110,16 @@ So maybe this could be a flows thing? with various triggers?
 But at some point maybe it's better to just jump into htop in the terminal?
 
 # Already implemented, archive
+
+- [DONE] Per-node STUN, terminal padding, ctrl-w word-delete (2026-07-22)
+  - Network view has a "Check STUN" button per server, running `find_wan_ip` targeted at that host
+    (new `stunRequest`/`stunResponse` node-protocol messages, `stun` agent capability,
+    `HostAgent.discoverStun()`) alongside the existing control-plane-only STUN check and the
+    WS-observed `remoteIp`.
+  - Terminal: fixed the slightly-clipped last line (padding moved from `.terminal-host` onto
+    `.xterm` so FitAddon's row math and the visual inset agree; refit again once the monospace font
+    loads). Ctrl+Backspace now does word-delete (`\x17`) as a working alternative to Ctrl+W, which
+    browsers reserve for closing the tab and won't let a page intercept.
 
 - [DONE] Version-based changelog (2026-07-22)
   - `changelog.md` restructured from flat dated entries into `## Unreleased` / `## [x.y.z] - date` /

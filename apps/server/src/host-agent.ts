@@ -231,6 +231,23 @@ export class HostAgent {
     }
 
     /**
+     * Run a STUN binding request from the host itself, discovering the public IP
+     * as seen from that host's network vantage point — distinct from `remoteIp`
+     * (the WS connection's source IP as seen by the control plane, which differs
+     * per host's NAT) and from the control plane's own STUN check.
+     */
+    async discoverStun(): Promise<{ ip: string | null }> {
+        if (!this.capabilities.has("stun")) {
+            const version = this.info?.agentVersion ?? "unknown version";
+            throw new Error(`The agent on ${this.name} (${version}) predates STUN support — update the agent, then retry`);
+        }
+        const resp = await this.request<Extract<NodeMessage, { type: "stunResponse" }>>({
+            type: "stunRequest", requestId: crypto.randomUUID(),
+        });
+        return resp.result;
+    }
+
+    /**
      * Probe a candidate install/data directory on the host (writable + exec-capable),
      * backing the setup wizard's live path validation.
      */

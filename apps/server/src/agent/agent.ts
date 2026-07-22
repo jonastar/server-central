@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type { ControlMessage, DirEntry, DirEntryType, FileContent, InstallMechanism, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
 import { AGENT_VERSION, MetricsCollector } from "@central/shared";
 import { probeDir } from "./mounts";
+import { discoverWanIp } from "../stun";
 
 export { resolveMachineId } from "./machine-id";
 
@@ -259,6 +260,16 @@ export class Agent {
                 try {
                     const result = await this.runHttpRequest(msg.url, msg.method, msg.contentType, msg.body);
                     this.transport.send({ type: "httpResponse", requestId: msg.requestId, result });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
+
+            case "stunRequest": {
+                try {
+                    const ip = await discoverWanIp();
+                    this.transport.send({ type: "stunResponse", requestId: msg.requestId, result: { ip } });
                 } catch (e) {
                     this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
                 }

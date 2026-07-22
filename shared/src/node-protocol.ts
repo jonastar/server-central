@@ -32,6 +32,7 @@ export type NodeMessage =
     | { type: "shellData"; sessionId: string; data: string }
     | { type: "shellExit"; sessionId: string; code: number | null }
     | { type: "httpResponse"; requestId: string; result: NodeHttpResult }
+    | { type: "stunResponse"; requestId: string; result: { ip: string | null } }
     | { type: "probeInstallPathResponse"; requestId: string; result: InstallProbeResult }
     | { type: "installServiceResponse"; requestId: string; startCommand: string | null }
     | { type: "updateServiceResponse"; requestId: string }
@@ -60,6 +61,11 @@ export type ControlMessage =
     // proxy container's loopback-bound admin API, upstream reachability probes.
     // Grants nothing exec doesn't already; older agents ignore it (times out).
     | { type: "httpRequest"; requestId: string; url: string; method: "GET" | "POST"; contentType?: string; body?: string }
+    // Ask the agent to run its own STUN binding request, discovering the public
+    // IP as seen from that host's network vantage point (distinct from the
+    // control plane's own STUN check, and from remoteIp — the WS source IP as
+    // seen by the control plane, which is NATed differently per host).
+    | { type: "stunRequest"; requestId: string }
     // Probe a candidate install/data dir (writable + exec-capable) for the setup wizard.
     | { type: "probeInstallPathRequest"; requestId: string; path: string }
     // Ask a live agent to install itself as a permanent service. The agentToken is a

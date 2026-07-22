@@ -24,6 +24,10 @@ export function TerminalView({ serverId }: { serverId: string }) {
         term.loadAddon(fit);
         term.open(host);
         fit.fit();
+        // Cell metrics taken before the monospace font finishes loading can be
+        // slightly off (falls back to the system font), leaving the last row
+        // clipped once the real font swaps in — refit once it's ready.
+        void document.fonts?.ready?.then(() => fit.fit());
 
         const ws = new WebSocket(
             `ws://${API_HOST}/terminal?serverId=${encodeURIComponent(serverId)}&token=${encodeURIComponent(getToken() ?? "")}`,
@@ -33,6 +37,22 @@ export function TerminalView({ serverId }: { serverId: string }) {
                 ws.send(JSON.stringify(msg));
             }
         };
+
+        // Ctrl+W is "delete word" in shell readline, but browsers treat it as a
+        // reserved "close tab" shortcut and won't let a page override that — so
+        // it never reaches the terminal. Ctrl+Backspace does the same delete
+        // without colliding with a browser shortcut; bind it to the same
+        // control byte (0x17 / ETB) that Ctrl+W would otherwise send.
+        term.attachCustomKeyEventHandler((event) => {
+            if (event.type !== "keydown") {
+                return true;
+            }
+            if (event.ctrlKey && !event.shiftKey && !event.altKey && !event.metaKey && event.key === "Backspace") {
+                send({ type: "input", data: "\x17" });
+                return false;
+            }
+            return true;
+        });
 
         ws.onopen = () => send({ type: "resize", cols: term.cols, rows: term.rows });
         ws.onmessage = (event) => {

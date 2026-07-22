@@ -53,10 +53,11 @@ export const taskHandlers: TaskHandlers = {
         return { kind: "cmd", exitCode: res.code, stdout: res.stdout, stderr: res.stderr };
     },
 
-    async find_wan_ip(_spec, _ctx) {
-        // Control-plane-local STUN. (next.md item 13 wants a per-node variant
-        // too; that becomes an agent-targeted branch later.)
-        return { kind: "find_wan_ip", ip: await discoverWanIp() };
+    async find_wan_ip(_spec, ctx) {
+        // Targeted: STUN from the agent's own host (its network vantage point).
+        // Untargeted: STUN from the control plane itself.
+        const { ip } = ctx.agent ? await ctx.agent.discoverStun() : { ip: await discoverWanIp() };
+        return { kind: "find_wan_ip", ip };
     },
 };
 

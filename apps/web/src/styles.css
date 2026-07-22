@@ -1056,11 +1056,15 @@ tr:hover .row-actions {
     min-height: 0;
     background: #1d2026;
     border-radius: var(--radius);
-    padding: 8px;
 }
 
+/* Padding lives on .xterm itself (not .terminal-host) so FitAddon's row/col
+   math — which reads padding off the terminal element, not its parent — sees
+   it too; padding on the parent only would let the terminal size itself past
+   the visible inset, clipping the last line. */
 .terminal-host .xterm {
     height: 100%;
+    padding: 8px;
 }
 
 /* ---- Badges / banners ------------------------------------------------------------------ */

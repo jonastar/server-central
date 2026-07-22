@@ -8,6 +8,28 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+### Added
+
+- **Per-node STUN check**: the Network view's "Check STUN" button runs the existing `find_wan_ip`
+  task targeted at that server, so it discovers the public IP from _that host's_ network vantage
+  point rather than only the control plane's. New `stunRequest`/`stunResponse` node-protocol
+  messages and a `stun` agent capability (`apps/server/src/agent/agent.ts`,
+  `apps/server/src/host-agent.ts#discoverStun`); `find_wan_ip`'s task handler now branches on
+  `ctx.agent` to pick control-plane-local vs. agent-targeted STUN
+  (`apps/server/src/tasks/types.ts`). Complements the existing `remoteIp` (WS source IP as seen by
+  the control plane).
+
+### Fixed
+
+- **Terminal**: last line was slightly clipped — `FitAddon` reads padding off the `.xterm` element
+  itself, not its parent, so padding lived on the wrong element (`.terminal-host`) and the fit math
+  didn't agree with the visual inset. Moved padding onto `.xterm`; also refit once
+  `document.fonts.ready` resolves, since cell metrics measured before the monospace font loads are
+  slightly off.
+- **Terminal ctrl-w**: browsers reserve Ctrl+W for closing the tab and don't let a page override
+  that, so it never reached the shell's word-delete. Ctrl+Backspace now sends the same control byte
+  (`\x17`) as a working alternative (`apps/web/src/components/TerminalView.tsx`).
+
 ## Pre-0.8
 
 ## 2026-07-13 - Reverse proxy v1 (SC-managed Caddy)
@@ -44,7 +66,7 @@ opens a fresh `## Unreleased` above it.
   containers filter is now route-carried (`…/docker/containers?q=<filter>`), so any view can
   deep-link a container; the Stacks drill-in keeps its local-state path.
 - **Deploy-failure feedback** on the Proxy page: container status now carries `docker inspect
-  .State.Error` when the container exists but isn't running (e.g. "failed to bind host port …:
+.State.Error` when the container exists but isn't running (e.g. "failed to bind host port …:
   address already in use"), or a recent deploy-log tail when a failed `docker run` left no
   container; the view renders it as a red status line.
 
@@ -58,7 +80,7 @@ opens a fresh `## Unreleased` above it.
 ### Fixed
 
 - **Docker action errors were truncated to the useless line**: `firstErrorLine()` returned only
-  the *last* line of a failed docker command's output — for `docker start` that's the generic
+  the _last_ line of a failed docker command's output — for `docker start` that's the generic
   "Error: failed to start containers: <id>" summary, hiding the daemon's actual reason on the
   line above. Replaced with `errorText()` returning the full (bounded) output, so container/
   stack/volume/image action failures now show the real cause in the UI banner.
@@ -190,7 +212,7 @@ opens a fresh `## Unreleased` above it.
 
 ### Added
 
-- **A control-plane task system.** Tasks are a unit of work the control plane runs (optionally against a host agent), each carrying a uniform envelope — id, status (`pending`/`running`/`succeeded`/`failed`/`cancelled`), a *typed* result, trigger, and timestamps — so any kind gets run history, last-result inspection, and a "run now" affordance for free. A task's spec is a closed discriminated union keyed by `kind` in `@central/shared` (`TaskSpec` = `TaskCmd | TaskFindWanIp`), with a parallel `TaskResult` union on the same `kind`; the server has one handler per kind (`apps/server/src/tasks/types.ts`, `taskHandlers`), mirroring the API operation layer. Adding a kind = spec variant + result variant + handler.
+- **A control-plane task system.** Tasks are a unit of work the control plane runs (optionally against a host agent), each carrying a uniform envelope — id, status (`pending`/`running`/`succeeded`/`failed`/`cancelled`), a _typed_ result, trigger, and timestamps — so any kind gets run history, last-result inspection, and a "run now" affordance for free. A task's spec is a closed discriminated union keyed by `kind` in `@central/shared` (`TaskSpec` = `TaskCmd | TaskFindWanIp`), with a parallel `TaskResult` union on the same `kind`; the server has one handler per kind (`apps/server/src/tasks/types.ts`, `taskHandlers`), mirroring the API operation layer. Adding a kind = spec variant + result variant + handler.
 - **Runner + store.** `TaskRunner` owns the lifecycle (status transitions, resolved-agent + cancellation context, broadcasting each change as a `taskUpdate` event); `TaskStore` persists runs to `.sc-data/tasks.json`, newest-first, capped at 200. New API ops `runTask`/`listTasks`/`getTask`; the `/events` `init` payload now seeds recent runs so the web client has history on connect.
 - **First migrated kind: `find_wan_ip`** (control-plane STUN, wrapping `discoverWanIp`). Settings has an "External (WAN) IP" card with a "Check now" button that starts the task and shows the latest run's IP + timestamp, updating live over the events socket.
 - Deferred for later slices (wire types already present where noted): scheduled tasks (`TaskSchedule`), task logs (`TaskLogLine`), cancellation, and agent-targeted kinds (e.g. per-node STUN, agent update with resume-across-reconnect).
@@ -319,7 +341,7 @@ opens a fresh `## Unreleased` above it.
 ### Added
 
 - **`embedded` agent mode**: the control plane's own in-process host now reports `mode: "embedded"` (was `installed`) and outranks live/installed in the fleet, so it always stays the active connection for its machine. `installNodeService` rejects it with a clear message ("the control plane's own host can't be installed as a service").
-- **Delete servers**: `deleteServer` op + `Fleet.remove()` forget a known agent. Only *offline* agents can be removed (connected agents — including the embedded host — are rejected, since they'd just reappear). Agents view shows a **Delete** action on offline rows.
+- **Delete servers**: `deleteServer` op + `Fleet.remove()` forget a known agent. Only _offline_ agents can be removed (connected agents — including the embedded host — are rejected, since they'd just reappear). Agents view shows a **Delete** action on offline rows.
 - **Auto-continue setup after enrollment**: the Add Node dialog now watches the fleet for the freshly-enrolled live agent and surfaces a "Continue setup" banner that hands straight off to the `SetupWizard` — no more closing the dialog and hunting for the agent in the Agents view.
 - **Image preview in the file browser**: the agent base64-encodes recognized image types (`png/jpg/jpeg/gif/webp/bmp/ico/svg/avif`, up to 16 MB) and `FileContent` carries `encoding`/`mimeType`; `FilesView` renders them inline on a checkerboard backdrop instead of the "binary — not editable" placeholder.
 

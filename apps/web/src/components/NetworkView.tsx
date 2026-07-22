@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { NetworkInfo, NetworkInterface } from "@central/shared";
 import { api } from "../api";
+import { useConnection } from "../hooks/useConnection";
 import { cx } from "../utils";
 import { EmptyState, ErrorBanner } from "./ui";
 
@@ -51,6 +52,17 @@ export function NetworkView({ serverId }: { serverId: string }) {
     const [net, setNet] = useState<NetworkInfo | null>(null);
     const [error, setError] = useState<string | null>(null);
 
+    // Latest per-node STUN check (a `find_wan_ip` task run targeted at this server).
+    const { tasks } = useConnection();
+    const stunRun = tasks.find((t) => t.target === serverId && t.spec.kind === "find_wan_ip");
+    const stunInFlight = stunRun?.status === "pending" || stunRun?.status === "running";
+
+    async function checkStun() {
+        try {
+            await api("runTask", { spec: { kind: "find_wan_ip" }, target: serverId });
+        } catch { /* surfaced via the run's failed status */ }
+    }
+
     const load = useCallback(async () => {
         try {
             setNet(await api("getNetworkInfo", { serverId }));
@@ -87,6 +99,19 @@ export function NetworkView({ serverId }: { serverId: string }) {
                             <span className="info-chip-label">Remote IP (seen by control plane)</span>
                             <span className="info-chip-value mono">{net.remoteIp ?? "— (embedded host)"}</span>
                         </span>
+                        <span className="info-chip">
+                            <span className="info-chip-label">STUN (seen by this node)</span>
+                            <span className="info-chip-value mono">
+                                {stunRun && !stunInFlight
+                                    ? (stunRun.status === "failed"
+                                        ? `Failed: ${stunRun.error ?? "unknown error"}`
+                                        : (stunRun.result?.kind === "find_wan_ip" ? stunRun.result.ip ?? "not detected" : "—"))
+                                    : "—"}
+                            </span>
+                        </span>
+                        <button className="btn" type="button" disabled={stunInFlight} onClick={() => void checkStun()}>
+                            {stunInFlight ? "Checking…" : "Check STUN"}
+                        </button>
                     </div>
 
                     {net.interfaces.map((iface) => (
