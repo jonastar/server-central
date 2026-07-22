@@ -4,6 +4,59 @@ All notable changes to Server Central are recorded here. Newest first. Each
 entry is a task/feature headed `# YYYY-MM-DD - Title (commit)`, with
 Keep-a-Changelog sections (Added / Changed / Removed / Fixed).
 
+# 2026-07-13 - Reverse proxy v1 (SC-managed Caddy)
+
+## Added
+
+- **Reverse proxy** (design: [doc/idea_reverse_proxy.md](doc/idea_reverse_proxy.md)): SC deploys
+  and manages a Caddy container on one designated node and renders proxy routes into its config.
+  HTTP(S) only; routes store intent (`host → {node, published host port}`) and the renderer
+  resolves LAN-IP upstreams uniformly (same-node and cross-node identical in v1). Deferral ladder
+  recorded in the doc: shared docker network → DOCKER-USER restriction → WireGuard mesh;
+  decided against ever tunneling app traffic through SC.
+  - Server: `apps/server/src/proxy/` — `ProxyStore` (`.sc-data/proxy.json`), Caddy JSON renderer
+    (admin listener re-declared so /load can't lock SC out; internal-CA or ACME cert modes), and
+    `ProxyManager` (detached pull+run bring-up under a `sc.proxy` label, `caddy run --resume`,
+    admin API published loopback-only, atomic `POST /load` config pushes, remove keeps volumes).
+  - Protocol: new `httpRequest` node message — the agent performs a local `fetch()` and returns
+    status + body, for endpoints only reachable from the host's vantage point (Caddy's
+    loopback-bound admin API now; reachability probes later). Older agents ignore it (request
+    times out).
+  - Ops (owner-only): `getProxyState`, `setProxyConfig`, `deployProxy`, `removeProxy`,
+    `createProxyRoute`/`updateProxyRoute`/`deleteProxyRoute` (mutations re-apply config
+    asynchronously; outcome in `lastApply`), `applyProxyConfig`.
+  - Web: new **Proxy** view (sidebar + `#/proxy`) — setup card (node, cert mode, ACME email),
+    container status with deploy/redeploy/remove, routes table + add/edit modal, 5s state poll.
+  - Tests: renderer unit tests (`test/integration/proxy-caddy.test.ts`); ops verified against a
+    netns-isolated control plane. Real dockerd bring-up not yet exercised (none in this dev env).
+- **Configurable proxy host ports** (`ProxyConfig.httpPort`/`httpsPort`, defaults 80/443) for
+  nodes where 80/443 are taken — the first real-host deploy hit exactly that (TrueNAS web UI on
+  80). Container-internal side stays 80:443; UI notes the ACME/redirect caveat for non-standard
+  ports.
+- **"View container in Docker →" link** on the Proxy page (when the container exists): jumps to
+  the proxy node's Docker → Containers pre-filtered to `sc-proxy` for inspect/logs/actions. The
+  containers filter is now route-carried (`…/docker/containers?q=<filter>`), so any view can
+  deep-link a container; the Stacks drill-in keeps its local-state path.
+- **Deploy-failure feedback** on the Proxy page: container status now carries `docker inspect
+  .State.Error` when the container exists but isn't running (e.g. "failed to bind host port …:
+  address already in use"), or a recent deploy-log tail when a failed `docker run` left no
+  container; the view renders it as a red status line.
+
+- **Agent capability advertisement** (`AGENT_CAPABILITIES`, `identify.capabilities`): agents
+  ignore unknown control-message kinds, so sending `httpRequest` to a pre-httpRequest agent died
+  as a silent 30s protocol timeout ("Request <uuid> timed out" on Apply config). Agents now
+  advertise their post-v0.6.0 message kinds at identify; `HostAgent.httpRequest` fails fast with
+  "The agent on <node> (<version>) predates HTTP-request support — update the agent" instead.
+  The embedded agent always carries the current set. Pattern to extend for future message kinds.
+
+## Fixed
+
+- **Docker action errors were truncated to the useless line**: `firstErrorLine()` returned only
+  the *last* line of a failed docker command's output — for `docker start` that's the generic
+  "Error: failed to start containers: <id>" summary, hiding the daemon's actual reason on the
+  line above. Replaced with `errorText()` returning the full (bounded) output, so container/
+  stack/volume/image action failures now show the real cause in the UI banner.
+
 # 2026-07-04 - System users: per-host Users tab + terminal impersonation
 
 ## Added

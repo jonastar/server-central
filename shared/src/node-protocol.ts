@@ -6,10 +6,20 @@ export interface NodeExecResult {
     code: number;
 }
 
+/** Response to an httpRequest — the status and (size-capped) body of an HTTP
+ *  request the agent performed from its host. Network-level failures come back
+ *  as a protocol `error` message instead, like other request kinds. */
+export interface NodeHttpResult {
+    status: number;
+    body: string;
+}
+
 // ---- Node → Control ----------------------------------------------------------
 
 export type NodeMessage =
-    | { type: "identify"; token: string; info: SystemInfo; machineId: string; mode: AgentMode }
+    // capabilities: post-v0.6.0 message kinds this agent handles (see
+    // AGENT_CAPABILITIES). Absent from older agents — treated as none.
+    | { type: "identify"; token: string; info: SystemInfo; machineId: string; mode: AgentMode; capabilities?: string[] }
     | { type: "metrics"; snapshot: MetricsSnapshot }
     | { type: "execResponse"; requestId: string; result: NodeExecResult }
     | { type: "listDirResponse"; requestId: string; result: { path: string; entries: DirEntry[] } }
@@ -21,6 +31,7 @@ export type NodeMessage =
     | { type: "renameResponse"; requestId: string }
     | { type: "shellData"; sessionId: string; data: string }
     | { type: "shellExit"; sessionId: string; code: number | null }
+    | { type: "httpResponse"; requestId: string; result: NodeHttpResult }
     | { type: "probeInstallPathResponse"; requestId: string; result: InstallProbeResult }
     | { type: "installServiceResponse"; requestId: string; startCommand: string | null }
     | { type: "updateServiceResponse"; requestId: string }
@@ -44,6 +55,11 @@ export type ControlMessage =
     | { type: "shellInput"; sessionId: string; data: string }
     | { type: "shellResize"; sessionId: string; cols: number; rows: number }
     | { type: "closeShell"; sessionId: string }
+    // Perform an HTTP request from the agent's host and return status + body.
+    // Exists for endpoints only reachable from that host's vantage point — the
+    // proxy container's loopback-bound admin API, upstream reachability probes.
+    // Grants nothing exec doesn't already; older agents ignore it (times out).
+    | { type: "httpRequest"; requestId: string; url: string; method: "GET" | "POST"; contentType?: string; body?: string }
     // Probe a candidate install/data dir (writable + exec-capable) for the setup wizard.
     | { type: "probeInstallPathRequest"; requestId: string; path: string }
     // Ask a live agent to install itself as a permanent service. The agentToken is a

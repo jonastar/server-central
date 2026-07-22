@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import type { AgentMode, InstallMechanism, NodeMessage, SystemInfo } from "@central/shared";
-import { AGENT_VERSION } from "@central/shared";
+import { AGENT_CAPABILITIES, AGENT_VERSION } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, DEFAULT_DATA_DIR, DEFAULT_INSTALL_DIR, resolveMachineId } from "./agent";
 import {
     type InstallPaths,
@@ -347,6 +347,7 @@ async function connect(url: string, id: Identity): Promise<WebSocket> {
         ws.onopen = () => {
             ws.send(JSON.stringify({
                 type: "identify", token: id.token, info: id.info, machineId: id.machineId, mode: id.mode,
+                capabilities: [...AGENT_CAPABILITIES],
             } satisfies NodeMessage));
         };
 

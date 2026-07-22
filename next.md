@@ -28,16 +28,34 @@
     Settings → Users); still pending are SC-allocated consistent UIDs across hosts, SSH
     authorized_keys management, delete users / change shell-home, audit log of who opened which
     terminal.
+- Proper versioning with unrelease section, track down what happened in which releases
+- Shorcut to sc logs
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 
+### Reverse proxy — v1 shipped 2026-07-13, follow-ups pending
+
+> Design + deferral ladder: [doc/idea_reverse_proxy.md](doc/idea_reverse_proxy.md). v1 is
+> implemented (`apps/server/src/proxy/`, Proxy view in the web app): SC-deployed Caddy on one
+> designated node, routes = host → `{node, published host port}`, LAN-IP upstreams uniformly.
+> Still deferred, in order: sc-proxy shared docker network (same-node, no published ports),
+> DOCKER-USER source restriction for gated cross-node routes, WireGuard mesh between agents
+> (endgame — stable IPs, ports bound to wg interface only; decided against tunneling app traffic
+> through SC), forward_auth role gating (needs the Role-set redesign), per-route reachability
+> probes (the `httpRequest` agent primitive for them exists), DNS-01/wildcard certs.
+> Not runtime-verified against a real dockerd yet: the deploy/apply path was exercised end to end
+> in a netns (honest failures), but an actual Caddy bring-up + /load on a docker host is pending.
+
 ### App system
 
-> No design doc yet — capturing the concept from a 2026-07-02 discussion so it isn't lost.
+> Concept from a 2026-07-02 discussion; architecture sketched 2026-07-13 (App = binding record in
+> SC store referencing a compose stack + routes + provided roles + oidc section, per-section
+> reconcilers; compose file stays source of truth for what runs — no SC-native service format).
+> Depends on: reverse proxy (above), stack registry (doc/idea_stack_registry.md), Role-set redesign.
 > Unify app-scoped configuration (compose stacks, networking/reverse-proxy routes, auth roles, etc.)
 > behind a single "App" entity instead of scattering it across separate admin screens. Example:
 > Jellyfin would be an App with (a) a compose stack (maybe templated), (b) a routes object (TBD —
-> reverse-proxy config), (c) auth roles the app *provides* (e.g. `jellyfin.user.adult`,
+> reverse-proxy config), (c) auth roles the app _provides_ (e.g. `jellyfin.user.adult`,
 > `jellyfin.user.kid`, `jellyfin.admin`) that get assigned to Server Central users to grant
 > app-scoped access — actual permission mapping still has to be configured inside the app itself,
 > SC only hands it identity + role claims.
@@ -56,7 +74,8 @@
 > Manual (custom) installs currently spawn the agent one-shot, so self-update's
 > "exit and let the supervisor re-exec" leaves them dead. Plan: write a
 > self-restarting `sc-agent-run.sh` into the install dir (Restart=always equivalent)
-> + emit the agent pid to a file. Not yet implemented.
+>
+> - emit the agent pid to a file. Not yet implemented.
 
 ## Stack management
 

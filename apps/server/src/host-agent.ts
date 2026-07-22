@@ -1,4 +1,4 @@
-import type { AgentMode, ControlMessage, DirEntry, FileContent, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
+import type { AgentMode, ControlMessage, DirEntry, FileContent, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -43,6 +43,11 @@ export class HostAgent {
     private readonly pending = new Map<string, { resolve: (msg: NodeMessage) => void; reject: (err: Error) => void }>();
     private readonly shells = new Map<string, { onData: (d: string) => void; onExit: (c: number | null) => void }>();
 
+    /** Post-v0.6.0 message kinds the agent advertised at identify. Agents
+     *  ignore unknown message types, so sending one to an agent that didn't
+     *  advertise it would die as a silent protocol timeout — check here first. */
+    private readonly capabilities: ReadonlySet<string>;
+
     constructor(
         private readonly sendControl: (msg: ControlMessage) => void,
         nodeId: string,
@@ -51,12 +56,14 @@ export class HostAgent {
         private readonly onMetrics: (serverId: string, snapshot: MetricsSnapshot) => void,
         mode: AgentMode = "live",
         remoteIp: string | null = null,
+        capabilities: readonly string[] = [],
     ) {
         this.id = nodeId;
         this.name = name;
         this.info = info;
         this.mode = mode;
         this.remoteIp = remoteIp;
+        this.capabilities = new Set(capabilities);
     }
 
     /** Update system info (used by the embedded agent after it collects info on start). */
@@ -204,6 +211,23 @@ export class HostAgent {
         await this.request<Extract<NodeMessage, { type: "renameResponse" }>>({
             type: "renamePathRequest", requestId: crypto.randomUUID(), from, to,
         });
+    }
+
+    /**
+     * Perform an HTTP request from the host's vantage point — endpoints the
+     * control plane can't reach directly (the proxy container's loopback-bound
+     * admin API, upstream reachability probes). An agent too old to know the
+     * message never replies, so this surfaces as a request timeout there.
+     */
+    async httpRequest(url: string, method: "GET" | "POST", contentType?: string, body?: string): Promise<NodeHttpResult> {
+        if (!this.capabilities.has("httpRequest")) {
+            const version = this.info?.agentVersion ?? "unknown version";
+            throw new Error(`The agent on ${this.name} (${version}) predates HTTP-request support — update the agent, then retry`);
+        }
+        const resp = await this.request<Extract<NodeMessage, { type: "httpResponse" }>>({
+            type: "httpRequest", requestId: crypto.randomUUID(), url, method, contentType, body,
+        });
+        return resp.result;
     }
 
     /**

@@ -24,12 +24,14 @@ const SECTIONS: Array<{ id: DockerSection; label: string }> = [
     { id: "images", label: "Images" },
 ];
 
-export function DockerView({ serverId, section, volume, path, file, onNavigate }: {
+export function DockerView({ serverId, section, volume, path, file, filter, onNavigate }: {
     serverId: string;
     section: DockerSection;
     volume?: string;
     path?: string;
     file: string | null;
+    /** Route-carried containers filter (deep links from other views). */
+    filter?: string;
     onNavigate: (next: DockerNav) => void;
 }) {
     // Filter handed from the Stacks section to the Containers section on drill-in.
@@ -70,7 +72,7 @@ export function DockerView({ serverId, section, volume, path, file, onNavigate }
                 />
             )}
             {section === "containers" && (
-                <DockerContainers serverId={serverId} initialFilter={containerFilter} />
+                <DockerContainers serverId={serverId} initialFilter={filter ?? containerFilter} />
             )}
             {section === "volumes" && !volume && (
                 <DockerVolumes

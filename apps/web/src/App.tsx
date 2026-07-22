@@ -15,6 +15,7 @@ import { NetworkView } from "./components/NetworkView";
 import { ServicesView } from "./components/ServicesView";
 import { SystemUsersView } from "./components/SystemUsersView";
 import { TerminalView } from "./components/TerminalView";
+import { ProxyView } from "./components/ProxyView";
 import { SettingsView } from "./components/SettingsView";
 import { EmptyState } from "./components/ui";
 
@@ -49,6 +50,9 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                     onOpenServer={(serverId) => setRoute({ view: "server", serverId, tab: "overview" })}
                 />
             );
+        }
+        if (route.view === "proxy") {
+            return <ProxyView onNavigate={setRoute} />;
         }
         if (route.view === "settings") {
             return <SettingsView />;
@@ -86,6 +90,7 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                         volume={route.volume}
                         path={route.path}
                         file={route.file ?? null}
+                        filter={route.filter}
                         onNavigate={(next) => setRoute({
                             view: "server",
                             serverId: currentEntry.id,

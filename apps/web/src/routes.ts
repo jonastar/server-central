@@ -5,6 +5,7 @@ export type DockerSection = "overview" | "stacks" | "containers" | "volumes" | "
 export type Route =
     | { view: "dashboard" }
     | { view: "agents" }
+    | { view: "proxy" }
     | { view: "settings" }
     | {
           view: "server";
@@ -18,6 +19,9 @@ export type Route =
           path?: string;
           /** Files tab / volume browser: path of the open file, if any. */
           file?: string;
+          /** Docker tab, containers section only: initial name/image/stack
+           *  filter — lets other views deep-link to a specific container. */
+          filter?: string;
       };
 
 const DOCKER_SECTIONS = new Set<DockerSection>(["overview", "stacks", "containers", "volumes", "images"]);
@@ -47,6 +51,8 @@ export function routeToHash(route: Route): string {
             return "#/";
         case "agents":
             return "#/agents";
+        case "proxy":
+            return "#/proxy";
         case "settings":
             return "#/settings";
         case "server": {
@@ -61,6 +67,9 @@ export function routeToHash(route: Route): string {
                 }
             } else if (route.tab === "docker") {
                 hash += `/${route.section ?? "overview"}`;
+                if (route.section === "containers" && route.filter) {
+                    hash += `?q=${encodeURIComponent(route.filter)}`;
+                }
                 if (route.section === "volumes" && route.volume) {
                     hash += `/${encodeURIComponent(route.volume)}`;
                     const encoded = route.path ? encodePath(route.path) : "";
@@ -88,6 +97,9 @@ export function hashToRoute(hash: string): Route {
     if (segs[0] === "agents") {
         return { view: "agents" };
     }
+    if (segs[0] === "proxy") {
+        return { view: "proxy" };
+    }
     if (segs[0] === "settings") {
         return { view: "settings" };
     }
@@ -109,6 +121,10 @@ export function hashToRoute(hash: string): Route {
                 const path = segs.length > 5 ? "/" + segs.slice(5).map(decodeURIComponent).join("/") : undefined;
                 const file = new URLSearchParams(queryPart).get("f") ?? undefined;
                 return { view: "server", serverId, tab, section, volume, path, file };
+            }
+            if (section === "containers") {
+                const filter = new URLSearchParams(queryPart).get("q") ?? undefined;
+                return { view: "server", serverId, tab, section, filter };
             }
             return { view: "server", serverId, tab, section };
         }

@@ -1,5 +1,6 @@
 import * as os from "node:os";
 import type { MetricsSnapshot } from "@central/shared";
+import { AGENT_CAPABILITIES } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, resolveMachineId } from "./agent";
 import { HostAgent } from "../host-agent";
 
@@ -19,6 +20,7 @@ export async function createEmbeddedAgent(
 ): Promise<HostAgent> {
     const machineId = await resolveMachineId();
 
+    // The embedded agent is this same build, so it has every current capability.
     const host = new HostAgent(
         (ctrlMsg) => void agent.onMessage(ctrlMsg),
         machineId,
@@ -26,6 +28,8 @@ export async function createEmbeddedAgent(
         null,
         onMetrics,
         "embedded",
+        null,
+        AGENT_CAPABILITIES,
     );
 
     const transport: AgentTransport = { send: (nodeMsg) => host.receive(nodeMsg) };

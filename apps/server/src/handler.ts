@@ -18,6 +18,10 @@ import type {
     NetworkInfo,
     OidcAuthorizeParams,
     ProcessInfo,
+    ProxyApplyResult,
+    ProxyConfig,
+    ProxyRoute,
+    ProxyState,
     ServerEntry,
     ServiceAction,
     StackAction,
@@ -50,6 +54,7 @@ import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
 import type { OidcStore } from "./oidc/store";
+import type { ProxyManager } from "./proxy/manager";
 import type { TaskRunner } from "./tasks/runner";
 import type { TaskStore } from "./tasks/store";
 import { readConfig, setDomain as persistSetDomain, setIssuerUrl as persistSetIssuerUrl } from "./config";
@@ -72,6 +77,7 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         private readonly tasks: TaskRunner,
         private readonly taskStore: TaskStore,
         private readonly oidc: OidcStore,
+        private readonly proxy: ProxyManager,
     ) { }
 
     // ---- Auth -----------------------------------------------------------------
@@ -164,6 +170,51 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
     async handleDeleteApp(data: { appId: string }, ctx?: AuthContext): Promise<void> {
         requireOwner(ctx);
         await this.oidc.deleteApp(data.appId);
+    }
+
+    // ---- Reverse proxy (owner-only) ----------------------------------------------
+    //
+    // SC-managed Caddy on one designated node. See doc/idea_reverse_proxy.md and
+    // the ProxyManager for the deploy/apply mechanics.
+
+    async handleGetProxyState(_data: void, ctx?: AuthContext): Promise<ProxyState> {
+        requireOwner(ctx);
+        return this.proxy.state();
+    }
+
+    async handleSetProxyConfig(data: { config: ProxyConfig | null }, ctx?: AuthContext): Promise<void> {
+        requireOwner(ctx);
+        await this.proxy.setConfig(data.config);
+    }
+
+    async handleDeployProxy(_data: void, ctx?: AuthContext): Promise<void> {
+        requireOwner(ctx);
+        await this.proxy.deploy();
+    }
+
+    async handleRemoveProxy(_data: void, ctx?: AuthContext): Promise<void> {
+        requireOwner(ctx);
+        await this.proxy.remove();
+    }
+
+    async handleCreateProxyRoute(data: { route: Omit<ProxyRoute, "id"> }, ctx?: AuthContext): Promise<ProxyRoute> {
+        requireOwner(ctx);
+        return this.proxy.createRoute(data.route);
+    }
+
+    async handleUpdateProxyRoute(data: { route: ProxyRoute }, ctx?: AuthContext): Promise<void> {
+        requireOwner(ctx);
+        await this.proxy.updateRoute(data.route);
+    }
+
+    async handleDeleteProxyRoute(data: { routeId: string }, ctx?: AuthContext): Promise<void> {
+        requireOwner(ctx);
+        await this.proxy.deleteRoute(data.routeId);
+    }
+
+    async handleApplyProxyConfig(_data: void, ctx?: AuthContext): Promise<ProxyApplyResult> {
+        requireOwner(ctx);
+        return this.proxy.apply();
     }
 
     // ---- OIDC front-channel (authenticated user) -------------------------------

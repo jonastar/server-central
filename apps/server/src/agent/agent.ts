@@ -255,6 +255,16 @@ export class Agent {
                 this.shells.delete(msg.sessionId);
                 break;
 
+            case "httpRequest": {
+                try {
+                    const result = await this.runHttpRequest(msg.url, msg.method, msg.contentType, msg.body);
+                    this.transport.send({ type: "httpResponse", requestId: msg.requestId, result });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
+
             case "probeInstallPathRequest": {
                 try {
                     const result = await probeDir(msg.path);
@@ -328,6 +338,25 @@ export class Agent {
             proc.exited,
         ]);
         return { stdout, stderr, code };
+    }
+
+    /** Timeout under the control plane's 30s request timeout, so a hung server
+     *  produces a real error instead of a silent protocol timeout. */
+    private static readonly HTTP_TIMEOUT_MS = 25_000;
+    private static readonly HTTP_MAX_BODY_BYTES = 1024 * 1024;
+
+    private async runHttpRequest(url: string, method: "GET" | "POST", contentType?: string, body?: string): Promise<{ status: number; body: string }> {
+        const res = await fetch(url, {
+            method,
+            headers: contentType ? { "Content-Type": contentType } : undefined,
+            body: body ?? undefined,
+            signal: AbortSignal.timeout(Agent.HTTP_TIMEOUT_MS),
+        });
+        const text = await res.text();
+        return {
+            status: res.status,
+            body: text.length > Agent.HTTP_MAX_BODY_BYTES ? text.slice(0, Agent.HTTP_MAX_BODY_BYTES) : text,
+        };
     }
 
     private async runListDir(dirPath: string): Promise<{ path: string; entries: DirEntry[] }> {

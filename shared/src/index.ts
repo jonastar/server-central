@@ -58,6 +58,15 @@ export type AgentMode = "live" | "installed" | "embedded";
 export const AGENT_VERSION: string = pkg.version;
 
 /**
+ * Control-message kinds this agent build supports beyond the v0.6.0 baseline,
+ * advertised in `identify`. Agents ignore unknown message types, so without
+ * this a request to an older agent dies as a silent 30s protocol timeout —
+ * the control plane checks the advertised set and fails fast with a real
+ * error instead. Add an entry whenever a new request kind joins the protocol.
+ */
+export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest"];
+
+/**
  * Common Name (and a baseline SAN entry) of the control-plane leaf cert. Agents
  * trust the CA that signs the leaf, and the leaf's SAN additionally carries the
  * concrete addresses the agent connects to (LAN IP, WAN IP, domain), so Bun's
@@ -501,6 +510,80 @@ export interface OidcAuthorizeParams {
     nonce?: string;
 }
 
+// ---- Reverse proxy ---------------------------------------------------------------
+//
+// SC-managed Caddy on one designated node, HTTP(S) only. Routes store intent
+// (node + published host port), never a resolved IP — the control plane renders
+// them to Caddy JSON (resolving each node's LAN IP at render time) and pushes
+// the config through the node's agent to Caddy's loopback-bound admin API.
+// Design: doc/idea_reverse_proxy.md.
+
+export interface ProxyConfig {
+    /** Node the Caddy container runs on. */
+    nodeId: string;
+    /** ACME registration email, used when certMode is "auto". */
+    acmeEmail?: string;
+    /** "auto" = Caddy automatic HTTPS (public hostnames, ACME); "internal" =
+     *  Caddy's local CA for LAN-only hostnames. */
+    certMode: "auto" | "internal";
+    /** Host ports the container's 80/443 publish on; defaults 80/443. For
+     *  nodes where those are taken (e.g. the platform's own web UI). ACME
+     *  HTTP-01 and Caddy's HTTP→HTTPS redirects still assume the *public*
+     *  side reaches 80/443, so non-standard ports lean on router mappings. */
+    httpPort?: number;
+    httpsPort?: number;
+}
+
+export interface ProxyRouteTarget {
+    nodeId: string;
+    /** Published host port on that node. */
+    port: number;
+    /** Scheme Caddy dials the upstream with. */
+    scheme: "http" | "https";
+    /** Skip upstream TLS verification, for apps self-serving HTTPS with a
+     *  self-signed cert. Only meaningful when scheme is "https". */
+    insecureSkipVerify?: boolean;
+}
+
+export interface ProxyRoute {
+    id: string;
+    /** Hostname the route matches, e.g. "jellyfin.example.com". */
+    host: string;
+    /** Optional path prefix the route matches, e.g. "/api". */
+    pathPrefix?: string;
+    target: ProxyRouteTarget;
+    /** Disabled routes are kept but not rendered into the proxy config. */
+    enabled: boolean;
+}
+
+/** Outcome of the last attempt to render + push config to the proxy. */
+export interface ProxyApplyResult {
+    ok: boolean;
+    error?: string;
+    at: number;
+}
+
+/** The proxy container as observed on the designated node right now. */
+export interface ProxyContainerStatus {
+    present: boolean;
+    /** Container state (running | exited | …) when present. */
+    state?: string;
+    /** Human status, e.g. "Up 3 days", when present. */
+    status?: string;
+    /** Image the container was created from, when present. */
+    image?: string;
+    /** Why the container couldn't be inspected (node offline, docker missing). */
+    error?: string;
+}
+
+export interface ProxyState {
+    config: ProxyConfig | null;
+    routes: ProxyRoute[];
+    /** Null until a proxy node is configured. */
+    container: ProxyContainerStatus | null;
+    lastApply: ProxyApplyResult | null;
+}
+
 // ---- Log viewing ---------------------------------------------------------------
 
 /** Display order for log output: oldest line first (classic tail) or newest first. */
@@ -648,6 +731,22 @@ export type CentralApiOperations = {
     // token `iss` claim and discovery-document base. Required before any OIDC
     // client can be created, since it must stay stable once clients trust it.
     setIssuerUrl: { data: { issuerUrl: string | null }; response: void };
+
+    // Reverse proxy (owner-only). Route mutations re-apply the rendered config
+    // immediately; the result lands in ProxyState.lastApply.
+    getProxyState: { data: void; response: ProxyState };
+    // Persist the proxy config (null clears it). Doesn't deploy by itself.
+    setProxyConfig: { data: { config: ProxyConfig | null }; response: void };
+    // Start (or repair) the Caddy container on the configured node. The image
+    // pull + run happens detached on the host — poll getProxyState for progress.
+    deployProxy: { data: void; response: void };
+    // Remove the proxy container (named volumes with certs/config survive).
+    removeProxy: { data: void; response: void };
+    createProxyRoute: { data: { route: Omit<ProxyRoute, "id"> }; response: ProxyRoute };
+    updateProxyRoute: { data: { route: ProxyRoute }; response: void };
+    deleteProxyRoute: { data: { routeId: string }; response: void };
+    // Re-render + push the config on demand (retry after a failed apply).
+    applyProxyConfig: { data: void; response: ProxyApplyResult };
 
     // Tasks — the uniform envelope (history, typed last-result, run-now).
     // (Logs, cancellation, and schedules are deferred until a task kind needs

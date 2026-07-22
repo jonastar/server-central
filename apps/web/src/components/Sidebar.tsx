@@ -39,6 +39,13 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                 )}
             </button>
 
+            <button
+                className={cx("nav-item", route.view === "proxy" && "active")}
+                onClick={() => onNavigate({ view: "proxy" })}
+            >
+                Proxy
+            </button>
+
             <div className="sidebar-section">
                 <span>Servers</span>
                 <button

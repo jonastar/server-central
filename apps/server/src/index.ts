@@ -9,6 +9,8 @@ import { CentralHandler } from "./handler";
 import { OidcStore } from "./oidc/store";
 import { discoveryDocument } from "./oidc/discovery";
 import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "./oidc/tokens";
+import { ProxyManager } from "./proxy/manager";
+import { ProxyStore } from "./proxy/store";
 import { TaskStore } from "./tasks/store";
 import { TaskRunner } from "./tasks/runner";
 import { ensureTls, localIps } from "./tls";
@@ -95,7 +97,11 @@ const taskStore = new TaskStore();
 await taskStore.init();
 const taskRunner = new TaskRunner(taskStore, fleet, (run) => broadcast({ kind: "taskUpdate", data: run }));
 
-const handler = new CentralHandler(fleet, auth, nodeServer, taskRunner, taskStore, oidcStore);
+const proxyStore = new ProxyStore();
+await proxyStore.init();
+const proxyManager = new ProxyManager(fleet, proxyStore);
+
+const handler = new CentralHandler(fleet, auth, nodeServer, taskRunner, taskStore, oidcStore, proxyManager);
 
 /** Commands callable without a session (first-run setup + login). */
 const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]);

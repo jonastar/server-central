@@ -48,8 +48,15 @@ function parseLabel(labels: string | undefined, key: string): string | undefined
     return undefined;
 }
 
-function firstErrorLine(res: { stdout: string; stderr: string }): string {
-    return (res.stdout + res.stderr).trim().split("\n").filter(Boolean).pop() || "";
+/**
+ * The full (bounded) error output of a failed docker command. Docker often
+ * prints the useful daemon error first and a generic summary last ("Error:
+ * failed to start containers: <id>"), so returning any single line hides the
+ * cause — return everything, newlines collapsed for one-banner display.
+ */
+function errorText(res: { stdout: string; stderr: string }): string {
+    const text = (res.stdout + res.stderr).trim().split("\n").map((l) => l.trim()).filter(Boolean).join(" — ");
+    return text.length > 600 ? `${text.slice(0, 600)}…` : text;
 }
 
 type PsRow = {
@@ -212,7 +219,7 @@ export async function dockerStackAction(server: HostAgent, project: string, acti
     const cmd = action === "down" ? "rm -f" : action;
     const res = await server.exec(`docker ${cmd} ${containerIds.join(" ")} 2>&1`);
     if (res.code !== 0) {
-        throw new Error(firstErrorLine(res) || `docker ${action} failed`);
+        throw new Error(errorText(res) || `docker ${action} failed`);
     }
 }
 
@@ -227,7 +234,7 @@ export async function dockerContainerAction(
     const cmd = action === "remove" ? "rm -f" : action;
     const res = await server.exec(`docker ${cmd} ${containerId} 2>&1`);
     if (res.code !== 0) {
-        throw new Error(firstErrorLine(res) || `docker ${action} failed`);
+        throw new Error(errorText(res) || `docker ${action} failed`);
     }
 }
 
@@ -237,7 +244,7 @@ export async function dockerContainerInspect(server: HostAgent, containerId: str
     }
     const res = await server.exec(`docker inspect ${containerId}`);
     if (res.code !== 0) {
-        throw new Error(firstErrorLine(res) || "docker inspect failed");
+        throw new Error(errorText(res) || "docker inspect failed");
     }
     const arr = JSON.parse(res.stdout) as Array<Record<string, any>>;
     const c = arr[0];
@@ -317,7 +324,7 @@ export async function dockerVolumeInspect(server: HostAgent, name: string): Prom
         server.exec(`docker ps -a --filter volume=${name} --format '{{json .}}'`),
     ]);
     if (inspect.code !== 0) {
-        throw new Error(firstErrorLine(inspect) || "docker volume inspect failed");
+        throw new Error(errorText(inspect) || "docker volume inspect failed");
     }
     const v = (JSON.parse(inspect.stdout) as Array<Record<string, any>>)[0] ?? {};
     const labels = v.Labels
@@ -340,7 +347,7 @@ export async function dockerVolumeRemove(server: HostAgent, name: string): Promi
     }
     const res = await server.exec(`docker volume rm ${name} 2>&1`);
     if (res.code !== 0) {
-        throw new Error(firstErrorLine(res) || "docker volume rm failed");
+        throw new Error(errorText(res) || "docker volume rm failed");
     }
 }
 
@@ -353,7 +360,7 @@ export async function dockerImageAction(server: HostAgent, imageId: string, acti
     }
     const res = await server.exec(`docker rmi ${imageId} 2>&1`);
     if (res.code !== 0) {
-        throw new Error(firstErrorLine(res) || "docker rmi failed");
+        throw new Error(errorText(res) || "docker rmi failed");
     }
 }
 
