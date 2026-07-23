@@ -17,6 +17,8 @@ import { SystemUsersView } from "./components/SystemUsersView";
 import { TerminalView } from "./components/TerminalView";
 import { ProxyView } from "./components/ProxyView";
 import { TasksView } from "./components/TasksView";
+import { TaskWidget } from "./components/TaskWidget";
+import { TaskModal } from "./components/TaskModal";
 import { SettingsView } from "./components/SettingsView";
 import { EmptyState } from "./components/ui";
 
@@ -126,6 +128,8 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                 onLogout={onLogout}
             />
             <main className="main">{renderMain()}</main>
+            <TaskWidget />
+            <TaskModal />
         </div>
     );
 }

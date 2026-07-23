@@ -52,6 +52,15 @@ export interface TaskDockerImagePull {
     ref: string;
 }
 
+/** Update an installed agent to the control plane's current AGENT_VERSION
+ *  (resolved server-side, not client-supplied). */
+export interface TaskUpdateAgent {
+    kind: "update_agent";
+    /** Bypasses the "already up to date" check (e.g. re-pushing a dev rebuild
+     *  whose AGENT_VERSION string didn't change). */
+    force?: boolean;
+}
+
 /** Every task kind. Add a variant here + a handler + a result variant. */
 export type TaskSpec =
     | TaskCmd
@@ -59,7 +68,8 @@ export type TaskSpec =
     | TaskServiceAction
     | TaskDockerStackAction
     | TaskDockerContainerAction
-    | TaskDockerImagePull;
+    | TaskDockerImagePull
+    | TaskUpdateAgent;
 
 /** A task kind's discriminant, e.g. "cmd". */
 export type TaskKind = TaskSpec["kind"];
@@ -104,13 +114,20 @@ export interface TaskDockerImagePullResult {
     message: string;
 }
 
+/** Confirms the agent acknowledged the update, not that it finished — the
+ *  restart into the new binary happens after the run's WS connection drops. */
+export interface TaskUpdateAgentResult {
+    kind: "update_agent";
+}
+
 export type TaskResult =
     | TaskCmdResult
     | TaskFindWanIpResult
     | TaskServiceActionResult
     | TaskDockerStackActionResult
     | TaskDockerContainerActionResult
-    | TaskDockerImagePullResult;
+    | TaskDockerImagePullResult
+    | TaskUpdateAgentResult;
 
 // ---- Envelope ----------------------------------------------------------------
 

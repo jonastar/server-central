@@ -719,10 +719,10 @@ export type CentralApiOperations = {
     // Probe a candidate install/data directory on an agent's host (writable + exec).
     probeInstallPath: { data: { serverId: string; path: string }; response: InstallProbeResult };
 
-    // Update an installed agent to the control plane's current AGENT_VERSION.
-    // force bypasses the "already up to date" check (e.g. re-pushing a dev
-    // rebuild whose AGENT_VERSION string didn't change).
-    updateNodeService: { data: { serverId: string; force?: boolean }; response: void };
+    // Update an installed agent to the control plane's current AGENT_VERSION —
+    // moved to the task system's `update_agent` kind via `runTask`, for run
+    // history + logs. force bypasses the "already up to date" check (e.g.
+    // re-pushing a dev rebuild whose AGENT_VERSION string didn't change).
 
     // Control plane (the server itself): its running version vs. the latest release,
     // and a self-update that swaps the binary and restarts. updateAvailable is false

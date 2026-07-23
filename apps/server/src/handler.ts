@@ -361,23 +361,6 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         return { startCommand };
     }
 
-    async handleUpdateNodeService(data: { serverId: string; force?: boolean }): Promise<void> {
-        const agent = this.fleet.get(data.serverId);
-        const current = agent.status().info?.agentVersion;
-        console.log(`[update] updateNodeService for ${data.serverId}: ${current ?? "?"} -> ${AGENT_VERSION}${data.force ? " (forced)" : ""} (state ${agent.status().state}, mode ${agent.mode})`);
-        if (agent.status().state !== "online") {
-            throw new Error("Agent is not connected");
-        }
-        if (agent.mode !== "installed") {
-            throw new Error("Only installed agents can be updated");
-        }
-        if (current === AGENT_VERSION && !data.force) {
-            throw new Error("Agent is already up to date");
-        }
-        await agent.updateService(AGENT_VERSION, data.force);
-        console.log(`[update] ${data.serverId} acknowledged update to ${AGENT_VERSION}`);
-    }
-
     async handleGetControlPlaneStatus(): Promise<{ version: string; installed: boolean; latestVersion: string | null; updateAvailable: boolean }> {
         return controlPlaneStatus();
     }

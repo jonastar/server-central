@@ -57,6 +57,8 @@ export class TaskRunner {
         const ctx: TaskCtx = {
             signal: controller.signal,
             agent: null,
+            target: run.target,
+            fleet: this.fleet,
             log: (text, stream) => {
                 const line: TaskLogLine = { ts: Date.now(), text, stream };
                 const buf = this.logs.get(run.id) ?? [];

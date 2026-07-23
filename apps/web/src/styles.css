@@ -1173,6 +1173,34 @@ tr:hover .row-actions {
 .modal-header h2 {
     margin: 0;
     font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Task modal header accents: blue while in progress, green/red/gray once it lands. */
+.modal-tone-info {
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+    border-bottom-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.modal-tone-ok {
+    background: color-mix(in srgb, var(--ok) 10%, var(--panel));
+    border-bottom-color: color-mix(in srgb, var(--ok) 35%, var(--border));
+}
+
+.modal-tone-err {
+    background: color-mix(in srgb, var(--err) 10%, var(--panel));
+    border-bottom-color: color-mix(in srgb, var(--err) 35%, var(--border));
+}
+
+.modal-tone-muted {
+    background: color-mix(in srgb, var(--muted) 10%, var(--panel));
+    border-bottom-color: color-mix(in srgb, var(--muted) 35%, var(--border));
+}
+
+.modal-spinner {
+    color: var(--accent);
 }
 
 .modal-body {
@@ -1586,4 +1614,112 @@ tr:hover .row-actions {
 .log-match.active {
     background: #e5c07b;
     outline: 1px solid #fff;
+}
+
+/* ---- Task widget (corner, app-wide) --------------------------------------------------------- */
+
+.task-widget {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.task-widget-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 6px 20px rgba(20, 30, 60, 0.15);
+    cursor: pointer;
+}
+
+/* Reusable spinner ring: sized/colored by whatever wraps it via `color`. */
+.spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
+    animation: spinner-spin 0.8s linear infinite;
+}
+
+@keyframes spinner-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.task-widget-spinner {
+    color: var(--warn);
+}
+
+.task-widget-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 320px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.task-widget-item {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    box-shadow: 0 6px 20px rgba(20, 30, 60, 0.15);
+    cursor: pointer;
+}
+
+.task-widget-item:hover {
+    border-color: color-mix(in srgb, var(--warn) 40%, var(--border));
+}
+
+.task-widget-item-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.task-widget-log {
+    margin: 0;
+    padding: 6px 8px;
+    max-height: 100px;
+    overflow: hidden;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* ---- Task modal ------------------------------------------------------------------------------ */
+
+.task-modal-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin-bottom: 12px;
+}
+
+.task-modal-log {
+    flex: 1;
+    min-height: 0;
+    display: flex;
 }

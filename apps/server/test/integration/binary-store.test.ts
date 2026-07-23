@@ -5,6 +5,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { AGENT_VERSION } from "@central/shared";
 import { BinaryStoreError, getLatestVersion, resolveAgentBinary } from "../../src/binary-store";
+import { CONFIG_DIR, writeConfig } from "../../src/config";
+
+const CACHE_DIR = path.join(CONFIG_DIR, "agent-binaries");
 
 // The binary store resolves an agent binary in order: local cache → dist/ → release
 // source (download + checksum-verify + cache). These drive that against a fake
@@ -75,9 +78,15 @@ beforeEach(async () => {
     prevCwd = process.cwd();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "sc-bstore-"));
     process.chdir(tmpDir);
-    // Point the store's release source at the fake server (read from .sc-data/config.json).
-    await fs.mkdir(".sc-data", { recursive: true });
-    await fs.writeFile(".sc-data/config.json", JSON.stringify({ releaseSource: { baseUrl } }));
+    // Point the store's release source at the fake server. Written via config.ts's own
+    // writeConfig() (not a hardcoded ".sc-data/config.json" path) so this test tracks
+    // wherever CONFIG_DIR actually resolves — e.g. the test-run-wide SC_DATA_DIR override
+    // (env-preload.ts) rather than assuming it's always this test's own chdir'd cwd.
+    await writeConfig({ releaseSource: { baseUrl } });
+    // CONFIG_DIR is now one fixed directory for the whole test run (not a fresh one
+    // per test via chdir, since it's resolved once at import time) — so the cache
+    // from an earlier test would otherwise leak into this one. Clear it explicitly.
+    await fs.rm(CACHE_DIR, { recursive: true, force: true });
 });
 
 afterEach(async () => {
@@ -90,8 +99,8 @@ test("backfills from the release source, verifies the checksum, and caches", asy
     served.set("sc-agent-mac-x64", bytes);
 
     const resolved = await resolveAgentBinary("mac-x64");
-    // Cached under the cwd's .sc-data, versioned.
-    expect(resolved).toContain(path.join(".sc-data", "agent-binaries", `sc-agent-mac-x64-${AGENT_VERSION}`));
+    // Cached under CONFIG_DIR's agent-binaries dir, versioned.
+    expect(resolved).toContain(path.join(CONFIG_DIR, "agent-binaries", `sc-agent-mac-x64-${AGENT_VERSION}`));
     expect(Buffer.from(await Bun.file(resolved).arrayBuffer()).equals(bytes)).toBe(true);
 
     // A second call is served from the cache: it resolves even after the source stops
@@ -122,9 +131,9 @@ test("rejects a checksum mismatch (fails closed, nothing cached)", async () => {
         },
     });
     try {
-        await fs.writeFile(".sc-data/config.json", JSON.stringify({ releaseSource: { baseUrl: `http://127.0.0.1:${wrong.port}/dl` } }));
+        await writeConfig({ releaseSource: { baseUrl: `http://127.0.0.1:${wrong.port}/dl` } });
         await expect(resolveAgentBinary("mac-x64")).rejects.toBeInstanceOf(BinaryStoreError);
-        expect(await Bun.file(path.join(".sc-data", "agent-binaries", `sc-agent-mac-x64-${AGENT_VERSION}`)).exists()).toBe(false);
+        expect(await Bun.file(path.join(CONFIG_DIR, "agent-binaries", `sc-agent-mac-x64-${AGENT_VERSION}`)).exists()).toBe(false);
     } finally {
         wrong.stop(true);
     }
@@ -150,6 +159,6 @@ test("rejects an unsupported platform with a 400", async () => {
 });
 
 test("getLatestVersion reads tag_name from the configured latest endpoint", async () => {
-    await fs.writeFile(".sc-data/config.json", JSON.stringify({ releaseSource: { baseUrl, latestUrl: `http://127.0.0.1:${release.port}/latest` } }));
+    await writeConfig({ releaseSource: { baseUrl, latestUrl: `http://127.0.0.1:${release.port}/latest` } });
     expect(await getLatestVersion()).toBe("9.9.9");
 });

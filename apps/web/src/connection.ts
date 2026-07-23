@@ -51,7 +51,18 @@ class ConnectionManager {
             clearTimeout(this.reconnectTimer);
         }
         this.reconnectTimer = null;
-        this.ws?.close();
+        if (this.ws) {
+            // Strip handlers before closing: the close handshake is a network
+            // round trip, not instant, and React StrictMode's dev-only double
+            // mount/unmount calls stop() then start() back to back — without
+            // this, the old socket's onmessage stays live and double-delivers
+            // every broadcast (incl. taskLog) until its close actually lands.
+            this.ws.onopen = null;
+            this.ws.onclose = null;
+            this.ws.onmessage = null;
+            this.ws.onerror = null;
+            this.ws.close();
+        }
         this.ws = null;
         this.update({ connected: false, connecting: true, servers: [], metrics: {}, tasks: [], taskLogs: {} });
     }
@@ -66,8 +77,19 @@ class ConnectionManager {
         }
         const ws = new WebSocket(`ws://${API_HOST}/events?token=${encodeURIComponent(token)}`);
         this.ws = ws;
-        ws.onopen = () => this.update({ connected: true, connecting: false });
+        // Guard every handler against `this.ws` having moved on (belt-and-braces
+        // alongside stop()'s handler-stripping above) so a stale socket can never
+        // apply a stray event or clobber state a newer connection already set.
+        ws.onopen = () => {
+            if (this.ws !== ws) {
+                return;
+            }
+            this.update({ connected: true, connecting: false });
+        };
         ws.onclose = () => {
+            if (this.ws !== ws) {
+                return;
+            }
             this.ws = null;
             if (!this.running) {
                 return;
@@ -76,7 +98,12 @@ class ConnectionManager {
             this.reconnectTimer = setTimeout(() => this.connect(), 3000);
         };
         ws.onerror = (err) => console.error("WebSocket error", err);
-        ws.onmessage = (event) => this.handleEvent(JSON.parse(event.data) as ApiEvent);
+        ws.onmessage = (event) => {
+            if (this.ws !== ws) {
+                return;
+            }
+            this.handleEvent(JSON.parse(event.data) as ApiEvent);
+        };
     }
 
     private handleEvent(event: ApiEvent): void {

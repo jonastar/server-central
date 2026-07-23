@@ -1,4 +1,5 @@
 import type { CentralApiOperations, TaskRun, TaskSpec } from "@central/shared";
+import { taskModalManager } from "./taskModal";
 
 /** Backend host — same machine that serves the UI, port 4141. */
 export const API_HOST = `${location.hostname}:4141`;
@@ -61,9 +62,22 @@ const TERMINAL: TaskRun["status"][] = ["succeeded", "failed", "cancelled"];
  * throw on failure/cancellation) while still getting task history + logs for
  * free. Not for kinds where "not ok" is itself a normal result (e.g.
  * `docker_image_pull`) — those resolve either way; check `run.result` instead.
+ *
+ * `autoOpenModal` pops the live {@link TaskModal} for this run as soon as it's
+ * created — opt in per call site for actions that don't already give inline
+ * feedback while they run (agent update, image pull), not for quick ones
+ * (service/container start-stop) that would make every click feel modal-heavy.
  */
-export async function runTaskAndWait(spec: TaskSpec, target: string | null, pollMs = 400): Promise<TaskRun> {
+export async function runTaskAndWait(
+    spec: TaskSpec,
+    target: string | null,
+    opts: { autoOpenModal?: boolean; pollMs?: number } = {},
+): Promise<TaskRun> {
+    const { autoOpenModal = false, pollMs = 400 } = opts;
     const { id } = await api("runTask", { spec, target });
+    if (autoOpenModal) {
+        taskModalManager.open(id);
+    }
     for (;;) {
         const run = await api("getTask", { id });
         if (!run) {

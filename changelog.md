@@ -7,8 +7,49 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+### Fixed
+
+- **Test suite could silently corrupt a real running dev instance's `.sc-data`**: several
+  integration tests (`fleet-priority`, `agent-connect`, `agent-update-download`, `binary-store`,
+  `update-agent-task`) isolate `config.ts`'s data dir by `process.chdir()`-ing to a per-test tmp
+  dir — but `Fleet.register()`/`deregister()` persist fire-and-forget, so a write still in flight
+  when a test's `afterAll` restored `cwd` could resolve its *relative* `.sc-data/...` path against
+  the real repo directory instead. This wasn't hypothetical — it clobbered a real `bun run dev`
+  instance's `apps/server/.sc-data/agents.json` mid-session. Fixed by forcing `SC_DATA_DIR` to one
+  absolute, test-run-only directory before any test file loads (`apps/server/test/env-preload.ts`,
+  wired via `apps/server/bunfig.toml`'s `[test] preload`) — an absolute path is immune to `cwd`
+  entirely, so no chdir race anywhere in the suite can land a write outside it again. Verified by
+  hashing the real `.sc-data/*.json` files across repeated full test runs. Follow-on fixes this
+  exposed: `binary-store.test.ts` had hardcoded the literal `.sc-data/config.json` path instead of
+  going through `config.ts`'s own `writeConfig()`/`CONFIG_DIR`, which broke once `CONFIG_DIR` was
+  no longer always ".sc-data" — switched to the real exports; and since `CONFIG_DIR` is now one
+  fixed directory for the whole run instead of fresh per test, its binary cache leaked between
+  tests — now cleared explicitly per test.
+- **Duplicate `/events` broadcasts (doubled task log lines, etc.)**: React StrictMode's dev-only
+  double mount/unmount of the connection effect (`App.tsx`) called `connectionManager.stop()` then
+  `start()` back to back; `stop()`'s `ws.close()` doesn't wait for the close handshake, so the old
+  socket's `onmessage` stayed live and both it and the new socket were registered server-side for a
+  moment, each delivering the same event. Fixed in `apps/web/src/connection.ts`: `stop()` now strips
+  the old socket's handlers before closing it, and every handler double-checks `this.ws === ws`
+  before acting, so a stale connection can never apply an event or clobber state a newer one set.
+
 ### Added
 
+- **Agent update waits for the actual reconnect, not just the ack**: `update_agent` no longer
+  reports `succeeded` the moment the agent acknowledges the update — it now polls the fleet
+  (`apps/server/src/tasks/types.ts` `waitForAgentReconnect`) until a *new* connection for that
+  machine comes back online (proof it actually disconnected to swap its binary and restart). If
+  that new connection reports the wrong version (not `force`), the run fails immediately with a
+  clear "Agent reconnected on X, expected Y" error instead of continuing to poll — a real
+  connection has already committed to a version, so it's not going to change on its own, and this
+  is exactly what surfaced a genuine control-plane/agent-binary version mismatch in the dev
+  workflow. `force` skips the version check entirely (a same-version re-push can't be told apart
+  from the old connection by version string alone), settling for "reconnected" there. Times out
+  after 5 minutes if it never reconnects at all. This didn't need the task system's deferred
+  resume-across-reconnect work — the control plane process itself never restarts here, only the
+  remote agent's connection drops, so the run's promise just keeps waiting in place. New test:
+  `apps/server/test/integration/update-agent-task.test.ts` drives a real `Fleet`/`HostAgent` (no
+  sockets) through reconnect-with-right-version, reconnect-with-wrong-version, and timeout cases.
 - **Force reinstall for a broken agent install**: `installNodeService` gained an optional `force`
   flag that bypasses the "already installed" refusal and overwrites the existing cert/config/
   binaries (restarting the systemd unit afterward so the overwrite actually takes effect). The
@@ -25,6 +66,27 @@ opens a fresh `## Unreleased` above it.
   re-pushing a rebuild whose version string didn't change (e.g. no new commit). `AgentsView`'s
   per-agent action is now always available for online installed agents — "Update" when outdated,
   "Force update" otherwise.
+- **Task widget + live task modal**: a bottom-right corner widget (`TaskWidget`) shows in-flight
+  task runs app-wide with a short log tail; clicking one — or a running row in the Tasks view —
+  opens `TaskModal`, a live status+log view driven by the same WS state as everywhere else (no
+  polling). A new `taskModalManager` singleton (`apps/web/src/taskModal.ts`) makes the modal
+  openable from anywhere without prop-drilling. `runTaskAndWait` gained an opt-in `autoOpenModal`
+  flag, used by the agent-update and docker-image-pull call sites (slow/opaque actions worth
+  watching); quick actions (service/container start-stop) keep their existing inline busy-state.
+  Shared per-kind formatting moved to `apps/web/src/taskFormat.ts` so the widget, modal, and
+  `TasksView` don't each duplicate the exhaustive spec/result switches. The modal's header now
+  carries a status accent (`Modal`'s new optional `tone` prop, `ui.tsx`) — blue with a spinner
+  while running/pending, green on success, red on failure, gray if cancelled — instead of a plain
+  title bar, via `taskFormat.ts`'s new `modalTone()`. The spinner is a small reusable `.spinner`
+  CSS class (colored by `currentColor`) shared with the corner widget's pill.
+- **Agent update is a task kind**: `update_agent` (`shared/src/tasks.ts`) replaces the standalone
+  `updateNodeService` RPC — the pre-update checks (agent connected, mode `installed`, already
+  up to date unless `force`) moved into its task handler (`apps/server/src/tasks/types.ts`), which
+  still only waits for the agent's acknowledgment (not the restart itself), same as before. This
+  was safe to do without the task system's still-deferred "resume across reconnect" capability
+  (`docs/task-system.md` §8.5) precisely because the run already completes at the ack point, before
+  the agent's WS connection drops for the actual binary swap. `AgentsView`'s Update/Force update
+  buttons now call `runTaskAndWait()` like the other fleet actions, gaining run history + logs.
 - **Four more task kinds**: service start/stop/restart/enable/disable, docker stack actions
   (start/stop/restart/down), docker container actions (start/stop/restart/pause/unpause/remove),
   and `docker pull` are now `service_action`/`docker_stack_action`/`docker_container_action`/

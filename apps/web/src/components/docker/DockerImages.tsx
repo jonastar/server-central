@@ -54,7 +54,7 @@ export function DockerImages({ serverId }: { serverId: string }) {
         setPulling(true);
         setPullMsg(null);
         try {
-            const run = await runTaskAndWait({ kind: "docker_image_pull", ref }, serverId);
+            const run = await runTaskAndWait({ kind: "docker_image_pull", ref }, serverId, { autoOpenModal: true });
             const res = run.result?.kind === "docker_image_pull" ? run.result : null;
             setPullMsg(res?.message ?? "—");
             if (res?.ok) {

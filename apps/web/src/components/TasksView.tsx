@@ -3,83 +3,11 @@ import type { TaskRun, TaskStatus } from "@central/shared";
 import { useConnection } from "../hooks/useConnection";
 import { api } from "../api";
 import { connectionManager } from "../connection";
+import { fmtDuration, fmtTime, resultSummary, serverLabel, specSummary, STATUS_LABEL, STATUSES, statusTone } from "../taskFormat";
+import { taskModalManager } from "../taskModal";
 import { cx } from "../utils";
 import { DetailPair, EmptyState, ErrorBanner } from "./ui";
 import { LogViewer } from "./LogViewer";
-
-const STATUS_LABEL: Record<TaskStatus, string> = {
-    pending: "Pending",
-    running: "Running",
-    succeeded: "Succeeded",
-    failed: "Failed",
-    cancelled: "Cancelled",
-};
-
-const STATUSES = Object.keys(STATUS_LABEL) as TaskStatus[];
-
-function statusTone(status: TaskStatus): "ok" | "warn" | "err" | "muted" {
-    switch (status) {
-        case "succeeded":
-            return "ok";
-        case "running":
-        case "pending":
-            return "warn";
-        case "failed":
-            return "err";
-        case "cancelled":
-            return "muted";
-    }
-}
-
-function fmtTime(ms?: number): string {
-    return ms ? new Date(ms).toLocaleString() : "—";
-}
-
-function fmtDuration(run: TaskRun): string {
-    if (!run.startedAt) {
-        return "—";
-    }
-    const secs = Math.max(0, Math.round(((run.finishedAt ?? Date.now()) - run.startedAt) / 1000));
-    return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
-}
-
-function specSummary(spec: TaskRun["spec"]): string {
-    switch (spec.kind) {
-        case "cmd":
-            return spec.command;
-        case "find_wan_ip":
-            return "Discover external IP (STUN)";
-        case "service_action":
-            return `${spec.action} ${spec.unit}`;
-        case "docker_stack_action":
-            return `${spec.action} stack ${spec.project}`;
-        case "docker_container_action":
-            return `${spec.action} container ${spec.containerId.slice(0, 12)}`;
-        case "docker_image_pull":
-            return `docker pull ${spec.ref}`;
-    }
-}
-
-function resultSummary(run: TaskRun): string {
-    if (run.status === "failed") {
-        return run.error ?? "Failed";
-    }
-    if (!run.result) {
-        return "—";
-    }
-    switch (run.result.kind) {
-        case "cmd":
-            return `exit ${run.result.exitCode}`;
-        case "find_wan_ip":
-            return run.result.ip ?? "not detected";
-        case "service_action":
-        case "docker_stack_action":
-        case "docker_container_action":
-            return "OK";
-        case "docker_image_pull":
-            return run.result.message;
-    }
-}
 
 /**
  * Run history for the task system: every run the control plane knows about
@@ -96,18 +24,17 @@ export function TasksView() {
 
     const kinds = [...new Set(tasks.map((t) => t.spec.kind))];
 
-    function serverName(id: string | null): string {
-        if (id === null) {
-            return "Control plane";
-        }
-        return servers.find((s) => s.id === id)?.name ?? id;
-    }
-
     const shown = tasks.filter((t) =>
         (kindFilter === "all" || t.spec.kind === kindFilter)
         && (statusFilter === "all" || t.status === statusFilter));
 
     async function toggle(run: TaskRun) {
+        // In-flight runs stream live in the task modal instead of the static
+        // inline drawer — open that rather than expanding the row.
+        if (run.status === "running" || run.status === "pending") {
+            taskModalManager.open(run.id);
+            return;
+        }
         const next = expanded === run.id ? null : run.id;
         setExpanded(next);
         if (next && taskLogs[run.id] === undefined) {
@@ -173,7 +100,7 @@ export function TasksView() {
                                         >
                                             <td className="col-expander"><span className={cx("row-expander", isExpanded && "open")}>▸</span></td>
                                             <td><b>{run.spec.kind}</b></td>
-                                            <td className="dim">{serverName(run.target)}</td>
+                                            <td className="dim">{serverLabel(run.target, servers)}</td>
                                             <td><span className={cx("badge", `badge-${tone}`)}>{STATUS_LABEL[run.status]}</span></td>
                                             <td className="dim">{fmtTime(run.startedAt ?? run.createdAt)}</td>
                                             <td className="dim">{fmtDuration(run)}</td>

@@ -80,10 +80,34 @@ TODO
 
 ### Task system
 
-> Design spec: [docs/task-system.md](docs/task-system.md). Six kinds implemented:
+> Design spec: [docs/task-system.md](docs/task-system.md). Seven kinds implemented:
 > `find_wan_ip` (control-plane + per-node), `cmd`, `service_action`, `docker_stack_action`,
-> `docker_container_action`, `docker_image_pull`. Run history and a logs UI are implemented;
-> schedules/cancel/resume are designed but still deferred there.
+> `docker_container_action`, `docker_image_pull`, `update_agent`. Run history and a logs UI
+> are implemented; schedules/cancel/resume are designed but still deferred there.
+
+- [DONE] Corner widget + live task modal (2026-07-23): `TaskWidget` (bottom-right,
+  app-root-mounted in `App.tsx`) shows in-flight (pending/running) runs with a short
+  log tail, click-through to `TaskModal` — a live status+log view sourced from the same
+  WS-driven `useConnection()` state, opened via a new `taskModalManager` singleton
+  (`apps/web/src/taskModal.ts`, mirrors `connectionManager`'s shape) so it can be triggered
+  from anywhere without prop-drilling. `runTaskAndWait` gained an opt-in `autoOpenModal`
+  flag (used by `update_agent` and `docker_image_pull` only — quick actions like
+  service/container start-stop keep their existing inline busy-state instead of popping a
+  modal every click). `TasksView` rows for running/pending tasks now open the modal instead
+  of the old static inline-expand (finished rows keep the inline expand). Shared formatting
+  (`specSummary`/`resultSummary`/etc.) extracted to `apps/web/src/taskFormat.ts` so the
+  widget/modal/TasksView don't duplicate the exhaustive per-kind switches.
+  Not verified in a real browser (no Playwright in this dev container) — typecheck + vite
+  build are clean and the server-side task flow was verified end-to-end over the HTTP API,
+  but the widget/modal haven't been visually confirmed.
+  - Follow-up same day: found (via a real usage report) that task log lines were arriving
+    doubled — root cause was a pre-existing bug in `connection.ts`, not this feature: React
+    StrictMode's dev-only double mount of the connection effect raced `stop()`'s `ws.close()`
+    (not instant) against `start()`'s new socket, leaving both registered server-side for a
+    moment. Fixed by stripping the old socket's handlers in `stop()` and guarding every handler
+    with `this.ws === ws`. Also added a `tone` prop to `Modal` (`ui.tsx`) + `modalTone()`
+    (`taskFormat.ts`) so the task modal's header is blue+spinner while running, green/red/gray
+    once it lands, using a new reusable `.spinner` CSS class shared with the widget's pill.
 
 Candidate task kinds, surveyed against `handler.ts` 2026-07-22 (test from the design
 doc: would you want history of it, a last-result for it, or to schedule it? if not,
@@ -100,10 +124,31 @@ it stays plain RPC):
 - [DONE] Docker image pull (`docker_image_pull`, 2026-07-22) — replaced
   `handleDockerImagePull`; `DockerImages` now calls `runTaskAndWait`, still shows
   `{ ok, message }` (a failed pull is a normal result, not a thrown error).
-- Agent updates (`handleUpdateNodeService`) — the motivating case for the deferred
-  §8.5 resume-across-reconnect: update kills the agent's own WS mid-run, so today
-  the caller gets a fire-and-forget `void` with no way to know if it landed.
-  Biggest win, hardest to build. Still not started.
+- [DONE] Agent updates (`update_agent`, 2026-07-23) — replaced `handleUpdateNodeService`;
+  `AgentsView` now calls `runTaskAndWait`. Initially landed as "completes on ack" (the run
+  resolves the moment the agent acknowledges, before its own WS drops for the binary swap) —
+  didn't seem to need §8.5 resume-across-reconnect for that scope. Revised same day: the run
+  now stays `running` until the fleet actually sees the agent reconnect as a *new* connection
+  on the target version (`waitForAgentReconnect`, `apps/server/src/tasks/types.ts`), polling
+  every 2s up to a 5-minute timeout. Still didn't need §8.5 — the control plane process itself
+  never restarts here, only the remote agent's connection drops, so the run's own promise just
+  keeps waiting in place; §8.5 remains relevant for anything where the *control plane* restarts
+  mid-run (control-plane self-update, below). Covered by
+  `apps/server/test/integration/update-agent-task.test.ts` (real Fleet/HostAgent, no sockets).
+  - Follow-up same day, from a real dev-workflow report: a reconnect on the *wrong* version (the
+    control plane's own `AGENT_VERSION` had drifted from what the freshly-built agent binary
+    actually reports) made the run hang for the full 5-minute timeout instead of failing clearly.
+    Fixed: a new, online connection for the machine is now treated as the definitive answer — if
+    its version doesn't match (and not `force`), the run fails immediately with "Agent reconnected
+    on X, expected Y" rather than continuing to poll for a version that was never going to change.
+  - Investigating *that* led to a much bigger find: running the test suite while a real `bun run
+    dev` instance is up (developing against your own home lab) could silently corrupt the real
+    instance's `.sc-data/agents.json` — see the "Test suite could silently corrupt..." entry under
+    Fixed in changelog.md for the mechanism and fix (`apps/server/test/env-preload.ts` +
+    `apps/server/bunfig.toml`). Per explicit instruction, the already-corrupted real
+    `apps/server/.sc-data/agents.json` (a stray phantom `machine-abc`/`host-installed` entry
+    alongside the real nodes) was left alone — not cleaned up, since it's self-healing as real
+    agents reconnect and the user preferred to handle it themselves.
 - Agent install (`handleInstallNodeService`) — multi-step (write binary+cert,
   install unit, hand off); a task would give visible progress + a durable
   "did it actually finish" record instead of just a `startCommand`.
