@@ -8,3 +8,5 @@ bun.lockb
 data/
 apps/server/.sc-data
 .sc-data
+apps/server/src/web-assets.generated.ts
+shared/src/build-info.generated.ts

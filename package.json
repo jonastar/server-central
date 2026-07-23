@@ -3,6 +3,7 @@
   "private": true,
   "workspaces": ["apps/*", "shared"],
   "scripts": {
+    "postinstall": "bun run scripts/write-generated-stubs.ts",
     "dev": "bun run dev:server & bun run dev:web",
     "dev:server": "bun run --filter @central/server dev",
     "dev:web": "bun run --filter @central/web dev",

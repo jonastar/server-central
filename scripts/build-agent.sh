@@ -40,9 +40,10 @@ if [ "${SKIP_WEB:-0}" != "1" ]; then
     bun run --filter @central/web build
 fi
 echo "Embedding web assets…"
-# Restore the committed (empty) generated files on exit so the working tree stays
-# clean — their content is already compiled into the binaries by then.
-trap 'git checkout -- apps/server/src/web-assets.generated.ts shared/src/build-info.generated.ts 2>/dev/null || true' EXIT
+# Restore the empty (dev-mode) generated files on exit — their content is already
+# compiled into the binaries by then, and both files are gitignored so dev/typecheck
+# need them to exist in their empty form.
+trap 'bun run scripts/write-generated-stubs.ts >/dev/null 2>&1 || true' EXIT
 bun run scripts/gen-web-assets.ts
 
 # Stamp AGENT_VERSION with a dev suffix so a local rebuild is a distinguishable,
