@@ -133,7 +133,7 @@ export class Agent {
         private readonly onInstallService?: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism) => Promise<{ startCommand: string | null }>,
         /** Performs the self-update to `version` when the control plane requests
          *  it. Absent for the embedded agent, which ships with the control plane. */
-        private readonly onUpdateService?: (version: string) => Promise<void>,
+        private readonly onUpdateService?: (version: string, force?: boolean) => Promise<void>,
     ) {
         this.isEmbedded = isEmbedded;
     }
@@ -305,7 +305,7 @@ export class Agent {
                     if (!this.onUpdateService) {
                         throw new Error("This agent cannot update itself");
                     }
-                    await this.onUpdateService(msg.version);
+                    await this.onUpdateService(msg.version, msg.force);
                     this.transport.send({ type: "updateServiceResponse", requestId: msg.requestId });
                 } catch (e) {
                     console.error(`[update] updateService request ${msg.requestId} failed: ${String(e)}`);

@@ -1,6 +1,7 @@
 import pkg from "../package.json" with { type: "json" };
 
-import type { TaskRun, TaskSpec } from "./tasks";
+import type { TaskLogLine, TaskRun, TaskSpec } from "./tasks";
+import { DEV_SUFFIX } from "./build-info.generated";
 
 export * from "./node-protocol";
 export * from "./metrics";
@@ -54,8 +55,11 @@ export type AgentMode = "live" | "installed" | "embedded";
  * Version of the agent software (server + node ship together from this
  * monorepo, so a single constant covers both the embedded and remote agents).
  * Sourced from the shared package's package.json so there's one place to bump it.
+ * DEV_SUFFIX is empty for release builds (and for running from source); a local
+ * `bun run build:agent` stamps it with a git-commit suffix so dev builds carry a
+ * distinguishable, traceable version (see scripts/build-agent.sh).
  */
-export const AGENT_VERSION: string = pkg.version;
+export const AGENT_VERSION: string = pkg.version + DEV_SUFFIX;
 
 /**
  * Control-message kinds this agent build supports beyond the v0.6.0 baseline,
@@ -656,17 +660,17 @@ export type CentralApiOperations = {
     renamePath: { data: { serverId: string; from: string; to: string }; response: void };
 
     // Docker
+    // (container/stack lifecycle actions and image pull moved to the task system
+    // — `service_action`/`docker_stack_action`/`docker_container_action`/
+    // `docker_image_pull` kinds via `runTask` — for run history + logs)
     dockerList: { data: { serverId: string }; response: DockerState };
-    dockerContainerAction: { data: { serverId: string; containerId: string; action: ContainerAction }; response: void };
     dockerContainerLogs: { data: { serverId: string; containerId: string; timestamps?: boolean } & LogQuery; response: { logs: string } };
     dockerOverview: { data: { serverId: string }; response: DockerOverview };
     dockerStacks: { data: { serverId: string }; response: DockerStacksState };
-    dockerStackAction: { data: { serverId: string; project: string; action: StackAction }; response: void };
     dockerContainerInspect: { data: { serverId: string; containerId: string }; response: DockerContainerDetail };
     dockerVolumeInspect: { data: { serverId: string; name: string }; response: DockerVolumeDetail };
     dockerVolumeRemove: { data: { serverId: string; name: string }; response: void };
     dockerImageAction: { data: { serverId: string; imageId: string; action: ImageAction }; response: void };
-    dockerImagePull: { data: { serverId: string; ref: string }; response: { ok: boolean; message: string } };
 
     // Processes
     getProcesses: { data: { serverId: string }; response: ProcessInfo[] };
@@ -682,9 +686,10 @@ export type CentralApiOperations = {
     // Replace an account's supplementary groups (usermod -G; owner-only).
     systemUserSetGroups: { data: { serverId: string; username: string; groups: string[] }; response: void };
 
-    // Systemd — list services, control them, view logs and unit files.
+    // Systemd — list services, view logs and unit files. Service actions
+    // (start/stop/restart/enable/disable) moved to the task system's
+    // `service_action` kind via `runTask`, for run history + logs.
     systemdList: { data: { serverId: string }; response: SystemdState };
-    systemdServiceAction: { data: { serverId: string; unit: string; action: ServiceAction }; response: void };
     systemdServiceLogs: { data: { serverId: string; unit: string; priority?: string } & LogQuery; response: { logs: string } };
     systemdUnitFile: { data: { serverId: string; unit: string }; response: { content: string } };
 
@@ -713,7 +718,9 @@ export type CentralApiOperations = {
     probeInstallPath: { data: { serverId: string; path: string }; response: InstallProbeResult };
 
     // Update an installed agent to the control plane's current AGENT_VERSION.
-    updateNodeService: { data: { serverId: string }; response: void };
+    // force bypasses the "already up to date" check (e.g. re-pushing a dev
+    // rebuild whose AGENT_VERSION string didn't change).
+    updateNodeService: { data: { serverId: string; force?: boolean }; response: void };
 
     // Control plane (the server itself): its running version vs. the latest release,
     // and a self-update that swaps the binary and restarts. updateAvailable is false
@@ -749,12 +756,15 @@ export type CentralApiOperations = {
     applyProxyConfig: { data: void; response: ProxyApplyResult };
 
     // Tasks — the uniform envelope (history, typed last-result, run-now).
-    // (Logs, cancellation, and schedules are deferred until a task kind needs
-    // them; the wire types for those already live in ./tasks.)
+    // (Cancellation and schedules are deferred until a task kind needs them;
+    // the wire types for those already live in ./tasks.)
     listTasks: { data: { target?: string | null; kind?: TaskSpec["kind"]; limit?: number }; response: TaskRun[] };
     getTask: { data: { id: string }; response: TaskRun | null };
     // Run-now: create + start a run immediately. Returns its id to navigate to.
     runTask: { data: { spec: TaskSpec; target: string | null }; response: { id: string } };
+    // Seed a run's log buffer (in-memory only, empty for kinds that don't log or
+    // after a control-plane restart); live updates arrive via the `taskLog` event.
+    getTaskLogs: { data: { id: string }; response: TaskLogLine[] };
 };
 
 // ---- WebSocket events ----------------------------------------------------------
@@ -765,7 +775,9 @@ export type ApiEvent =
     | { kind: "statusUpdate"; data: ServerStatus }
     | { kind: "metrics"; data: { serverId: string; snapshot: MetricsSnapshot } }
     // A run was created or changed status. Carries the full envelope.
-    | { kind: "taskUpdate"; data: TaskRun };
+    | { kind: "taskUpdate"; data: TaskRun }
+    // New log lines appended for a run. Only fires for kinds that call ctx.log.
+    | { kind: "taskLog"; data: { taskId: string; lines: TaskLogLine[] } };
 
 // ---- Terminal protocol (WebSocket at /terminal?serverId=...) --------------------
 

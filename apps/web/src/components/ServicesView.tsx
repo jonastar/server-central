@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ServiceAction, ServiceInfo, SystemdState } from "@central/shared";
-import { api } from "../api";
+import { api, runTaskAndWait } from "../api";
 import { cx } from "../utils";
 import { DetailPair, EmptyState, ErrorBanner, Modal } from "./ui";
 import { LogViewerModal } from "./LogViewerModal";
@@ -54,7 +54,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
         }
         setBusyUnit(svc.unit);
         try {
-            await api("systemdServiceAction", { serverId, unit: svc.unit, action: act });
+            await runTaskAndWait({ kind: "service_action", unit: svc.unit, action: act }, serverId);
             await load();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

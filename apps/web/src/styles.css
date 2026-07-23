@@ -1092,6 +1092,11 @@ tr:hover .row-actions {
     color: var(--err);
 }
 
+.badge-muted {
+    background: color-mix(in srgb, var(--muted) 14%, transparent);
+    color: var(--muted);
+}
+
 .error-banner {
     background: color-mix(in srgb, var(--err) 9%, var(--panel));
     border: 1px solid color-mix(in srgb, var(--err) 35%, var(--border));

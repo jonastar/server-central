@@ -95,7 +95,12 @@ const nodeServer = await startNodeServer(
 
 const taskStore = new TaskStore();
 await taskStore.init();
-const taskRunner = new TaskRunner(taskStore, fleet, (run) => broadcast({ kind: "taskUpdate", data: run }));
+const taskRunner = new TaskRunner(
+    taskStore,
+    fleet,
+    (run) => broadcast({ kind: "taskUpdate", data: run }),
+    (taskId, line) => broadcast({ kind: "taskLog", data: { taskId, lines: [line] } }),
+);
 
 const proxyStore = new ProxyStore();
 await proxyStore.init();

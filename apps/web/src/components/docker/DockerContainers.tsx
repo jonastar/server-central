@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ContainerAction, ContainerInfo, DockerState } from "@central/shared";
-import { api } from "../../api";
+import { api, runTaskAndWait } from "../../api";
 import { cx } from "../../utils";
 import { DetailPair, EmptyState, ErrorBanner } from "../ui";
 import { LogViewerModal } from "../LogViewerModal";
@@ -53,7 +53,7 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
         }
         setBusyId(container.id);
         try {
-            await api("dockerContainerAction", { serverId, containerId: container.id, action: act });
+            await runTaskAndWait({ kind: "docker_container_action", containerId: container.id, action: act }, serverId);
             await load();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

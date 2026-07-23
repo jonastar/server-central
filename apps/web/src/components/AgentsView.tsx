@@ -21,14 +21,17 @@ export function AgentsView({ servers, onOpenServer }: {
     const [error, setError] = useState<string | null>(null);
     const [installEntry, setInstallEntry] = useState<ServerEntry | null>(null);
 
-    async function update(serverId: string) {
-        if (!confirm("Update this agent to the latest version? It will download the new binary and restart.")) {
+    async function update(serverId: string, force: boolean) {
+        const prompt = force
+            ? "Reinstall the control plane's current build on this agent even though it reports the same version? It will download the binary and restart."
+            : "Update this agent to the latest version? It will download the new binary and restart.";
+        if (!confirm(prompt)) {
             return;
         }
         setBusyId(serverId);
         setError(null);
         try {
-            await api("updateNodeService", { serverId });
+            await api("updateNodeService", { serverId, force });
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -120,14 +123,16 @@ export function AgentsView({ servers, onOpenServer }: {
                                                         Complete setup
                                                     </button>
                                                 )}
-                                                {outdated && (
+                                                {online && status.mode === "installed" && (
                                                     <button
                                                         className="btn"
                                                         disabled={busyId === entry.id}
-                                                        onClick={() => void update(entry.id)}
-                                                        title="Download the latest binary and restart the agent"
+                                                        onClick={() => void update(entry.id, !outdated)}
+                                                        title={outdated
+                                                            ? "Download the latest binary and restart the agent"
+                                                            : "Reinstall the current build even though the version matches (dev rebuilds)"}
                                                     >
-                                                        {busyId === entry.id ? "Updating…" : "Update"}
+                                                        {busyId === entry.id ? "Updating…" : outdated ? "Update" : "Force update"}
                                                     </button>
                                                 )}
                                                 {!online && (

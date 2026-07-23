@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DockerImageInfo, DockerState } from "@central/shared";
-import { api } from "../../api";
+import { api, runTaskAndWait } from "../../api";
 import { cx } from "../../utils";
 import { EmptyState, ErrorBanner } from "../ui";
 
@@ -54,9 +54,10 @@ export function DockerImages({ serverId }: { serverId: string }) {
         setPulling(true);
         setPullMsg(null);
         try {
-            const res = await api("dockerImagePull", { serverId, ref });
-            setPullMsg(res.message);
-            if (res.ok) {
+            const run = await runTaskAndWait({ kind: "docker_image_pull", ref }, serverId);
+            const res = run.result?.kind === "docker_image_pull" ? run.result : null;
+            setPullMsg(res?.message ?? "—");
+            if (res?.ok) {
                 setPullRef("");
                 await load();
             }

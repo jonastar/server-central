@@ -12,6 +12,8 @@
 // version could swap these hand-written settings for zod schemas — the shape
 // carries over unchanged.)
 
+import type { ContainerAction, ServiceAction, StackAction } from "./index";
+
 /** Run something on a shell. */
 export interface TaskCmd {
     kind: "cmd";
@@ -23,8 +25,41 @@ export interface TaskFindWanIp {
     kind: "find_wan_ip";
 }
 
+/** Start/stop/restart/enable/disable a systemd unit on the target host. */
+export interface TaskServiceAction {
+    kind: "service_action";
+    unit: string;
+    action: ServiceAction;
+}
+
+/** Start/stop/restart/tear down every container in a compose project. */
+export interface TaskDockerStackAction {
+    kind: "docker_stack_action";
+    project: string;
+    action: StackAction;
+}
+
+/** Start/stop/restart/pause/unpause/remove a single container. */
+export interface TaskDockerContainerAction {
+    kind: "docker_container_action";
+    containerId: string;
+    action: ContainerAction;
+}
+
+/** `docker pull` a single image reference. */
+export interface TaskDockerImagePull {
+    kind: "docker_image_pull";
+    ref: string;
+}
+
 /** Every task kind. Add a variant here + a handler + a result variant. */
-export type TaskSpec = TaskCmd | TaskFindWanIp;
+export type TaskSpec =
+    | TaskCmd
+    | TaskFindWanIp
+    | TaskServiceAction
+    | TaskDockerStackAction
+    | TaskDockerContainerAction
+    | TaskDockerImagePull;
 
 /** A task kind's discriminant, e.g. "cmd". */
 export type TaskKind = TaskSpec["kind"];
@@ -47,7 +82,35 @@ export interface TaskFindWanIpResult {
     ip: string | null;
 }
 
-export type TaskResult = TaskCmdResult | TaskFindWanIpResult;
+/** No extra data beyond confirmation — the run's status/error already says
+ *  whether it worked, and the output (if any) is in the run's logs. */
+export interface TaskServiceActionResult {
+    kind: "service_action";
+}
+
+export interface TaskDockerStackActionResult {
+    kind: "docker_stack_action";
+}
+
+export interface TaskDockerContainerActionResult {
+    kind: "docker_container_action";
+}
+
+/** Unlike the other docker/service actions, a failed pull isn't an exception —
+ *  `ok: false` is a normal (successful-run) result, same as the RPC it replaced. */
+export interface TaskDockerImagePullResult {
+    kind: "docker_image_pull";
+    ok: boolean;
+    message: string;
+}
+
+export type TaskResult =
+    | TaskCmdResult
+    | TaskFindWanIpResult
+    | TaskServiceActionResult
+    | TaskDockerStackActionResult
+    | TaskDockerContainerActionResult
+    | TaskDockerImagePullResult;
 
 // ---- Envelope ----------------------------------------------------------------
 

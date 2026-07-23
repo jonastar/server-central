@@ -1,6 +1,23 @@
-import type { TaskCmd, TaskFindWanIp, TaskCmdResult, TaskFindWanIpResult, TaskSpec, TaskResult } from "@central/shared";
+import type {
+    TaskCmd,
+    TaskCmdResult,
+    TaskDockerContainerAction,
+    TaskDockerContainerActionResult,
+    TaskDockerImagePull,
+    TaskDockerImagePullResult,
+    TaskDockerStackAction,
+    TaskDockerStackActionResult,
+    TaskFindWanIp,
+    TaskFindWanIpResult,
+    TaskResult,
+    TaskServiceAction,
+    TaskServiceActionResult,
+    TaskSpec,
+} from "@central/shared";
 import type { HostAgent } from "../host-agent";
 import { discoverWanIp } from "../stun";
+import { dockerContainerAction, dockerImagePull, dockerStackAction } from "../docker";
+import { systemdServiceAction } from "../systemd";
 
 // ---- Task handlers: the server half of the spec union ------------------------
 //
@@ -31,6 +48,19 @@ export interface TaskCtx {
 export interface TaskHandlers {
     cmd(spec: TaskCmd, ctx: TaskCtx): Promise<TaskCmdResult>;
     find_wan_ip(spec: TaskFindWanIp, ctx: TaskCtx): Promise<TaskFindWanIpResult>;
+    service_action(spec: TaskServiceAction, ctx: TaskCtx): Promise<TaskServiceActionResult>;
+    docker_stack_action(spec: TaskDockerStackAction, ctx: TaskCtx): Promise<TaskDockerStackActionResult>;
+    docker_container_action(spec: TaskDockerContainerAction, ctx: TaskCtx): Promise<TaskDockerContainerActionResult>;
+    docker_image_pull(spec: TaskDockerImagePull, ctx: TaskCtx): Promise<TaskDockerImagePullResult>;
+}
+
+/** Every kind below requires a target host — thrown as a normal task failure
+ *  if a caller ever sends one with `target: null`. */
+function requireAgent(ctx: TaskCtx, kind: string): HostAgent {
+    if (!ctx.agent) {
+        throw new Error(`${kind} requires a target host`);
+    }
+    return ctx.agent;
 }
 
 /** Generic dispatch: narrows the result to the spec's kind. */
@@ -58,6 +88,26 @@ export const taskHandlers: TaskHandlers = {
         // Untargeted: STUN from the control plane itself.
         const { ip } = ctx.agent ? await ctx.agent.discoverStun() : { ip: await discoverWanIp() };
         return { kind: "find_wan_ip", ip };
+    },
+
+    async service_action(spec, ctx) {
+        await systemdServiceAction(requireAgent(ctx, "service_action"), spec.unit, spec.action, ctx.log);
+        return { kind: "service_action" };
+    },
+
+    async docker_stack_action(spec, ctx) {
+        await dockerStackAction(requireAgent(ctx, "docker_stack_action"), spec.project, spec.action, ctx.log);
+        return { kind: "docker_stack_action" };
+    },
+
+    async docker_container_action(spec, ctx) {
+        await dockerContainerAction(requireAgent(ctx, "docker_container_action"), spec.containerId, spec.action, ctx.log);
+        return { kind: "docker_container_action" };
+    },
+
+    async docker_image_pull(spec, ctx) {
+        const { ok, message } = await dockerImagePull(requireAgent(ctx, "docker_image_pull"), spec.ref, ctx.log);
+        return { kind: "docker_image_pull", ok, message };
     },
 };
 

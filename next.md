@@ -30,6 +30,7 @@
     authorized_keys management, delete users / change shell-home, audit log of who opened which
     terminal.
 - Shorcut to sc logs
+- Properl
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 
@@ -83,17 +84,49 @@ TODO
 
 ### Task system
 
-> Design spec: [docs/task-system.md](docs/task-system.md). First slice
-> (`find_wan_ip`) is implemented; schedules/logs/cancel/resume are designed but
-> deferred there.
+> Design spec: [docs/task-system.md](docs/task-system.md). Six kinds implemented:
+> `find_wan_ip` (control-plane + per-node), `cmd`, `service_action`, `docker_stack_action`,
+> `docker_container_action`, `docker_image_pull`. Run history and a logs UI are implemented;
+> schedules/cancel/resume are designed but still deferred there.
 
-Some things could benefit from a task system, for example:
+Candidate task kinds, surveyed against `handler.ts` 2026-07-22 (test from the design
+doc: would you want history of it, a last-result for it, or to schedule it? if not,
+it stays plain RPC):
 
-- Agent updates could be a task
-- Start/Stop services of various kinds
-- Agent install?
-- Backups of various kinds (not implemented yet)
-- Stun IP check
+- [DONE] Stun IP check (`find_wan_ip`, control-plane + per-node target)
+- [DONE] Start/stop/restart/enable/disable services (`service_action`, 2026-07-22) —
+  replaced `handleSystemdServiceAction`; `ServicesView` now calls `runTaskAndWait`.
+- [DONE] Docker stack action (`docker_stack_action`, 2026-07-22 — start/stop/restart/down)
+  — replaced `handleDockerStackAction`; `DockerStacks` now calls `runTaskAndWait`.
+- [DONE] Docker container action (`docker_container_action`, 2026-07-22 —
+  start/stop/restart/pause/unpause/remove) — replaced `handleDockerContainerAction`;
+  `DockerContainers` now calls `runTaskAndWait`.
+- [DONE] Docker image pull (`docker_image_pull`, 2026-07-22) — replaced
+  `handleDockerImagePull`; `DockerImages` now calls `runTaskAndWait`, still shows
+  `{ ok, message }` (a failed pull is a normal result, not a thrown error).
+- Agent updates (`handleUpdateNodeService`) — the motivating case for the deferred
+  §8.5 resume-across-reconnect: update kills the agent's own WS mid-run, so today
+  the caller gets a fire-and-forget `void` with no way to know if it landed.
+  Biggest win, hardest to build. Still not started.
+- Agent install (`handleInstallNodeService`) — multi-step (write binary+cert,
+  install unit, hand off); a task would give visible progress + a durable
+  "did it actually finish" record instead of just a `startCommand`.
+- Control-plane self-update (`handleUpdateControlPlane`) — same shape as agent
+  update (kills its own process mid-run), same resume-across-reconnect problem,
+  on the control-plane side instead.
+- Proxy apply (`handleApplyProxyConfig` / `handleDeployProxy`) — already returns
+  a `ProxyApplyResult`; wrapping as a task gives apply _history_ instead of only
+  ever seeing the latest result.
+- Backups of various kinds — not implemented at all yet (no code exists); would
+  be a new task kind built from scratch.
+
+Considered and set aside: user/system-user management (`createUser`,
+`setUserSystemUser`, `revokeUserSession`, …) wants an _audit log_, not
+run-history-with-last-result — different shape, likely a separate feature.
+`handleProbeInstallPath`, `handleSystemUserHostStatus`,
+`handleGetControlPlaneStatus`, `handleDockerVolumeRemove` are reads/probes or
+instantaneous+unambiguous — the doc explicitly excludes plain reads ("you don't
+schedule a directory listing").
 
 The task system could have task scoped logs, time tracking, status updates etc
 

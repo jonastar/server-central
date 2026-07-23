@@ -69,9 +69,11 @@ export async function systemdServiceAction(
     server: HostAgent,
     unit: string,
     action: ServiceAction,
+    onLog?: (text: string) => void,
 ): Promise<void> {
     assertUnit(unit);
     const res = await server.exec(`systemctl ${action} ${unit} 2>&1`);
+    onLog?.(res.stdout);
     if (res.code !== 0) {
         throw new Error((res.stdout + res.stderr).trim().split("\n").pop() || `systemctl ${action} failed`);
     }

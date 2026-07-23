@@ -1,8 +1,7 @@
 # Changelog
 
 All notable changes to Server Central are recorded here. Grouped by release version,
-newest first; within a version, entries are dated task/feature write-ups headed
-`## YYYY-MM-DD - Title`, with Keep-a-Changelog sections (Added / Changed / Removed / Fixed)
+newest first. There are Keep-a-Changelog sections (Added / Changed / Removed / Fixed)
 nested under each. `bun run release` renames `## Unreleased` to the cut version and
 opens a fresh `## Unreleased` above it.
 
@@ -10,6 +9,38 @@ opens a fresh `## Unreleased` above it.
 
 ### Added
 
+- **Dev-build agent updates**: `scripts/build-agent.sh` now stamps `AGENT_VERSION` with a
+  `-dev.<git-sha>[.dirty]` suffix (via a new generated `shared/src/build-info.generated.ts`,
+  same restore-on-exit pattern as `web-assets.generated.ts`) whenever it's run without
+  `RELEASE=1` — so a local rebuild is a distinguishable, traceable version instead of an
+  unchanged `x.y.z` that the update flow silently refused to re-push. CI's release workflow
+  sets `RELEASE=1` to keep tagged releases on plain `x.y.z`. Fleet agent updates also gained an
+  explicit `force` option (`updateNodeService` op, `updateService` node-protocol message,
+  `apps/server/src/agent/agent-cli.ts#updateSelf`) that bypasses the version-equality check, for
+  re-pushing a rebuild whose version string didn't change (e.g. no new commit). `AgentsView`'s
+  per-agent action is now always available for online installed agents — "Update" when outdated,
+  "Force update" otherwise.
+- **Four more task kinds**: service start/stop/restart/enable/disable, docker stack actions
+  (start/stop/restart/down), docker container actions (start/stop/restart/pause/unpause/remove),
+  and `docker pull` are now `service_action`/`docker_stack_action`/`docker_container_action`/
+  `docker_image_pull` task kinds instead of plain RPCs — every action now gets run history and a
+  captured log of its output for free. `ServicesView`, `DockerStacks`, `DockerContainers`, and
+  `DockerImages` all call the new `runTaskAndWait()` helper (`apps/web/src/api.ts`) instead of the
+  old direct ops, which are removed (`handler.ts`, `shared/src/index.ts`) now that nothing calls
+  them. The underlying `systemdServiceAction`/`dockerStackAction`/`dockerContainerAction`/
+  `dockerImagePull` functions (`systemd.ts`/`docker.ts`) gained an optional `onLog` callback,
+  passed through as `ctx.log` from the new task handlers, so command construction + validation
+  stayed in one place instead of being duplicated for task use. `docker_image_pull` keeps the
+  original semantics where a failed pull is a normal `{ ok: false }` result, not a thrown error —
+  the task still reports `succeeded`.
+- **Task run history + logs UI** (design: [docs/task-system.md](docs/task-system.md) §8.2): new
+  "Tasks" sidebar view lists every run (control-plane and per-server), live via the existing
+  `taskUpdate` event, filterable by kind/status; expanding a row shows spec/result/error and, for
+  kinds that log (`cmd`), the run's output. Runner now emits a `taskLog` event per log line
+  (`apps/server/src/tasks/runner.ts`, capped at 2000 lines/run in memory — still not persisted
+  across a control-plane restart) alongside a new `getTaskLogs` op to seed a run's buffer on
+  first view; `apps/web/src/components/TasksView.tsx` and `connection.ts` (`taskLogs` state) are
+  the client half. Logs/cancellation/schedules remain otherwise deferred (§8.1, §8.3).
 - **Per-node STUN check**: the Network view's "Check STUN" button runs the existing `find_wan_ip`
   task targeted at that server, so it discovers the public IP from _that host's_ network vantage
   point rather than only the control plane's. New `stunRequest`/`stunResponse` node-protocol

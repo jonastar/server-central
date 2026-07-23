@@ -1,7 +1,9 @@
-import type { ApiEvent, MetricsSnapshot, ServerEntry, TaskRun } from "@central/shared";
+import type { ApiEvent, MetricsSnapshot, ServerEntry, TaskLogLine, TaskRun } from "@central/shared";
 import { api, API_HOST, getToken } from "./api";
 
 const METRICS_CLIENT_MAX = 720;
+/** Client-side mirror of the server's per-run log cap (TaskRunner.MAX_LOG_LINES). */
+const TASK_LOG_CLIENT_MAX = 2000;
 
 export type ConnectionState = {
     connected: boolean;
@@ -11,6 +13,9 @@ export type ConnectionState = {
     metrics: Record<string, MetricsSnapshot[]>;
     /** Recent task runs, newest first. */
     tasks: TaskRun[];
+    /** taskId → log lines seen so far, oldest first. Only populated for runs a
+     *  view has fetched or that logged while this page was connected. */
+    taskLogs: Record<string, TaskLogLine[]>;
     conn: { sendCommand: typeof api };
 };
 
@@ -27,6 +32,7 @@ class ConnectionManager {
         servers: [],
         metrics: {},
         tasks: [],
+        taskLogs: {},
     };
 
     /** Open the events socket. Called once the user is authenticated. */
@@ -47,7 +53,7 @@ class ConnectionManager {
         this.reconnectTimer = null;
         this.ws?.close();
         this.ws = null;
-        this.update({ connected: false, connecting: true, servers: [], metrics: {}, tasks: [] });
+        this.update({ connected: false, connecting: true, servers: [], metrics: {}, tasks: [], taskLogs: {} });
     }
 
     private connect() {
@@ -100,7 +106,26 @@ class ConnectionManager {
                 this.update({ tasks: [run, ...rest] });
                 break;
             }
+            case "taskLog": {
+                const { taskId, lines } = event.data;
+                const existing = this.state.taskLogs[taskId] ?? [];
+                const merged = [...existing, ...lines].slice(-TASK_LOG_CLIENT_MAX);
+                this.update({ taskLogs: { ...this.state.taskLogs, [taskId]: merged } });
+                break;
+            }
         }
+    }
+
+    /**
+     * Seed a run's log buffer from a `getTaskLogs` fetch (called by a view when
+     * it first shows a run's logs). No-ops if lines have already arrived live —
+     * the live stream is authoritative once it starts.
+     */
+    seedTaskLogs(taskId: string, lines: TaskLogLine[]): void {
+        if (this.state.taskLogs[taskId] !== undefined) {
+            return;
+        }
+        this.update({ taskLogs: { ...this.state.taskLogs, [taskId]: lines } });
     }
 
     private update(patch: Partial<Omit<ConnectionState, "conn">>): void {

@@ -302,10 +302,10 @@ async function installSelf(opts: {
  * versioned binary is kept for rollback. Never touches the service, cert, or config.
  */
 async function updateSelf(opts: {
-    control: string; altControl: string | null; certPem: string; token: string; version: string;
+    control: string; altControl: string | null; certPem: string; token: string; version: string; force?: boolean;
     installDir: string | null; dataDir: string | null;
 }): Promise<void> {
-    console.log(`[update] self-update requested: ${AGENT_VERSION} -> ${opts.version}`);
+    console.log(`[update] self-update requested: ${AGENT_VERSION} -> ${opts.version}${opts.force ? " (forced)" : ""}`);
     if (process.platform !== "linux") {
         throw new Error("Self-update is only supported on Linux");
     }
@@ -316,7 +316,7 @@ async function updateSelf(opts: {
     if (!(await isInstalled(AGENT_SPEC, paths))) {
         throw new Error("sc-agent is not installed as a service");
     }
-    if (opts.version === AGENT_VERSION) {
+    if (opts.version === AGENT_VERSION && !opts.force) {
         throw new Error(`Already running version ${AGENT_VERSION}`);
     }
 
@@ -371,7 +371,7 @@ async function runWithUrl(
     url: string,
     id: Identity,
     onInstallService: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism) => Promise<{ startCommand: string | null }>,
-    onUpdateService: (version: string) => Promise<void>,
+    onUpdateService: (version: string, force?: boolean) => Promise<void>,
 ): Promise<void> {
     const ws = await connect(url, id);
     const agent = new Agent(new WsTransport(ws), false, onInstallService, onUpdateService);
@@ -405,7 +405,7 @@ export async function runAgentCli(argv: string[]): Promise<void> {
     const onInstallService = (agentToken: string, dir: string | null, data: string | null, mechanism: InstallMechanism) =>
         installSelf({ control, altControl, certPem, agentToken, installDir: dir, dataDir: data, mechanism });
     // installDir/dataDir come from the installed agent's config file (null for live).
-    const onUpdateService = (version: string) => updateSelf({ control, altControl, certPem, token, version, installDir, dataDir });
+    const onUpdateService = (version: string, force?: boolean) => updateSelf({ control, altControl, certPem, token, version, force, installDir, dataDir });
 
     console.log(`sc-agent starting (mode ${mode}, machine ${machineId}), connecting to ${control}`);
 

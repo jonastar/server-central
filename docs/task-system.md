@@ -1,8 +1,10 @@
 # Task system — design spec
 
-Status: **first slice implemented** (`find_wan_ip`). Schedules, logs, cancellation,
-and agent-targeted kinds are designed here but **not yet built** — those sections
-are marked _(deferred)_.
+Status: control-plane-local + agent-targeted runs, run history, and a logs UI are
+implemented, with six kinds live: `find_wan_ip` (control-plane + per-node), `cmd`,
+`service_action`, `docker_stack_action`, `docker_container_action`,
+`docker_image_pull` (§8.2/8.4). Schedules and cancellation are designed here but
+**not yet built** — those sections are marked _(deferred)_.
 
 ---
 
@@ -161,8 +163,21 @@ export interface TaskCtx {
 export interface TaskHandlers {
     cmd(spec: TaskCmd, ctx: TaskCtx): Promise<TaskCmdResult>;
     find_wan_ip(spec: TaskFindWanIp, ctx: TaskCtx): Promise<TaskFindWanIpResult>;
+    service_action(spec: TaskServiceAction, ctx: TaskCtx): Promise<TaskServiceActionResult>;
+    docker_stack_action(spec: TaskDockerStackAction, ctx: TaskCtx): Promise<TaskDockerStackActionResult>;
+    docker_container_action(spec: TaskDockerContainerAction, ctx: TaskCtx): Promise<TaskDockerContainerActionResult>;
+    docker_image_pull(spec: TaskDockerImagePull, ctx: TaskCtx): Promise<TaskDockerImagePullResult>;
 }
 ```
+
+The four service/docker kinds all require a target (`requireAgent(ctx, kind)` throws a
+normal task failure if `ctx.agent` is null) and share one shape: validate + run one
+shell command against `ctx.agent`, pass its output through `ctx.log`. The command
+construction itself lives in `systemd.ts`/`docker.ts` — each of those functions
+(`systemdServiceAction`, `dockerStackAction`, `dockerContainerAction`,
+`dockerImagePull`) takes an optional `onLog?: (text) => void` parameter, so the
+handler is a thin `await fn(requireAgent(ctx, kind), ...spec, ctx.log)` and there's
+exactly one place that knows the actual command string per action.
 
 Each handler's return type is pinned to that kind's result variant, so spec and
 result can't drift. `runTaskSpec(spec, ctx)` narrows on `spec.kind` and
@@ -226,18 +241,26 @@ load-on-start / persist-on-change pattern:
 | `runTask` | `{ spec: TaskSpec; target: string \| null }` | `{ id: string }` |
 | `listTasks` | `{ target?; kind?; limit? }` | `TaskRun[]` |
 | `getTask` | `{ id: string }` | `TaskRun \| null` |
+| `getTaskLogs` | `{ id: string }` | `TaskLogLine[]` |
 
 ### Implemented (events, `ApiEvent`)
 
 - `init` payload now carries `tasks: TaskRun[]` so the web client has run history
   on connect.
 - `taskUpdate: TaskRun` — broadcast on every status change (the client upserts by id).
+- `taskLog: { taskId, lines: TaskLogLine[] }` — broadcast per log line a handler
+  emits via `ctx.log`; only kinds that call it (currently `cmd`) ever fire this.
 
 ### Web client
 
-`connection.ts` tracks `tasks` (seeded from `init`, upserted on `taskUpdate`).
+`connection.ts` tracks `tasks` (seeded from `init`, upserted on `taskUpdate`) and
+`taskLogs` (per-run buffer, appended on `taskLog`, lazily seeded from
+`getTaskLogs` via `seedTaskLogs()` the first time a view asks for a run's logs).
 `SettingsView` renders an "External (WAN) IP" card: **Check now** → `runTask`
 with `{ kind: "find_wan_ip" }`, showing the latest run's IP + timestamp, live.
+The "Tasks" sidebar view (`TasksView.tsx`) is the general run-history browser:
+every run, filterable by kind/status, with an expandable per-row detail (spec,
+result/error, and logs when present).
 
 ---
 
@@ -266,14 +289,22 @@ The biggest deferred piece. Shape:
 Naming note: the model is CI-like — a **schedule** spawns **runs**. Keep the two
 entities distinct; don't fold a schedule into the run.
 
-### 8.2 Logs + log streaming
+### 8.2 Logs + log streaming — implemented 2026-07-22
 
-`TaskLogLine` and the runner's in-memory buffer exist; still needed:
-persistence (or a bounded ring), a `getTaskLogs { id }` op, a `taskLog
-{ taskId, lines }` event for live tailing, and reuse of the existing
-`LogViewer` component (ANSI + find) in a per-run view. Driven by
-`capabilities.logs`-style metadata so the UI only shows a viewer for kinds that
-emit logs.
+Built: the runner's in-memory buffer is now a bounded ring (`MAX_LOG_LINES =
+2000` per run in `runner.ts`), `getTaskLogs { id }` seeds a run's buffer, and
+`taskLog { taskId, lines }` broadcasts each new line for live tailing.
+`apps/web/src/components/TasksView.tsx` (new "Tasks" sidebar view) lists every
+run — live via `taskUpdate`, filterable by kind/status — and expanding a row
+lazily fetches `getTaskLogs` then renders the existing `LogViewer` (ANSI +
+find) for kinds that logged anything. No `capabilities.logs`-style metadata
+was added; the UI just checks whether any lines came back — works fine now
+that most agent-targeted kinds (`cmd`, `service_action`, the docker actions)
+log their command's output.
+
+Still not done: persistence across a control-plane restart (buffer is
+in-memory only, same as before this slice — a run's history/result survives a
+restart via `TaskStore`, but its logs don't).
 
 ### 8.3 Cancellation
 
@@ -281,15 +312,28 @@ emit logs.
 `cancelTask { id }` op that aborts the controller and transitions the run to
 `cancelled`, plus handler cooperation (honor `signal` in long operations).
 
-### 8.4 Agent-targeted kinds
+### 8.4 Agent-targeted kinds — implemented 2026-07-22
 
-`cmd` is defined end-to-end but currently only meaningful against
-`ctx.agent` (control-plane `exec` is a stub). The first real agent-targeted
-migration exercises `fleet.get(target)` resolution and offline-target failure
-(which already surfaces as a `failed` run).
+`find_wan_ip` with a non-null `target` is the first real agent-targeted run
+(Network view's "Check STUN" button): the handler branches on `ctx.agent` to
+run STUN from that host instead of the control plane
+(`apps/server/src/tasks/types.ts`), exercising `fleet.get(target)` resolution
+and offline-target failure (already surfaces as a `failed` run) for real.
 
-Candidate next kinds, per `next.md`: per-node STUN (`find_wan_ip` with a non-null
-target), start/stop services, backups.
+`cmd` is also defined end-to-end but only meaningful against `ctx.agent` still
+— control-plane `exec` remains a stub (`{ stdout: "", stderr: "", code: 0 }`).
+
+Four more agent-targeted kinds landed the same way (2026-07-22): `service_action`
+(start/stop/restart/enable/disable a systemd unit), `docker_stack_action`
+(compose-project start/stop/restart/down), `docker_container_action`
+(start/stop/restart/pause/unpause/remove), and `docker_image_pull` (`docker
+pull`) — replacing the `systemdServiceAction`/`dockerStackAction`/
+`dockerContainerAction`/`dockerImagePull` RPCs, which are now removed
+(`ServicesView`/`DockerStacks`/`DockerContainers`/`DockerImages` call the new
+`runTaskAndWait()` helper, `apps/web/src/api.ts`, instead). All four require a
+target (`requireAgent` throws a normal task failure otherwise — no
+control-plane-local variant, unlike `cmd`/`find_wan_ip`). Backups remain the
+one candidate from `next.md` with no code at all yet.
 
 ### 8.5 Resume across reconnect
 
@@ -307,11 +351,17 @@ disconnect implement it.
 | File | Role |
 | --- | --- |
 | `shared/src/tasks.ts` | Wire types: `TaskSpec`, `TaskResult`, `TaskRun`, `TaskLogLine`, `TaskSchedule` |
-| `shared/src/index.ts` | API ops (`runTask`/`listTasks`/`getTask`) + `taskUpdate` event + `init.tasks` |
-| `apps/server/src/tasks/types.ts` | `TaskCtx`, `TaskHandlers`, `taskHandlers`, `runTaskSpec` |
-| `apps/server/src/tasks/runner.ts` | `TaskRunner` — lifecycle, broadcast |
+| `shared/src/index.ts` | API ops (`runTask`/`listTasks`/`getTask`/`getTaskLogs`) + `taskUpdate`/`taskLog` events + `init.tasks` |
+| `apps/server/src/tasks/types.ts` | `TaskCtx`, `TaskHandlers`, `taskHandlers`, `runTaskSpec`, `requireAgent` |
+| `apps/server/src/tasks/runner.ts` | `TaskRunner` — lifecycle, broadcast, bounded in-memory log ring |
 | `apps/server/src/tasks/store.ts` | `TaskStore` — in-memory + `.sc-data/tasks.json`, capped |
 | `apps/server/src/config.ts` | `readTaskState` / `writeTaskState` |
-| `apps/server/src/handler.ts` | `handleRunTask` / `handleListTasks` / `handleGetTask` |
-| `apps/web/src/connection.ts` | Client task state (seed + upsert) |
+| `apps/server/src/handler.ts` | `handleRunTask` / `handleListTasks` / `handleGetTask` / `handleGetTaskLogs` |
+| `apps/server/src/systemd.ts` | `systemdServiceAction` — command + validation for `service_action`, optional `onLog` |
+| `apps/server/src/docker.ts` | `dockerStackAction`/`dockerContainerAction`/`dockerImagePull` — same pattern |
+| `apps/web/src/api.ts` | `runTaskAndWait()` — poll-to-terminal helper for call sites that want synchronous-await ergonomics |
+| `apps/web/src/connection.ts` | Client task state (`tasks` seed + upsert, `taskLogs` seed + live append) |
+| `apps/web/src/components/TasksView.tsx` | General run-history browser (list, filter, per-run detail + logs) |
 | `apps/web/src/components/SettingsView.tsx` | WAN IP card (first consumer) |
+| `apps/web/src/components/ServicesView.tsx` | Service start/stop via `runTaskAndWait` |
+| `apps/web/src/components/docker/DockerStacks.tsx`, `DockerContainers.tsx`, `DockerImages.tsx` | Stack/container/pull actions via `runTaskAndWait` |

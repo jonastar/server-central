@@ -277,9 +277,9 @@ export class HostAgent {
      * control plane, repoints its symlink, and restarts into it. Only meaningful
      * for remote installed agents; the embedded agent rejects this.
      */
-    async updateService(version: string): Promise<void> {
+    async updateService(version: string, force?: boolean): Promise<void> {
         await this.request<Extract<NodeMessage, { type: "updateServiceResponse" }>>({
-            type: "updateService", requestId: crypto.randomUUID(), version,
+            type: "updateService", requestId: crypto.randomUUID(), version, force,
         });
     }
 

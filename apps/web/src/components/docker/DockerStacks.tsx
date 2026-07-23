@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DockerStack, DockerStacksState, StackAction } from "@central/shared";
-import { api } from "../../api";
+import { api, runTaskAndWait } from "../../api";
 import { cx } from "../../utils";
 import { EmptyState, ErrorBanner } from "../ui";
 
@@ -46,7 +46,7 @@ export function DockerStacks({ serverId, onViewContainers }: {
         }
         setBusy(stack.project);
         try {
-            await api("dockerStackAction", { serverId, project: stack.project, action: act });
+            await runTaskAndWait({ kind: "docker_stack_action", project: stack.project, action: act }, serverId);
             await load();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

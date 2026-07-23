@@ -10,15 +10,25 @@ import { type TaskCtx, runTaskSpec } from "./types";
  * broadcasting each change as a `taskUpdate` event. Handlers (in ./types) stay
  * small and pure — they just take a ctx + spec and return a result.
  */
+/** Log lines kept per run, oldest dropped first once a run exceeds this. */
+const MAX_LOG_LINES = 2000;
+
 export class TaskRunner {
-    /** In-memory log buffers, keyed by run id. Not persisted in this slice. */
+    /** In-memory log buffers, keyed by run id. Not persisted in this slice —
+     *  lost on control-plane restart, same as any other in-flight state. */
     private logs = new Map<string, TaskLogLine[]>();
 
     constructor(
         private readonly store: TaskStore,
         private readonly fleet: Fleet,
         private readonly onUpdate: (run: TaskRun) => void,
+        private readonly onLog: (taskId: string, line: TaskLogLine) => void,
     ) { }
+
+    /** Log lines buffered for a run so far, oldest first. */
+    getLogs(id: string): TaskLogLine[] {
+        return this.logs.get(id) ?? [];
+    }
 
     /**
      * Create a run (status `pending`), kick off its execution in the background,
@@ -51,7 +61,11 @@ export class TaskRunner {
                 const line: TaskLogLine = { ts: Date.now(), text, stream };
                 const buf = this.logs.get(run.id) ?? [];
                 buf.push(line);
+                if (buf.length > MAX_LOG_LINES) {
+                    buf.splice(0, buf.length - MAX_LOG_LINES);
+                }
                 this.logs.set(run.id, buf);
+                this.onLog(run.id, line);
             },
         };
 

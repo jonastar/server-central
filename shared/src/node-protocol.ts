@@ -74,5 +74,6 @@ export type ControlMessage =
     // "systemd" writes a unit; "manual" lays down files and replies with a startCommand.
     | { type: "installService"; requestId: string; agentToken: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism }
     // Ask an installed agent to update itself to `version`: download that binary
-    // from the control plane, repoint its symlink, and restart into it.
-    | { type: "updateService"; requestId: string; version: string };
+    // from the control plane, repoint its symlink, and restart into it. force
+    // bypasses the agent's own "already running this version" refusal.
+    | { type: "updateService"; requestId: string; version: string; force?: boolean };

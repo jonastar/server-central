@@ -6,6 +6,7 @@ export type Route =
     | { view: "dashboard" }
     | { view: "agents" }
     | { view: "proxy" }
+    | { view: "tasks" }
     | { view: "settings" }
     | {
           view: "server";
@@ -53,6 +54,8 @@ export function routeToHash(route: Route): string {
             return "#/agents";
         case "proxy":
             return "#/proxy";
+        case "tasks":
+            return "#/tasks";
         case "settings":
             return "#/settings";
         case "server": {
@@ -99,6 +102,9 @@ export function hashToRoute(hash: string): Route {
     }
     if (segs[0] === "proxy") {
         return { view: "proxy" };
+    }
+    if (segs[0] === "tasks") {
+        return { view: "tasks" };
     }
     if (segs[0] === "settings") {
         return { view: "settings" };

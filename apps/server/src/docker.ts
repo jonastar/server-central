@@ -207,7 +207,12 @@ export async function dockerStacks(server: HostAgent): Promise<DockerStacksState
     return { available: true, stacks };
 }
 
-export async function dockerStackAction(server: HostAgent, project: string, action: StackAction): Promise<void> {
+export async function dockerStackAction(
+    server: HostAgent,
+    project: string,
+    action: StackAction,
+    onLog?: (text: string) => void,
+): Promise<void> {
     if (!SAFE_ID_RE.test(project)) {
         throw new Error(`Invalid stack name: ${project}`);
     }
@@ -218,6 +223,7 @@ export async function dockerStackAction(server: HostAgent, project: string, acti
     }
     const cmd = action === "down" ? "rm -f" : action;
     const res = await server.exec(`docker ${cmd} ${containerIds.join(" ")} 2>&1`);
+    onLog?.(res.stdout);
     if (res.code !== 0) {
         throw new Error(errorText(res) || `docker ${action} failed`);
     }
@@ -227,12 +233,14 @@ export async function dockerContainerAction(
     server: HostAgent,
     containerId: string,
     action: ContainerAction,
+    onLog?: (text: string) => void,
 ): Promise<void> {
     if (!SAFE_ID_RE.test(containerId)) {
         throw new Error(`Invalid container id: ${containerId}`);
     }
     const cmd = action === "remove" ? "rm -f" : action;
     const res = await server.exec(`docker ${cmd} ${containerId} 2>&1`);
+    onLog?.(res.stdout);
     if (res.code !== 0) {
         throw new Error(errorText(res) || `docker ${action} failed`);
     }
@@ -364,12 +372,17 @@ export async function dockerImageAction(server: HostAgent, imageId: string, acti
     }
 }
 
-export async function dockerImagePull(server: HostAgent, ref: string): Promise<{ ok: boolean; message: string }> {
+export async function dockerImagePull(
+    server: HostAgent,
+    ref: string,
+    onLog?: (text: string) => void,
+): Promise<{ ok: boolean; message: string }> {
     if (!SAFE_REF_RE.test(ref)) {
         throw new Error(`Invalid image reference: ${ref}`);
     }
     const res = await server.exec(`docker pull ${ref} 2>&1`);
     const message = (res.stdout + res.stderr).trim();
+    onLog?.(message);
     if (res.code !== 0) {
         return { ok: false, message: message.split("\n").filter(Boolean).pop() || "docker pull failed" };
     }

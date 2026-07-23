@@ -3,7 +3,6 @@ import type {
     App,
     AssignableRole,
     CentralApiOperations,
-    ContainerAction,
     DirEntry,
     DockerContainerDetail,
     DockerOverview,
@@ -23,11 +22,10 @@ import type {
     ProxyRoute,
     ProxyState,
     ServerEntry,
-    ServiceAction,
-    StackAction,
     SystemdState,
     SystemUserHostStatus,
     SystemUsersState,
+    TaskLogLine,
     TaskRun,
     TaskSpec,
     UserDetail,
@@ -35,20 +33,17 @@ import type {
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
 import {
-    dockerContainerAction,
     dockerContainerInspect,
     dockerContainerLogs,
     dockerImageAction,
-    dockerImagePull,
     dockerList,
     dockerOverview,
-    dockerStackAction,
     dockerStacks,
     dockerVolumeInspect,
     dockerVolumeRemove,
 } from "./docker";
 import { getNetworkInfo } from "./network";
-import { systemdList, systemdServiceAction, systemdServiceLogs, systemdUnitFile } from "./systemd";
+import { systemdList, systemdServiceLogs, systemdUnitFile } from "./systemd";
 import { systemUserCreate, systemUserLookup, systemUserSetGroups, systemUsersList } from "./system-users";
 import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
@@ -300,10 +295,6 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         return dockerList(this.fleet.get(data.serverId));
     }
 
-    async handleDockerContainerAction(data: { serverId: string; containerId: string; action: ContainerAction }): Promise<void> {
-        await dockerContainerAction(this.fleet.get(data.serverId), data.containerId, data.action);
-    }
-
     async handleDockerContainerLogs(data: CentralApiOperations["dockerContainerLogs"]["data"]): Promise<{ logs: string }> {
         const { serverId, containerId, ...opts } = data;
         return { logs: await dockerContainerLogs(this.fleet.get(serverId), containerId, opts) };
@@ -315,10 +306,6 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
 
     async handleDockerStacks(data: { serverId: string }): Promise<DockerStacksState> {
         return dockerStacks(this.fleet.get(data.serverId));
-    }
-
-    async handleDockerStackAction(data: { serverId: string; project: string; action: StackAction }): Promise<void> {
-        await dockerStackAction(this.fleet.get(data.serverId), data.project, data.action);
     }
 
     async handleDockerContainerInspect(data: { serverId: string; containerId: string }): Promise<DockerContainerDetail> {
@@ -335,10 +322,6 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
 
     async handleDockerImageAction(data: { serverId: string; imageId: string; action: ImageAction }): Promise<void> {
         await dockerImageAction(this.fleet.get(data.serverId), data.imageId, data.action);
-    }
-
-    async handleDockerImagePull(data: { serverId: string; ref: string }): Promise<{ ok: boolean; message: string }> {
-        return dockerImagePull(this.fleet.get(data.serverId), data.ref);
     }
 
     // ---- Node enrollment ---------------------------------------------------------------
@@ -378,20 +361,20 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         return { startCommand };
     }
 
-    async handleUpdateNodeService(data: { serverId: string }): Promise<void> {
+    async handleUpdateNodeService(data: { serverId: string; force?: boolean }): Promise<void> {
         const agent = this.fleet.get(data.serverId);
         const current = agent.status().info?.agentVersion;
-        console.log(`[update] updateNodeService for ${data.serverId}: ${current ?? "?"} -> ${AGENT_VERSION} (state ${agent.status().state}, mode ${agent.mode})`);
+        console.log(`[update] updateNodeService for ${data.serverId}: ${current ?? "?"} -> ${AGENT_VERSION}${data.force ? " (forced)" : ""} (state ${agent.status().state}, mode ${agent.mode})`);
         if (agent.status().state !== "online") {
             throw new Error("Agent is not connected");
         }
         if (agent.mode !== "installed") {
             throw new Error("Only installed agents can be updated");
         }
-        if (current === AGENT_VERSION) {
+        if (current === AGENT_VERSION && !data.force) {
             throw new Error("Agent is already up to date");
         }
-        await agent.updateService(AGENT_VERSION);
+        await agent.updateService(AGENT_VERSION, data.force);
         console.log(`[update] ${data.serverId} acknowledged update to ${AGENT_VERSION}`);
     }
 
@@ -442,6 +425,10 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
 
     async handleGetTask(data: { id: string }): Promise<TaskRun | null> {
         return this.taskStore.get(data.id);
+    }
+
+    async handleGetTaskLogs(data: { id: string }): Promise<TaskLogLine[]> {
+        return this.tasks.getLogs(data.id);
     }
 
     // ---- Processes ---------------------------------------------------------------------
@@ -511,10 +498,6 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
 
     async handleSystemdList(data: { serverId: string }): Promise<SystemdState> {
         return systemdList(this.fleet.get(data.serverId));
-    }
-
-    async handleSystemdServiceAction(data: { serverId: string; unit: string; action: ServiceAction }): Promise<void> {
-        await systemdServiceAction(this.fleet.get(data.serverId), data.unit, data.action);
     }
 
     async handleSystemdServiceLogs(data: CentralApiOperations["systemdServiceLogs"]["data"]): Promise<{ logs: string }> {
