@@ -338,7 +338,7 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         return this.fleet.get(data.serverId).probeInstallPath(data.path);
     }
 
-    async handleInstallNodeService(data: { serverId: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism }): Promise<{ startCommand: string | null }> {
+    async handleInstallNodeService(data: { serverId: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism; force?: boolean }): Promise<{ startCommand: string | null }> {
         if (!this.nodeServer) {
             throw new Error("Node server not initialized");
         }
@@ -357,7 +357,7 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         // Durable token keyed by machine id (the fleet's serverId). The agent
         // validates the chosen paths (writable + exec) before writing anything.
         const agentToken = await this.nodeServer.mintAgentToken(data.serverId);
-        const startCommand = await agent.installService(agentToken, installDir, dataDir, data.mechanism);
+        const startCommand = await agent.installService(agentToken, installDir, dataDir, data.mechanism, data.force);
         return { startCommand };
     }
 

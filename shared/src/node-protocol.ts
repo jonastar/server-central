@@ -72,7 +72,9 @@ export type ControlMessage =
     // durable credential the installed service uses to reconnect. installDir (binary)
     // and dataDir (cert/config/state) are null to use the agent defaults. mechanism
     // "systemd" writes a unit; "manual" lays down files and replies with a startCommand.
-    | { type: "installService"; requestId: string; agentToken: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism }
+    // force bypasses the "already installed" refusal, overwriting the existing
+    // config/cert/binaries — for repairing a broken/partial prior install.
+    | { type: "installService"; requestId: string; agentToken: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism; force?: boolean }
     // Ask an installed agent to update itself to `version`: download that binary
     // from the control plane, repoint its symlink, and restart into it. force
     // bypasses the agent's own "already running this version" refusal.

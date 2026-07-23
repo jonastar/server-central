@@ -2,10 +2,6 @@
 
 ## Smaller items
 
-- "already installed" during agent install
-  - We should have a force option to overwrite config, certs, and binaries.
-  - This is to fix a potentially broken install
-
 - Agents should maybe track the valid control url if there's multiple
 - View agent config in the agents section
 
@@ -143,6 +139,16 @@ So maybe this could be a flows thing? with various triggers?
 But at some point maybe it's better to just jump into htop in the terminal?
 
 # Already implemented, archive
+
+- [DONE] Force reinstall option for a broken agent install (2026-07-23)
+  - `installNodeService` / the `installService` node-protocol message gained an optional `force`
+    flag, threaded through `handler.ts` → `HostAgent.installService` → `Agent`'s `onInstallService`
+    → `installSelf` (`agent-cli.ts`). When set, it bypasses the `isInstalled()` "already installed"
+    refusal and overwrites the existing cert/config/binaries; for the systemd mechanism it also
+    explicitly `systemctl restart`s afterward, since `enable --now` is a no-op on an already-active
+    unit and wouldn't otherwise pick up the overwritten binary.
+  - `SetupWizard` shows a "Force reinstall" checkbox once an "already installed" error comes back,
+    letting the operator retry with `force: true` to repair a broken/partial prior install.
 
 - [DONE] Per-node STUN, terminal padding, ctrl-w word-delete (2026-07-22)
   - Network view has a "Check STUN" button per server, running `find_wan_ip` targeted at that host

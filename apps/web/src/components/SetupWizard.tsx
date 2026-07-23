@@ -26,8 +26,11 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
     const [mechanism, setMechanism] = useState<InstallMechanism>(defaultsUsable ? "systemd" : "manual");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [force, setForce] = useState(false);
     const [startCommand, setStartCommand] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
+
+    const alreadyInstalled = error?.toLowerCase().includes("already installed") ?? false;
 
     async function submit() {
         setBusy(true);
@@ -38,6 +41,7 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
                 installDir: custom ? installDir : null,
                 dataDir: custom ? dataDir : null,
                 mechanism: custom ? mechanism : "systemd",
+                force,
             });
             if (res.startCommand) {
                 setStartCommand(res.startCommand);
@@ -134,7 +138,18 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
                 </>
             )}
 
-            {error && <div className="error-banner" style={{ marginTop: 12 }}>{error}</div>}
+            {error && (
+                <div className="error-banner" style={{ marginTop: 12 }}>
+                    {error}
+                    {alreadyInstalled && (
+                        <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, fontWeight: "normal" }}>
+                            <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
+                            Force reinstall (overwrites the existing config, cert, and binaries — use this if a
+                            previous install is broken)
+                        </label>
+                    )}
+                </div>
+            )}
 
             <div className="modal-actions" style={{ marginTop: 16 }}>
                 <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>

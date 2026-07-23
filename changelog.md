@@ -9,6 +9,11 @@ opens a fresh `## Unreleased` above it.
 
 ### Added
 
+- **Force reinstall for a broken agent install**: `installNodeService` gained an optional `force`
+  flag that bypasses the "already installed" refusal and overwrites the existing cert/config/
+  binaries (restarting the systemd unit afterward so the overwrite actually takes effect). The
+  Setup Wizard offers this as a checkbox once an "already installed" error comes back, so a
+  partial/broken prior install can be repaired without SSHing in to clean it up by hand.
 - **Dev-build agent updates**: `scripts/build-agent.sh` now stamps `AGENT_VERSION` with a
   `-dev.<git-sha>[.dirty]` suffix (via a new generated `shared/src/build-info.generated.ts`,
   same restore-on-exit pattern as `web-assets.generated.ts`) whenever it's run without

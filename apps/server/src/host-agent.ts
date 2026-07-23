@@ -265,9 +265,9 @@ export class HostAgent {
      * (null for systemd). Only meaningful for remote agents; the embedded agent (the
      * control plane's own host) has no install handler and will reject this.
      */
-    async installService(agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism): Promise<string | null> {
+    async installService(agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism, force?: boolean): Promise<string | null> {
         const resp = await this.request<Extract<NodeMessage, { type: "installServiceResponse" }>>({
-            type: "installService", requestId: crypto.randomUUID(), agentToken, installDir, dataDir, mechanism,
+            type: "installService", requestId: crypto.randomUUID(), agentToken, installDir, dataDir, mechanism, force,
         });
         return resp.startCommand;
     }

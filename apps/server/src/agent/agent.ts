@@ -130,7 +130,7 @@ export class Agent {
         /** Performs the self-install when the control plane requests it, returning a
          *  startCommand for the manual mechanism (null for systemd). Absent for the
          *  embedded agent, which cannot install itself. */
-        private readonly onInstallService?: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism) => Promise<{ startCommand: string | null }>,
+        private readonly onInstallService?: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism, force?: boolean) => Promise<{ startCommand: string | null }>,
         /** Performs the self-update to `version` when the control plane requests
          *  it. Absent for the embedded agent, which ships with the control plane. */
         private readonly onUpdateService?: (version: string, force?: boolean) => Promise<void>,
@@ -291,7 +291,7 @@ export class Agent {
                     if (!this.onInstallService) {
                         throw new Error("This agent cannot install itself");
                     }
-                    const { startCommand } = await this.onInstallService(msg.agentToken, msg.installDir, msg.dataDir, msg.mechanism);
+                    const { startCommand } = await this.onInstallService(msg.agentToken, msg.installDir, msg.dataDir, msg.mechanism, msg.force);
                     this.transport.send({ type: "installServiceResponse", requestId: msg.requestId, startCommand });
                 } catch (e) {
                     this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });

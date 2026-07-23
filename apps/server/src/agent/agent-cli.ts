@@ -12,6 +12,7 @@ import {
     pointSymlink,
     pruneOldBinaries,
     resolveServicePaths,
+    run,
     writeManifest,
 } from "./self-install";
 
@@ -247,18 +248,24 @@ function installManual(paths: AgentInstallPaths): string {
  * the install dir, write the cert + launch config under the data dir, point the
  * stable symlink at the binary, then persist it — a systemd unit (mechanism
  * "systemd") or a returned start command the operator wires up (mechanism "manual")
- * — and exit so the installed agent takes over. Errors out if already installed.
+ * — and exit so the installed agent takes over. Errors out if already installed,
+ * unless `force` is set, in which case the existing config/cert/binaries are
+ * overwritten in place — for repairing a broken or partial prior install.
  */
 async function installSelf(opts: {
     control: string; altControl: string | null; certPem: string; agentToken: string;
-    installDir: string | null; dataDir: string | null; mechanism: InstallMechanism;
+    installDir: string | null; dataDir: string | null; mechanism: InstallMechanism; force?: boolean;
 }): Promise<{ startCommand: string | null }> {
     if (process.platform !== "linux") {
         throw new Error("Service install is only supported on Linux");
     }
     const paths = resolveInstallPaths(opts.installDir, opts.dataDir);
-    if (await isInstalled(AGENT_SPEC, paths)) {
+    const alreadyInstalled = await isInstalled(AGENT_SPEC, paths);
+    if (alreadyInstalled && !opts.force) {
         throw new Error("sc-agent service is already installed");
+    }
+    if (alreadyInstalled) {
+        console.log("[install] force: overwriting existing install (config, cert, binaries)");
     }
 
     await ensureInstallPathsUsable(paths);
@@ -282,6 +289,11 @@ async function installSelf(opts: {
     let startCommand: string | null = null;
     if (opts.mechanism === "systemd") {
         await installSystemd(paths);
+        if (alreadyInstalled) {
+            // enable --now leaves an already-active unit running untouched, so
+            // restart explicitly — otherwise the overwritten binary/config never load.
+            await run("systemctl", ["restart", AGENT_SPEC.name]);
+        }
         console.log("Installed as a systemd service; the installed agent will take over. Exiting live agent.");
     } else {
         startCommand = installManual(paths);
@@ -370,7 +382,7 @@ async function connect(url: string, id: Identity): Promise<WebSocket> {
 async function runWithUrl(
     url: string,
     id: Identity,
-    onInstallService: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism) => Promise<{ startCommand: string | null }>,
+    onInstallService: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism, force?: boolean) => Promise<{ startCommand: string | null }>,
     onUpdateService: (version: string, force?: boolean) => Promise<void>,
 ): Promise<void> {
     const ws = await connect(url, id);
@@ -402,8 +414,8 @@ export async function runAgentCli(argv: string[]): Promise<void> {
 
     // The control URLs the installed service should reconnect with (and downloads
     // the updated binary from) are the same ones this live agent was given.
-    const onInstallService = (agentToken: string, dir: string | null, data: string | null, mechanism: InstallMechanism) =>
-        installSelf({ control, altControl, certPem, agentToken, installDir: dir, dataDir: data, mechanism });
+    const onInstallService = (agentToken: string, dir: string | null, data: string | null, mechanism: InstallMechanism, force?: boolean) =>
+        installSelf({ control, altControl, certPem, agentToken, installDir: dir, dataDir: data, mechanism, force });
     // installDir/dataDir come from the installed agent's config file (null for live).
     const onUpdateService = (version: string, force?: boolean) => updateSelf({ control, altControl, certPem, token, version, force, installDir, dataDir });
 

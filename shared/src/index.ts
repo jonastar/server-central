@@ -709,8 +709,10 @@ export type CentralApiOperations = {
     // (/usr/local/bin, /var/lib/sc-agent). mechanism "systemd" installs a unit;
     // "manual" lays down files and returns a startCommand for the user to wire into
     // their own init system. startCommand is null for the systemd mechanism.
+    // force bypasses the agent's "already installed" refusal, overwriting the
+    // existing config/cert/binaries — for repairing a broken/partial prior install.
     installNodeService: {
-        data: { serverId: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism };
+        data: { serverId: string; installDir: string | null; dataDir: string | null; mechanism: InstallMechanism; force?: boolean };
         response: { startCommand: string | null };
     };
 
