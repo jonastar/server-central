@@ -9,6 +9,18 @@ opens a fresh `## Unreleased` above it.
 
 ### Fixed
 
+- **Task runs left "Running" forever after a control-plane restart**: `TaskRunner` persists every
+  status transition, so a run in flight when the process stopped stayed on disk as `pending` or
+  `running` — and `TaskStore.init()` replayed it verbatim. Nothing could ever move it to a terminal
+  state: the run's execution context (abort controller, log buffer, in-flight promise) lives only in
+  the process that started it, and no other process owns these runs, so the zombie sat in the task
+  list until 200 newer runs pruned it out. Most visible with `update_agent`, the one kind that
+  legitimately stays `running` for minutes while it waits for the agent to reconnect. `init()` now
+  reaps them: any run loaded as `pending`/`running` is by definition orphaned, so it's marked
+  `failed` with "Interrupted by a control-plane restart; the outcome is unknown." and stamped with
+  the reap time as `finishedAt` (the true end time is unknowable, and leaving it unset would make
+  the UI's duration tick up forever). Idempotent — a second boot finds nothing left to reap.
+
 - **Test suite could silently corrupt a real running dev instance's `.sc-data`**: several
   integration tests (`fleet-priority`, `agent-connect`, `agent-update-download`, `binary-store`,
   `update-agent-task`) isolate `config.ts`'s data dir by `process.chdir()`-ing to a per-test tmp

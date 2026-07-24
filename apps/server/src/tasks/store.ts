@@ -16,6 +16,33 @@ export class TaskStore {
         for (const run of await readTaskState()) {
             this.runs.set(run.id, run);
         }
+        await this.reapOrphans();
+    }
+
+    /**
+     * A run persisted as `pending`/`running` was mid-flight when the control
+     * plane last stopped. Nothing can ever complete it — the runner's execution
+     * context (abort controller, log buffer, in-flight promise) lives only in
+     * the process that started it, and no other process owns these runs — so
+     * they'd otherwise sit as "running" forever until pruned. Resolve them once
+     * on load instead. `finishedAt` is the reap time, not the true end time,
+     * which is unknowable; the error says as much.
+     */
+    private async reapOrphans(): Promise<void> {
+        let reaped = 0;
+        for (const run of this.runs.values()) {
+            if (run.status !== "pending" && run.status !== "running") {
+                continue;
+            }
+            run.status = "failed";
+            run.error = "Interrupted by a control-plane restart; the outcome is unknown.";
+            run.finishedAt = Date.now();
+            reaped++;
+        }
+        if (reaped > 0) {
+            console.log(`[tasks] resolved ${reaped} orphaned run(s) left over from a previous control-plane process`);
+            await this.persist();
+        }
     }
 
     /** Insert or replace a run, then persist. */
