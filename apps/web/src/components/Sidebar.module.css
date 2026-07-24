@@ -128,10 +128,18 @@
 
 .sidebar-footer {
     margin-top: auto;
-    padding: 10px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.sidebar-status {
     display: flex;
     align-items: center;
     gap: 7px;
+    padding: 8px 10px 2px;
     color: var(--muted);
     font-size: 12px;
 }

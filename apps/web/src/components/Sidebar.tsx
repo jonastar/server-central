@@ -107,15 +107,16 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                 <button
                     className={cx(styles["nav-item"], route.view === "settings" && styles.active)}
                     onClick={() => onNavigate({ view: "settings" })}
-                    style={{ marginBottom: 8 }}
                 >
                     Settings
                 </button>
-                <button className={styles["nav-item"]} onClick={onLogout} style={{ marginBottom: 8 }}>
+                <button className={styles["nav-item"]} onClick={onLogout}>
                     Sign out
                 </button>
-                <StatusDot state={backendConnected ? "online" : "connecting"} />
-                {backendConnected ? "Backend connected" : "Connecting…"}
+                <div className={styles["sidebar-status"]}>
+                    <StatusDot state={backendConnected ? "online" : "connecting"} />
+                    {backendConnected ? "Backend connected" : "Connecting…"}
+                </div>
             </div>
         </aside>
     );
