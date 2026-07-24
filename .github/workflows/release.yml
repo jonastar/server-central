@@ -32,13 +32,9 @@ jobs:
         run: bun run typecheck
 
       # build-agent.sh builds the web SPA, embeds it, and cross-compiles all three
-      # targets from this linux host using the pinned official bun. RELEASE=1 keeps
-      # AGENT_VERSION a plain x.y.z (it also names the GitHub Releases asset/tag) —
-      # otherwise build-agent.sh stamps a dev git-commit suffix.
+      # targets from this linux host using the pinned official bun.
       - name: Build all-in-one binaries
         run: bun run build:agent
-        env:
-          RELEASE: "1"
 
       # The control plane verifies downloaded binaries against this before caching +
       # serving them to (root-running) agents, so it's a required release asset. Hash

@@ -1,7 +1,6 @@
 import pkg from "../package.json" with { type: "json" };
 
 import type { TaskLogLine, TaskRun, TaskSpec } from "./tasks";
-import { DEV_SUFFIX } from "./build-info.generated";
 
 export * from "./node-protocol";
 export * from "./metrics";
@@ -54,12 +53,11 @@ export type AgentMode = "live" | "installed" | "embedded";
 /**
  * Version of the agent software (server + node ship together from this
  * monorepo, so a single constant covers both the embedded and remote agents).
- * Sourced from the shared package's package.json so there's one place to bump it.
- * DEV_SUFFIX is empty for release builds (and for running from source); a local
- * `bun run build:agent` stamps it with a git-commit suffix so dev builds carry a
- * distinguishable, traceable version (see scripts/build-agent.sh).
+ * Sourced from the shared package's package.json so there's one place to bump it —
+ * see scripts/release.ts. A pending version always carries its own "-dev" suffix
+ * (e.g. "0.9.0-dev"); a cut release is a plain "x.y.z".
  */
-export const AGENT_VERSION: string = pkg.version + DEV_SUFFIX;
+export const AGENT_VERSION: string = pkg.version;
 
 /**
  * Control-message kinds this agent build supports beyond the v0.6.0 baseline,
