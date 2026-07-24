@@ -4,13 +4,14 @@ import { api, runTaskAndWait } from "../api";
 import { cx, fmtDateTime, fmtUptime, isAgentOutdated } from "../utils";
 import { StatusDot, EmptyState, ErrorBanner } from "./ui";
 import { SetupWizard } from "./SetupWizard";
+import shared from "../styles/shared.module.css";
 
 function modeBadge(mode: string | undefined) {
     if (!mode) {
-        return <span className="dim">—</span>;
+        return <span className={shared.dim}>—</span>;
     }
-    const cls = mode === "live" ? "badge-warn" : "badge-ok";
-    return <span className={cx("badge", cls)}>{mode}</span>;
+    const cls: "badge-warn" | "badge-ok" = mode === "live" ? "badge-warn" : "badge-ok";
+    return <span className={cx(shared.badge, shared[cls])}>{mode}</span>;
 }
 
 export function AgentsView({ servers, onOpenServer }: {
@@ -62,8 +63,8 @@ export function AgentsView({ servers, onOpenServer }: {
     });
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Agents</h1>
             </header>
 
@@ -72,8 +73,8 @@ export function AgentsView({ servers, onOpenServer }: {
             {rows.length === 0 ? (
                 <EmptyState>No agents known yet.</EmptyState>
             ) : (
-                <section className="panel">
-                    <table className="data-table">
+                <section className={shared.panel}>
+                    <table className={shared["data-table"]}>
                         <thead>
                             <tr>
                                 <th>State</th>
@@ -99,24 +100,24 @@ export function AgentsView({ servers, onOpenServer }: {
                                 const outdated = isAgentOutdated(entry);
                                 return (
                                     <Fragment key={entry.id}>
-                                        <tr className="row-clickable" onClick={() => onOpenServer(entry.id)}>
+                                        <tr className={shared["row-clickable"]} onClick={() => onOpenServer(entry.id)}>
                                             <td>
                                                 <StatusDot state={status.state} title={status.error ?? status.state} />
                                             </td>
-                                            <td className="file-name">{entry.name}</td>
+                                            <td className={shared["file-name"]}>{entry.name}</td>
                                             <td>{modeBadge(status.mode)}</td>
-                                            <td className={cx("dim", outdated && "badge-warn")} title={outdated ? "Update available" : undefined}>
+                                            <td className={cx(shared.dim, outdated && shared["badge-warn"])} title={outdated ? "Update available" : undefined}>
                                                 {info?.agentVersion ?? "—"}{outdated && " ⚠"}
                                             </td>
-                                            <td className="dim">{info?.primaryIp ?? "—"}</td>
-                                            <td className="dim cmd-cell" title={info?.os}>{info?.os ?? "—"}</td>
-                                            <td className="dim">{uptime ? fmtUptime(uptime) : "—"}</td>
-                                            <td className="mono dim" title={entry.id}>{entry.id.slice(0, 12)}</td>
-                                            <td className="dim">{online ? "now" : status.lastSeenAt ? fmtDateTime(status.lastSeenAt) : "—"}</td>
-                                            <td className="row-actions-always" onClick={(e) => e.stopPropagation()}>
+                                            <td className={shared.dim}>{info?.primaryIp ?? "—"}</td>
+                                            <td className={cx(shared.dim, shared["cmd-cell"])} title={info?.os}>{info?.os ?? "—"}</td>
+                                            <td className={shared.dim}>{uptime ? fmtUptime(uptime) : "—"}</td>
+                                            <td className={cx(shared.mono, shared.dim)} title={entry.id}>{entry.id.slice(0, 12)}</td>
+                                            <td className={shared.dim}>{online ? "now" : status.lastSeenAt ? fmtDateTime(status.lastSeenAt) : "—"}</td>
+                                            <td className={shared["row-actions-always"]} onClick={(e) => e.stopPropagation()}>
                                                 {online && status.mode === "live" && (
                                                     <button
-                                                        className="btn btn-primary"
+                                                        className={cx(shared.btn, shared["btn-primary"])}
                                                         onClick={() => setInstallEntry(entry)}
                                                         title="Promote this live agent to a permanent service"
                                                     >
@@ -125,7 +126,7 @@ export function AgentsView({ servers, onOpenServer }: {
                                                 )}
                                                 {online && status.mode === "installed" && (
                                                     <button
-                                                        className="btn"
+                                                        className={shared.btn}
                                                         disabled={busyId === entry.id}
                                                         onClick={() => void update(entry.id, !outdated)}
                                                         title={outdated
@@ -137,7 +138,7 @@ export function AgentsView({ servers, onOpenServer }: {
                                                 )}
                                                 {!online && (
                                                     <button
-                                                        className="btn"
+                                                        className={shared.btn}
                                                         disabled={busyId === entry.id}
                                                         onClick={() => void remove(entry)}
                                                         title="Forget this offline agent"
@@ -148,15 +149,15 @@ export function AgentsView({ servers, onOpenServer }: {
                                             </td>
                                         </tr>
                                         {status.standbys?.map((sb, i) => (
-                                            <tr key={`${entry.id}-sb-${i}`} className="dim">
-                                                <td><span className="badge badge-warn">standby</span></td>
-                                                <td className="file-name">{sb.name}</td>
+                                            <tr key={`${entry.id}-sb-${i}`} className={shared.dim}>
+                                                <td><span className={cx(shared.badge, shared["badge-warn"])}>standby</span></td>
+                                                <td className={shared["file-name"]}>{sb.name}</td>
                                                 <td>{modeBadge(sb.mode)}</td>
                                                 <td>{sb.agentVersion ?? "—"}</td>
                                                 <td>—</td>
                                                 <td>—</td>
                                                 <td>—</td>
-                                                <td className="mono" title={entry.id}>{entry.id.slice(0, 12)}</td>
+                                                <td className={shared.mono} title={entry.id}>{entry.id.slice(0, 12)}</td>
                                                 <td>now</td>
                                                 <td />
                                             </tr>

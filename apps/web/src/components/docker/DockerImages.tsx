@@ -3,6 +3,7 @@ import type { DockerImageInfo, DockerState } from "@central/shared";
 import { api, runTaskAndWait } from "../../api";
 import { cx } from "../../utils";
 import { EmptyState, ErrorBanner } from "../ui";
+import shared from "../../styles/shared.module.css";
 
 const REFRESH_MS = 15_000;
 
@@ -69,23 +70,23 @@ export function DockerImages({ serverId }: { serverId: string }) {
     }
 
     return (
-        <section className="panel">
-            <div className="panel-head">
+        <section className={shared.panel}>
+            <div className={shared["panel-head"]}>
                 <h3>Images ({docker?.images.length ?? 0})</h3>
                 <input
-                    className="filter-input"
+                    className={shared["filter-input"]}
                     placeholder="image:tag to pull…"
                     value={pullRef}
                     disabled={pulling}
                     onChange={(e) => setPullRef(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && void pull()}
                 />
-                <button className="btn" disabled={pulling || !pullRef.trim()} onClick={() => void pull()}>
+                <button className={shared.btn} disabled={pulling || !pullRef.trim()} onClick={() => void pull()}>
                     {pulling ? "Pulling…" : "Pull"}
                 </button>
             </div>
 
-            {pullMsg && <div className="dim mono" style={{ marginBottom: 8 }}>{pullMsg}</div>}
+            {pullMsg && <div className={cx(shared.dim, shared.mono)} style={{ marginBottom: 8 }}>{pullMsg}</div>}
             {error && <ErrorBanner>{error}</ErrorBanner>}
             {docker === null && !error && <EmptyState>Loading…</EmptyState>}
             {docker && !docker.available && (
@@ -95,17 +96,17 @@ export function DockerImages({ serverId }: { serverId: string }) {
             {docker?.available && (docker.images.length === 0 ? (
                 <EmptyState>No images.</EmptyState>
             ) : (
-                <table className="data-table">
+                <table className={shared["data-table"]}>
                     <thead><tr><th>Repository</th><th>Tag</th><th>Size</th><th>Created</th><th /></tr></thead>
                     <tbody>
                         {docker.images.map((img) => (
-                            <tr key={`${img.id}-${img.repository}-${img.tag}`} className={cx(busy === img.id && "row-busy")}>
+                            <tr key={`${img.id}-${img.repository}-${img.tag}`} className={cx(busy === img.id && shared["row-busy"])}>
                                 <td>{img.repository}</td>
-                                <td className="dim">{img.tag}</td>
-                                <td className="dim">{img.size}</td>
-                                <td className="dim">{img.createdSince}</td>
-                                <td className="row-actions-always">
-                                    <button className="btn btn-sm btn-danger" disabled={busy !== null} onClick={() => void remove(img)}>✕</button>
+                                <td className={shared.dim}>{img.tag}</td>
+                                <td className={shared.dim}>{img.size}</td>
+                                <td className={shared.dim}>{img.createdSince}</td>
+                                <td className={shared["row-actions-always"]}>
+                                    <button className={cx(shared.btn, shared["btn-sm"], shared["btn-danger"])} disabled={busy !== null} onClick={() => void remove(img)}>✕</button>
                                 </td>
                             </tr>
                         ))}

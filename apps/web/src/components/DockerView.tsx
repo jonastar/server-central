@@ -7,6 +7,7 @@ import { DockerContainers } from "./docker/DockerContainers";
 import { DockerVolumes } from "./docker/DockerVolumes";
 import { DockerImages } from "./docker/DockerImages";
 import { VolumeBrowser } from "./docker/VolumeBrowser";
+import shared from "../styles/shared.module.css";
 
 /** Patch the Docker portion of the route (section + volume-browser drill-down). */
 export interface DockerNav {
@@ -45,15 +46,15 @@ export function DockerView({ serverId, section, volume, path, file, filter, onNa
     }
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Docker</h1>
             </header>
-            <nav className="sub-tabs">
+            <nav className={shared["sub-tabs"]}>
                 {SECTIONS.map((s) => (
                     <button
                         key={s.id}
-                        className={cx("sub-tab", section === s.id && "active")}
+                        className={cx(shared["sub-tab"], section === s.id && shared.active)}
                         onClick={() => go(s.id)}
                     >
                         {s.label}

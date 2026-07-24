@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ErrorBanner } from "./ui";
+import shared from "../styles/shared.module.css";
 
 export function LoginView({
     mode,
@@ -34,14 +35,14 @@ export function LoginView({
     }
 
     return (
-        <div className="login-screen">
-            <form className="login-card" onSubmit={handleSubmit}>
-                <h1 className="login-title">Server Central</h1>
-                <p className="login-subtitle">
+        <div className={shared["login-screen"]}>
+            <form className={shared["login-card"]} onSubmit={handleSubmit}>
+                <h1 className={shared["login-title"]}>Server Central</h1>
+                <p className={shared["login-subtitle"]}>
                     {isSetup ? "Create the owner account to get started." : "Sign in to continue."}
                 </p>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Username</span>
                     <input
                         autoFocus
@@ -50,7 +51,7 @@ export function LoginView({
                         onChange={(e) => setUsername(e.target.value)}
                     />
                 </label>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Password</span>
                     <input
                         type="password"
@@ -60,7 +61,7 @@ export function LoginView({
                     />
                 </label>
                 {isSetup && (
-                    <label className="login-field">
+                    <label className={shared["login-field"]}>
                         <span>Confirm password</span>
                         <input
                             type="password"
@@ -70,7 +71,7 @@ export function LoginView({
                         />
                     </label>
                 )}
-                <button className="login-submit" type="submit" disabled={busy}>
+                <button className={shared["login-submit"]} type="submit" disabled={busy}>
                     {busy ? "Please wait…" : isSetup ? "Create account" : "Sign in"}
                 </button>
             </form>

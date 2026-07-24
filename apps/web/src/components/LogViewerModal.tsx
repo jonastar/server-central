@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { LogOrder, LogSince } from "@central/shared";
 import { ErrorBanner, Modal } from "./ui";
 import { LogViewer } from "./LogViewer";
+import shared from "../styles/shared.module.css";
 
 /** Full query the controls assemble; `priority`/`timestamps` are source-specific. */
 export interface LogQueryFull {
@@ -70,23 +71,23 @@ export function LogViewerModal({ title, onClose, fetchLogs, caps }: {
 
     const controls = (
         <>
-            <select className="log-select" value={limit} title="Lines" onChange={(e) => setLimit(Number(e.target.value))}>
+            <select className={shared["log-select"]} value={limit} title="Lines" onChange={(e) => setLimit(Number(e.target.value))}>
                 {LIMITS.map((n) => <option key={n} value={n}>{n.toLocaleString()} lines</option>)}
             </select>
-            <select className="log-select" value={since} title="Time window" onChange={(e) => setSince(e.target.value as LogSince)}>
+            <select className={shared["log-select"]} value={since} title="Time window" onChange={(e) => setSince(e.target.value as LogSince)}>
                 {SINCE_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
-            <select className="log-select" value={order} title="Order" onChange={(e) => setOrder(e.target.value as LogOrder)}>
+            <select className={shared["log-select"]} value={order} title="Order" onChange={(e) => setOrder(e.target.value as LogOrder)}>
                 <option value="oldest">Oldest first</option>
                 <option value="newest">Newest first</option>
             </select>
             {caps?.priority && (
-                <select className="log-select" value={priority} title="Severity" onChange={(e) => setPriority(e.target.value)}>
+                <select className={shared["log-select"]} value={priority} title="Severity" onChange={(e) => setPriority(e.target.value)}>
                     {PRIORITY_OPTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
             )}
             {caps?.timestamps && (
-                <label className="log-toolbar-toggle">
+                <label className={shared["log-toolbar-toggle"]}>
                     <input type="checkbox" checked={timestamps} onChange={(e) => setTimestamps(e.target.checked)} /> Timestamps
                 </label>
             )}

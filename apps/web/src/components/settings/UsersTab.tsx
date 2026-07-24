@@ -4,6 +4,8 @@ import { api } from "../../api";
 import { cx } from "../../utils";
 import { DetailPair, EmptyState, ErrorBanner, Modal } from "../ui";
 import { MappedSystemUsersModal } from "./MappedSystemUsersModal";
+import shared from "../../styles/shared.module.css";
+import uiStyles from "../ui.module.css";
 
 const ASSIGNABLE_ROLES: AssignableRole[] = ["admin", "operator", "viewer"];
 
@@ -33,23 +35,23 @@ function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         <Modal title="Add user" onClose={onClose} width={420}>
             <form onSubmit={handleSubmit}>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Username</span>
                     <input autoFocus value={username} onChange={(e) => setUsername(e.target.value)} />
                 </label>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Password</span>
                     <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </label>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Role</span>
-                    <select className="input" value={role} onChange={(e) => setRole(e.target.value as AssignableRole)}>
+                    <select value={role} onChange={(e) => setRole(e.target.value as AssignableRole)}>
                         {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                 </label>
-                <div className="modal-actions" style={{ marginTop: 16 }}>
-                    <button className="btn" type="button" onClick={onClose}>Cancel</button>
-                    <button className="btn btn-primary" type="submit" disabled={busy}>
+                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                    <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
+                    <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy}>
                         {busy ? "Creating…" : "Create"}
                     </button>
                 </div>
@@ -98,7 +100,6 @@ function ChangePasswordForm({ userId, onDone }: { userId: string; onDone: () => 
         <form onSubmit={handleSubmit} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <input
                 type="password"
-                className="input"
                 placeholder="New password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -106,17 +107,16 @@ function ChangePasswordForm({ userId, onDone }: { userId: string; onDone: () => 
             />
             <input
                 type="password"
-                className="input"
                 placeholder="Confirm"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 style={{ width: 160 }}
             />
-            <button className="btn btn-sm" type="submit" disabled={busy || !password}>
+            <button className={cx(shared.btn, shared["btn-sm"])} type="submit" disabled={busy || !password}>
                 {busy ? "Setting…" : "Set password"}
             </button>
-            {done && <span className="dim" style={{ fontSize: 12 }}>Password updated — their other sessions were signed out.</span>}
-            {error && <span className="dim" style={{ fontSize: 12, color: "var(--err)" }}>{error}</span>}
+            {done && <span className={shared.dim} style={{ fontSize: 12 }}>Password updated — their other sessions were signed out.</span>}
+            {error && <span className={shared.dim} style={{ fontSize: 12, color: "var(--err)" }}>{error}</span>}
         </form>
     );
 }
@@ -146,21 +146,21 @@ function SystemUserForm({ user, onSaved }: { user: UserInfo; onSaved: () => void
     return (
         <form onSubmit={handleSubmit} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <input
-                className="input mono"
+                className={shared.mono}
                 placeholder="none"
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 style={{ width: 160 }}
             />
-            <button className="btn btn-sm" type="submit" disabled={busy}>
+            <button className={cx(shared.btn, shared["btn-sm"])} type="submit" disabled={busy}>
                 {busy ? "Saving…" : "Save"}
             </button>
-            <span className="dim" style={{ fontSize: 12 }}>
+            <span className={shared.dim} style={{ fontSize: 12 }}>
                 {done
                     ? "Saved — takes effect on the next terminal they open."
                     : "Their terminal runs as this OS account on every host. Empty = unmapped: owner/admin get root, others get no terminal."}
             </span>
-            {error && <span className="dim" style={{ fontSize: 12, color: "var(--err)" }}>{error}</span>}
+            {error && <span className={shared.dim} style={{ fontSize: 12, color: "var(--err)" }}>{error}</span>}
         </form>
     );
 }
@@ -191,18 +191,18 @@ function MappedHostsSummary({ user }: { user: UserInfo }) {
 
     return (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-            {hosts === null && <span className="dim" style={{ fontSize: 12 }}>Checking hosts…</span>}
+            {hosts === null && <span className={shared.dim} style={{ fontSize: 12 }}>Checking hosts…</span>}
             {hosts !== null && missing.length > 0 && (
-                <span className="badge badge-warn">
+                <span className={cx(shared.badge, shared["badge-warn"])}>
                     missing on {missing.map((h) => h.serverName).join(", ")}
                 </span>
             )}
             {hosts !== null && missing.length === 0 && (
-                <span className="dim" style={{ fontSize: 12 }}>
+                <span className={shared.dim} style={{ fontSize: 12 }}>
                     Account present on all online hosts{offline.length > 0 ? ` (${offline.length} offline, unknown)` : ""}.
                 </span>
             )}
-            <button className="btn btn-sm" onClick={() => setOpen(true)}>Mapped hosts…</button>
+            <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => setOpen(true)}>Mapped hosts…</button>
             {open && (
                 <MappedSystemUsersModal scUsername={user.username} systemUser={systemUser} onClose={() => setOpen(false)} />
             )}
@@ -235,13 +235,13 @@ function UserDetailBody({ user, onChanged }: { user: UserInfo; onChanged: () => 
     }
 
     return (
-        <div className="row-detail">
+        <div className={shared["row-detail"]}>
             {error && <ErrorBanner>{error}</ErrorBanner>}
             {!detail ? (
                 <EmptyState>Loading…</EmptyState>
             ) : (
-                <div className="row-detail-body">
-                    <div className="row-detail-meta">
+                <div className={shared["row-detail-body"]}>
+                    <div className={shared["row-detail-meta"]}>
                         <DetailPair label="Last active">
                             {detail.lastActiveAt ? new Date(detail.lastActiveAt).toLocaleString() : "Never"}
                         </DetailPair>
@@ -249,7 +249,7 @@ function UserDetailBody({ user, onChanged }: { user: UserInfo; onChanged: () => 
                     </div>
 
                     {detail.sessions.length > 0 && (
-                        <table className="data-table" style={{ marginTop: 8 }}>
+                        <table className={shared["data-table"]} style={{ marginTop: 8 }}>
                             <thead>
                                 <tr>
                                     <th>Created</th>
@@ -262,16 +262,16 @@ function UserDetailBody({ user, onChanged }: { user: UserInfo; onChanged: () => 
                             <tbody>
                                 {detail.sessions.map((s) => (
                                     <tr key={s.id}>
-                                        <td className="dim">{new Date(s.createdAt).toLocaleString()}</td>
-                                        <td className="dim">{new Date(s.lastSeenAt).toLocaleString()}</td>
-                                        <td className="mono dim">{s.ip ?? "—"}</td>
-                                        <td className="dim" title={s.userAgent ?? undefined}>{formatUserAgent(s.userAgent)}</td>
-                                        <td className="row-actions-always">
+                                        <td className={shared.dim}>{new Date(s.createdAt).toLocaleString()}</td>
+                                        <td className={shared.dim}>{new Date(s.lastSeenAt).toLocaleString()}</td>
+                                        <td className={cx(shared.mono, shared.dim)}>{s.ip ?? "—"}</td>
+                                        <td className={shared.dim} title={s.userAgent ?? undefined}>{formatUserAgent(s.userAgent)}</td>
+                                        <td className={shared["row-actions-always"]}>
                                             {s.current ? (
-                                                <span className="badge">this session</span>
+                                                <span className={shared.badge}>this session</span>
                                             ) : (
                                                 <button
-                                                    className="btn btn-sm"
+                                                    className={cx(shared.btn, shared["btn-sm"])}
                                                     disabled={busySessionId === s.id}
                                                     onClick={() => void handleRevoke(s.id)}
                                                 >
@@ -286,13 +286,13 @@ function UserDetailBody({ user, onChanged }: { user: UserInfo; onChanged: () => 
                     )}
 
                     <div style={{ marginTop: 12 }}>
-                        <div className="detail-label" style={{ marginBottom: 4 }}>System user</div>
+                        <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>System user</div>
                         <SystemUserForm user={user} onSaved={onChanged} />
                         <MappedHostsSummary user={user} />
                     </div>
 
                     <div style={{ marginTop: 12 }}>
-                        <div className="detail-label" style={{ marginBottom: 4 }}>Change password</div>
+                        <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>Change password</div>
                         <ChangePasswordForm userId={user.id} onDone={refresh} />
                     </div>
                 </div>
@@ -351,7 +351,7 @@ export function UsersTab() {
             {error && <ErrorBanner>{error}</ErrorBanner>}
 
             <div style={{ marginBottom: 12 }}>
-                <button className="btn btn-primary" onClick={() => setAdding(true)}>Add user</button>
+                <button className={cx(shared.btn, shared["btn-primary"])} onClick={() => setAdding(true)}>Add user</button>
             </div>
 
             {users === null ? (
@@ -359,11 +359,11 @@ export function UsersTab() {
             ) : users.length === 0 ? (
                 <EmptyState>No users.</EmptyState>
             ) : (
-                <section className="panel">
-                    <table className="data-table">
+                <section className={shared.panel}>
+                    <table className={shared["data-table"]}>
                         <thead>
                             <tr>
-                                <th className="col-expander" />
+                                <th className={shared["col-expander"]} />
                                 <th>Username</th>
                                 <th>Role</th>
                                 <th>System user</th>
@@ -377,17 +377,16 @@ export function UsersTab() {
                                 return (
                                     <Fragment key={u.id}>
                                         <tr
-                                            className={cx("row-clickable", expanded && "row-active")}
+                                            className={cx(shared["row-clickable"], expanded && shared["row-active"])}
                                             onClick={() => setExpandedId(expanded ? null : u.id)}
                                         >
-                                            <td className="col-expander"><span className={cx("row-expander", expanded && "open")}>▸</span></td>
-                                            <td className="file-name">{u.username}</td>
+                                            <td className={shared["col-expander"]}><span className={cx(shared["row-expander"], expanded && shared.open)}>▸</span></td>
+                                            <td className={shared["file-name"]}>{u.username}</td>
                                             <td onClick={(e) => e.stopPropagation()}>
                                                 {u.role === "owner" ? (
-                                                    <span className="badge">owner</span>
+                                                    <span className={shared.badge}>owner</span>
                                                 ) : (
                                                     <select
-                                                        className="input"
                                                         value={u.role}
                                                         disabled={busyId === u.id}
                                                         onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
@@ -396,21 +395,21 @@ export function UsersTab() {
                                                     </select>
                                                 )}
                                             </td>
-                                            <td>{u.systemUser ? <span className="mono">{u.systemUser}</span> : <span className="dim">—</span>}</td>
-                                            <td className="dim">{new Date(u.createdAt).toLocaleString()}</td>
-                                            <td className="row-actions-always" onClick={(e) => e.stopPropagation()}>
+                                            <td>{u.systemUser ? <span className={shared.mono}>{u.systemUser}</span> : <span className={shared.dim}>—</span>}</td>
+                                            <td className={shared.dim}>{new Date(u.createdAt).toLocaleString()}</td>
+                                            <td className={shared["row-actions-always"]} onClick={(e) => e.stopPropagation()}>
                                                 {u.role !== "owner" && (
-                                                    <button className="btn" disabled={busyId === u.id} onClick={() => void handleDelete(u)}>
+                                                    <button className={shared.btn} disabled={busyId === u.id} onClick={() => void handleDelete(u)}>
                                                         Delete
                                                     </button>
                                                 )}
                                             </td>
                                         </tr>
                                         {expanded && (
-                                            <tr className="row-detail-tr">
+                                            <tr className={shared["row-detail-tr"]}>
                                                 <td />
                                                 <td colSpan={5}>
-                                                    <div className="row-detail-wrap">
+                                                    <div className={shared["row-detail-wrap"]}>
                                                         <UserDetailBody user={u} onChanged={refresh} />
                                                     </div>
                                                 </td>

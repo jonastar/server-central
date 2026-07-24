@@ -3,10 +3,12 @@ import type { DockerStack, DockerStacksState, StackAction } from "@central/share
 import { api, runTaskAndWait } from "../../api";
 import { cx } from "../../utils";
 import { EmptyState, ErrorBanner } from "../ui";
+import styles from "./DockerStacks.module.css";
+import shared from "../../styles/shared.module.css";
 
 const REFRESH_MS = 10_000;
 
-function stackBadge(stack: DockerStack): string {
+function stackBadge(stack: DockerStack): "badge-ok" | "badge-err" | "badge-warn" {
     if (stack.running === stack.containers) {
         return "badge-ok";
     }
@@ -66,34 +68,34 @@ export function DockerStacks({ serverId, onViewContainers }: {
     }
 
     return (
-        <section className="panel">
+        <section className={shared.panel}>
             {error && <ErrorBanner>{error}</ErrorBanner>}
             <h3>Stacks ({state.stacks.length})</h3>
             {state.stacks.length === 0 ? (
                 <EmptyState>No compose stacks detected.</EmptyState>
             ) : (
-                <table className="data-table">
+                <table className={shared["data-table"]}>
                     <thead>
                         <tr><th>Stack</th><th>Containers</th><th>States</th><th>Config files</th><th /></tr>
                     </thead>
                     <tbody>
                         {state.stacks.map((s) => (
-                            <tr key={s.project} className={cx(busy === s.project && "row-busy")}>
+                            <tr key={s.project} className={cx(busy === s.project && shared["row-busy"])}>
                                 <td>
-                                    <button className="link-btn" onClick={() => onViewContainers(s.project)}>
+                                    <button className={styles["link-btn"]} onClick={() => onViewContainers(s.project)}>
                                         <b>{s.project}</b>
                                     </button>
                                 </td>
                                 <td>
-                                    <span className={cx("badge", stackBadge(s))}>{s.running}/{s.containers}</span>
+                                    <span className={cx(shared.badge, shared[stackBadge(s)])}>{s.running}/{s.containers}</span>
                                 </td>
-                                <td className="dim">{s.states.join(", ")}</td>
-                                <td className="dim mono cmd-cell" title={s.configFiles}>{s.configFiles || "—"}</td>
-                                <td className="row-actions-always">
-                                    <button className="btn btn-sm" disabled={busy !== null} onClick={() => void action(s, "start")}>Start</button>
-                                    <button className="btn btn-sm" disabled={busy !== null} onClick={() => void action(s, "restart")}>Restart</button>
-                                    <button className="btn btn-sm" disabled={busy !== null} onClick={() => void action(s, "stop")}>Stop</button>
-                                    <button className="btn btn-sm btn-danger" disabled={busy !== null} onClick={() => void action(s, "down")}>Down</button>
+                                <td className={shared.dim}>{s.states.join(", ")}</td>
+                                <td className={cx(shared.dim, shared.mono, shared["cmd-cell"])} title={s.configFiles}>{s.configFiles || "—"}</td>
+                                <td className={shared["row-actions-always"]}>
+                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy !== null} onClick={() => void action(s, "start")}>Start</button>
+                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy !== null} onClick={() => void action(s, "restart")}>Restart</button>
+                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy !== null} onClick={() => void action(s, "stop")}>Stop</button>
+                                    <button className={cx(shared.btn, shared["btn-sm"], shared["btn-danger"])} disabled={busy !== null} onClick={() => void action(s, "down")}>Down</button>
                                 </td>
                             </tr>
                         ))}

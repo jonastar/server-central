@@ -4,6 +4,10 @@ import { connectionManager } from "../connection";
 import { useConnection } from "../hooks/useConnection";
 import { serverLabel, specSummary } from "../taskFormat";
 import { taskModalManager } from "../taskModal";
+import { cx } from "../utils";
+import styles from "./TaskWidget.module.css";
+import uiStyles from "./ui.module.css";
+import shared from "../styles/shared.module.css";
 
 const PREVIEW_LINES = 6;
 
@@ -41,26 +45,26 @@ export function TaskWidget() {
     }
 
     return (
-        <div className="task-widget">
+        <div className={styles["task-widget"]}>
             {expanded && (
-                <div className="task-widget-panel">
+                <div className={styles["task-widget-panel"]}>
                     {running.map((run) => {
                         const lines = taskLogs[run.id];
                         const tail = lines?.slice(-PREVIEW_LINES) ?? [];
                         return (
                             <div
                                 key={run.id}
-                                className="task-widget-item"
+                                className={styles["task-widget-item"]}
                                 onClick={() => {
                                     taskModalManager.open(run.id);
                                     setExpanded(false);
                                 }}
                             >
-                                <div className="task-widget-item-head">
+                                <div className={styles["task-widget-item-head"]}>
                                     <b>{specSummary(run.spec)}</b>
-                                    <span className="dim">{serverLabel(run.target, servers)}</span>
+                                    <span className={shared.dim}>{serverLabel(run.target, servers)}</span>
                                 </div>
-                                <pre className="task-widget-log">
+                                <pre className={styles["task-widget-log"]}>
                                     {tail.length ? tail.map((l) => l.text).join("\n") : "…"}
                                 </pre>
                             </div>
@@ -68,8 +72,8 @@ export function TaskWidget() {
                     })}
                 </div>
             )}
-            <button className="task-widget-pill" onClick={() => setExpanded((e) => !e)}>
-                <span className="spinner task-widget-spinner" />
+            <button className={styles["task-widget-pill"]} onClick={() => setExpanded((e) => !e)}>
+                <span className={cx(uiStyles.spinner, styles["task-widget-spinner"])} />
                 {running.length} running
             </button>
         </div>

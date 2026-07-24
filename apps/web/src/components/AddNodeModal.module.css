@@ -1,0 +1,17 @@
+.add-node-platforms {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.banner-ok {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: color-mix(in srgb, var(--ok) 9%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--border));
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+}

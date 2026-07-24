@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { OidcAuthorizeView } from "./components/oidc/OidcAuthorizeView";
-import "./styles.css";
+import "./styles/global.css";
 
 // A relying party redirects the browser straight to this path (a real navigation,
 // not hash routing), so it's picked before the normal app mounts rather than

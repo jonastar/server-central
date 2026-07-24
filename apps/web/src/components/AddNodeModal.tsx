@@ -3,6 +3,11 @@ import type { ServerEntry } from "@central/shared";
 import { Modal } from "./ui";
 import { SetupWizard } from "./SetupWizard";
 import { api } from "../api";
+import { cx } from "../utils";
+import styles from "./AddNodeModal.module.css";
+import shared from "../styles/shared.module.css";
+import uiStyles from "./ui.module.css";
+import { colorVars } from "../styles/colorVars";
 
 type Platform = "linux" | "mac" | "windows";
 
@@ -103,15 +108,15 @@ export function AddNodeModal({ servers, onClose }: { servers: ServerEntry[]; onC
 
     return (
         <Modal title="Add Node" onClose={onClose} width={640}>
-            <p style={{ marginTop: 0, color: "var(--fg-muted)" }}>
+            <p style={{ marginTop: 0, color: colorVars.muted }}>
                 Run this command on the machine you want to add. It downloads the node agent and connects it to this control plane.
             </p>
 
-            <div className="add-node-platforms">
+            <div className={styles["add-node-platforms"]}>
                 {(Object.keys(PLATFORM_LABELS) as Platform[]).map((p) => (
                     <button
                         key={p}
-                        className={`btn${platform === p ? " btn-primary" : ""}`}
+                        className={cx(shared.btn, platform === p && shared["btn-primary"])}
                         onClick={() => handlePlatformChange(p)}
                     >
                         {PLATFORM_LABELS[p]}
@@ -120,7 +125,7 @@ export function AddNodeModal({ servers, onClose }: { servers: ServerEntry[]; onC
             </div>
 
             {externalHost && (
-                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, color: "var(--fg-muted)" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, color: colorVars.muted }}>
                     <input
                         type="checkbox"
                         checked={useExternal}
@@ -132,16 +137,16 @@ export function AddNodeModal({ servers, onClose }: { servers: ServerEntry[]; onC
                 </label>
             )}
 
-            {error && <div className="error-banner" style={{ marginTop: 12 }}>{error}</div>}
+            {error && <div className={uiStyles["error-banner"]} style={{ marginTop: 12 }}>{error}</div>}
 
-            {loading && <div style={{ marginTop: 12, color: "var(--fg-muted)" }}>Generating command…</div>}
+            {loading && <div style={{ marginTop: 12, color: colorVars.muted }}>Generating command…</div>}
 
             {command && !loading && (
                 <>
-                    <div className="add-node-command-wrap">
-                        <pre className="add-node-command">{command}</pre>
+                    <div className={shared["add-node-command-wrap"]}>
+                        <pre className={shared["add-node-command"]}>{command}</pre>
                         <button
-                            className={`btn${copied ? " btn-primary" : ""}`}
+                            className={cx(shared.btn, copied && shared["btn-primary"])}
                             onClick={handleCopy}
                             style={{ flexShrink: 0 }}
                         >
@@ -149,7 +154,7 @@ export function AddNodeModal({ servers, onClose }: { servers: ServerEntry[]; onC
                         </button>
                     </div>
                     {secondsLeft !== null && (
-                        <div style={{ marginTop: 8, fontSize: 12, color: expired ? "var(--red)" : "var(--fg-muted)" }}>
+                        <div style={{ marginTop: 8, fontSize: 12, color: expired ? colorVars.err : colorVars.muted }}>
                             {expired
                                 ? "Token expired — click a platform to generate a new command."
                                 : `Token expires in ${Math.floor(secondsLeft / 60)}m ${secondsLeft % 60}s`}
@@ -159,18 +164,18 @@ export function AddNodeModal({ servers, onClose }: { servers: ServerEntry[]; onC
             )}
 
             {liveConnected && (
-                <div className="banner banner-ok" style={{ marginTop: 16 }}>
+                <div className={styles["banner-ok"]} style={{ marginTop: 16 }}>
                     <span>
                         <strong>{liveConnected.name}</strong> connected. Continue to set it up as a permanent service.
                     </span>
-                    <button className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setSetup(true)}>
+                    <button className={cx(shared.btn, shared["btn-primary"])} style={{ marginLeft: "auto" }} onClick={() => setSetup(true)}>
                         Continue setup
                     </button>
                 </div>
             )}
 
-            <div className="modal-actions" style={{ marginTop: 16 }}>
-                <button className="btn" onClick={onClose}>Close</button>
+            <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                <button className={shared.btn} onClick={onClose}>Close</button>
             </div>
         </Modal>
     );

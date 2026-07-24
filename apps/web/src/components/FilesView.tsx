@@ -4,6 +4,8 @@ import { api } from "../api";
 import { bytesToBase64, cx, fmtBytes, fmtDateTime } from "../utils";
 import { CodeEditor } from "./CodeEditor";
 import { ErrorBanner } from "./ui";
+import styles from "./FilesView.module.css";
+import shared from "../styles/shared.module.css";
 
 function joinPath(dir: string, name: string): string {
     return dir === "/" ? `/${name}` : `${dir}/${name}`;
@@ -13,6 +15,12 @@ function parentOf(path: string): string {
     const idx = path.lastIndexOf("/");
     return idx <= 0 ? "/" : path.slice(0, idx);
 }
+
+/** Only "dir" and "symlink" get a modifier class; plain files use the base style. */
+const fileTypeClass: Partial<Record<DirEntry["type"], string>> = {
+    dir: shared.dir,
+    symlink: shared.symlink,
+};
 
 interface OpenFile {
     path: string;
@@ -198,26 +206,26 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
     const dirty = file !== null && file.content !== file.original;
 
     return (
-        <div className="view files-view">
-            <header className="view-header">
-                <div className="breadcrumbs">
+        <div className={cx(shared.view, styles["files-view"])}>
+            <header className={shared["view-header"]}>
+                <div className={shared.breadcrumbs}>
                     {crumbs.map((seg, i) => {
                         const target = i === 0 ? "/" : crumbs.slice(0, i + 1).join("/");
                         return (
                             <span key={target}>
-                                {i > 0 && <span className="crumb-sep">/</span>}
-                                <button className="crumb" onClick={() => setPath(target)}>{i === 0 ? "" : seg}</button>
+                                {i > 0 && <span className={shared["crumb-sep"]}>/</span>}
+                                <button className={shared.crumb} onClick={() => setPath(target)}>{i === 0 ? "" : seg}</button>
                             </span>
                         );
                     })}
                 </div>
                 <span style={{ flex: 1 }} />
-                <button className="btn" onClick={newFile}>New file</button>
-                <button className="btn" onClick={mkdir}>New folder</button>
-                <button className="btn" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                <button className={shared.btn} onClick={newFile}>New file</button>
+                <button className={shared.btn} onClick={mkdir}>New folder</button>
+                <button className={shared.btn} onClick={() => fileInputRef.current?.click()} disabled={uploading}>
                     {uploading ? "Uploading…" : "Upload"}
                 </button>
-                <button className="btn" onClick={() => void load(path)}>Refresh</button>
+                <button className={shared.btn} onClick={() => void load(path)}>Refresh</button>
                 <input
                     ref={fileInputRef}
                     type="file"
@@ -233,72 +241,72 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
 
-            <div className={cx("files-split", file && "with-editor")}>
-                <div className="files-list">
-                    <table className="data-table">
+            <div className={cx(styles["files-split"], file && styles["with-editor"])}>
+                <div className={styles["files-list"]}>
+                    <table className={shared["data-table"]}>
                         <thead>
                             <tr><th>Name</th><th>Size</th><th>Modified</th><th>Mode</th><th /></tr>
                         </thead>
                         <tbody>
                             {path !== "/" && (
-                                <tr className="row-clickable" onClick={() => setPath(parentOf(path))}>
-                                    <td className="file-name dir">..</td><td /><td /><td /><td />
+                                <tr className={shared["row-clickable"]} onClick={() => setPath(parentOf(path))}>
+                                    <td className={cx(shared["file-name"], shared.dir)}>..</td><td /><td /><td /><td />
                                 </tr>
                             )}
-                            {entries === null && <tr><td colSpan={5} className="dim">Loading…</td></tr>}
+                            {entries === null && <tr><td colSpan={5} className={shared.dim}>Loading…</td></tr>}
                             {entries?.map((entry) => (
                                 <tr
                                     key={entry.name}
-                                    className={cx("row-clickable", file?.path === joinPath(path, entry.name) && "row-active")}
+                                    className={cx(shared["row-clickable"], file?.path === joinPath(path, entry.name) && shared["row-active"])}
                                     onClick={() => entry.type === "dir"
                                         ? setPath(joinPath(path, entry.name))
                                         : void openFile(joinPath(path, entry.name))}
                                 >
-                                    <td className={cx("file-name", entry.type)}>{entry.name}{entry.type === "symlink" && " →"}</td>
-                                    <td className="dim">{entry.type === "file" ? fmtBytes(entry.sizeBytes) : ""}</td>
-                                    <td className="dim">{fmtDateTime(entry.modifiedAt)}</td>
-                                    <td className="dim mono">{entry.permissions}</td>
-                                    <td className="row-actions" onClick={(e) => e.stopPropagation()}>
-                                        <button className="btn-icon" title="Rename" onClick={() => void rename(entry)}>✎</button>
-                                        <button className="btn-icon" title="Move" onClick={() => void move(entry)}>↗</button>
-                                        <button className="btn-icon" title="Delete" onClick={() => void remove(entry)}>🗑</button>
+                                    <td className={cx(shared["file-name"], fileTypeClass[entry.type])}>{entry.name}{entry.type === "symlink" && " →"}</td>
+                                    <td className={shared.dim}>{entry.type === "file" ? fmtBytes(entry.sizeBytes) : ""}</td>
+                                    <td className={shared.dim}>{fmtDateTime(entry.modifiedAt)}</td>
+                                    <td className={cx(shared.dim, shared.mono)}>{entry.permissions}</td>
+                                    <td className={shared["row-actions"]} onClick={(e) => e.stopPropagation()}>
+                                        <button className={shared["btn-icon"]} title="Rename" onClick={() => void rename(entry)}>✎</button>
+                                        <button className={shared["btn-icon"]} title="Move" onClick={() => void move(entry)}>↗</button>
+                                        <button className={shared["btn-icon"]} title="Delete" onClick={() => void remove(entry)}>🗑</button>
                                     </td>
                                 </tr>
                             ))}
-                            {entries?.length === 0 && !error && <tr><td colSpan={5} className="dim">Empty directory</td></tr>}
+                            {entries?.length === 0 && !error && <tr><td colSpan={5} className={shared.dim}>Empty directory</td></tr>}
                         </tbody>
                     </table>
                 </div>
 
                 {file && (
-                    <div className="editor-pane">
-                        <div className="editor-toolbar">
-                            <span className="editor-path mono" title={file.path}>{file.path}{dirty ? " •" : ""}</span>
+                    <div className={styles["editor-pane"]}>
+                        <div className={styles["editor-toolbar"]}>
+                            <span className={cx(styles["editor-path"], shared.mono)} title={file.path}>{file.path}{dirty ? " •" : ""}</span>
                             <span style={{ flex: 1 }} />
-                            {file.truncated && <span className="badge badge-warn">truncated — read only</span>}
-                            {file.mimeType && <span className="badge badge-ok">image</span>}
-                            {file.binary && !file.mimeType && <span className="badge badge-warn">binary</span>}
+                            {file.truncated && <span className={cx(shared.badge, shared["badge-warn"])}>truncated — read only</span>}
+                            {file.mimeType && <span className={cx(shared.badge, shared["badge-ok"])}>image</span>}
+                            {file.binary && !file.mimeType && <span className={cx(shared.badge, shared["badge-warn"])}>binary</span>}
                             {!file.mimeType && (
                                 <button
-                                    className="btn btn-primary"
+                                    className={cx(shared.btn, shared["btn-primary"])}
                                     onClick={() => void saveFile()}
                                     disabled={saving || file.binary || file.truncated || !dirty}
                                 >
                                     {saving ? "Saving…" : "Save"}
                                 </button>
                             )}
-                            <button className="btn" onClick={() => !dirty || confirm("Discard unsaved changes?") ? onNavigate({ file: null }) : undefined}>
+                            <button className={shared.btn} onClick={() => !dirty || confirm("Discard unsaved changes?") ? onNavigate({ file: null }) : undefined}>
                                 Close
                             </button>
                         </div>
                         {file.mimeType ? (
-                            <div className="image-preview">
+                            <div className={styles["image-preview"]}>
                                 <img src={`data:${file.mimeType};base64,${file.content}`} alt={file.path} />
                             </div>
                         ) : file.binary ? (
-                            <div className="editor-loading">Binary file ({fmtBytes(file.content.length)}) — not editable.</div>
+                            <div className={shared["editor-loading"]}>Binary file ({fmtBytes(file.content.length)}) — not editable.</div>
                         ) : (
-                            <div className="editor-host">
+                            <div className={styles["editor-host"]}>
                                 <CodeEditor
                                     path={file.path}
                                     value={file.content}

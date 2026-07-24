@@ -10,3 +10,4 @@ apps/server/.sc-data
 .sc-data
 apps/server/src/web-assets.generated.ts
 shared/src/build-info.generated.ts
+apps/web/src/**/*.module.css.d.ts

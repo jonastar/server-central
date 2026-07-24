@@ -1,0 +1,32 @@
+.log-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.log-preview-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Combined with the shared .detail-label class on the same element. */
+.log-preview-label {
+    margin-right: auto;
+}
+
+.log-preview-body {
+    margin: 0;
+    padding: 8px 10px;
+    max-height: 180px;
+    overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}

@@ -1,0 +1,56 @@
+.status-filter {
+    display: inline-flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+}
+
+.status-pill:hover {
+    background: var(--panel-2);
+}
+
+.status-pill.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.status-pill-count {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.status-pill.active .status-pill-count {
+    color: inherit;
+}
+
+.pill-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+
+.pill-dot-ok {
+    background: var(--ok);
+}
+
+.pill-dot-warn {
+    background: var(--warn);
+}
+
+.pill-dot-err {
+    background: var(--err);
+}

@@ -4,6 +4,9 @@ import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import type { Route } from "../routes";
 import { EmptyState, ErrorBanner, Modal, StatusDot } from "./ui";
+import { cx } from "../utils";
+import shared from "../styles/shared.module.css";
+import { colorVars } from "../styles/colorVars";
 
 const POLL_MS = 5000;
 
@@ -55,47 +58,47 @@ function ConfigModal({ servers, current, onClose, onSaved }: {
         <Modal title={current ? "Proxy settings" : "Set up reverse proxy"} onClose={onClose} width={480}>
             <form onSubmit={handleSubmit}>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Proxy node — runs the Caddy container (ports 80/443)</span>
-                    <select className="input" value={nodeId} onChange={(e) => setNodeId(e.target.value)}>
+                    <select value={nodeId} onChange={(e) => setNodeId(e.target.value)}>
                         {servers.map((s) => (
                             <option key={s.id} value={s.id}>{s.name}{s.status.state !== "online" ? " (offline)" : ""}</option>
                         ))}
                     </select>
                 </label>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Certificates</span>
-                    <select className="input" value={certMode} onChange={(e) => setCertMode(e.target.value as ProxyConfig["certMode"])}>
+                    <select value={certMode} onChange={(e) => setCertMode(e.target.value as ProxyConfig["certMode"])}>
                         <option value="auto">Automatic HTTPS (public hostnames, Let's Encrypt)</option>
                         <option value="internal">Internal CA (LAN-only hostnames, self-signed)</option>
                     </select>
                 </label>
                 {certMode === "auto" && (
-                    <label className="login-field">
+                    <label className={shared["login-field"]}>
                         <span>ACME email (optional)</span>
-                        <input className="input" type="email" value={acmeEmail} onChange={(e) => setAcmeEmail(e.target.value)} placeholder="you@example.com" />
+                        <input type="email" value={acmeEmail} onChange={(e) => setAcmeEmail(e.target.value)} placeholder="you@example.com" />
                     </label>
                 )}
                 <div style={{ display: "flex", gap: 8 }}>
-                    <label className="login-field" style={{ flex: 1 }}>
+                    <label className={shared["login-field"]} style={{ flex: 1 }}>
                         <span>HTTP host port</span>
-                        <input className="input" value={httpPort} onChange={(e) => setHttpPort(e.target.value)} placeholder="80" inputMode="numeric" />
+                        <input value={httpPort} onChange={(e) => setHttpPort(e.target.value)} placeholder="80" inputMode="numeric" />
                     </label>
-                    <label className="login-field" style={{ flex: 1 }}>
+                    <label className={shared["login-field"]} style={{ flex: 1 }}>
                         <span>HTTPS host port</span>
-                        <input className="input" value={httpsPort} onChange={(e) => setHttpsPort(e.target.value)} placeholder="443" inputMode="numeric" />
+                        <input value={httpsPort} onChange={(e) => setHttpsPort(e.target.value)} placeholder="443" inputMode="numeric" />
                     </label>
                 </div>
                 {(httpPort.trim() || httpsPort.trim()) && (
-                    <p style={{ fontSize: 12, color: "var(--fg-muted)", margin: "0 0 8px" }}>
+                    <p style={{ fontSize: 12, color: colorVars.muted, margin: "0 0 8px" }}>
                         Non-standard ports: Let's Encrypt (HTTP-01) and HTTP→HTTPS redirects still
                         expect the <em>public</em> side on 80/443 — forward router ports 80/443 to
                         these host ports for external hostnames.
                     </p>
                 )}
-                <div className="modal-actions" style={{ marginTop: 16 }}>
-                    <button className="btn" type="button" onClick={onClose}>Cancel</button>
-                    <button className="btn btn-primary" type="submit" disabled={busy || !nodeId}>
+                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                    <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
+                    <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy || !nodeId}>
                         {busy ? "Saving…" : "Save"}
                     </button>
                 </div>
@@ -155,30 +158,30 @@ function RouteModal({ servers, existing, onClose, onSaved }: {
         <Modal title={existing ? "Edit route" : "Add route"} onClose={onClose} width={480}>
             <form onSubmit={handleSubmit}>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Hostname</span>
-                    <input className="input" autoFocus value={host} onChange={(e) => setHost(e.target.value)} placeholder="jellyfin.example.com" />
+                    <input autoFocus value={host} onChange={(e) => setHost(e.target.value)} placeholder="jellyfin.example.com" />
                 </label>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Path prefix (optional)</span>
-                    <input className="input" value={pathPrefix} onChange={(e) => setPathPrefix(e.target.value)} placeholder="/api" />
+                    <input value={pathPrefix} onChange={(e) => setPathPrefix(e.target.value)} placeholder="/api" />
                 </label>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Target node</span>
-                    <select className="input" value={nodeId} onChange={(e) => setNodeId(e.target.value)}>
+                    <select value={nodeId} onChange={(e) => setNodeId(e.target.value)}>
                         {servers.map((s) => (
                             <option key={s.id} value={s.id}>{s.name}{s.status.state !== "online" ? " (offline)" : ""}</option>
                         ))}
                     </select>
                 </label>
                 <div style={{ display: "flex", gap: 8 }}>
-                    <label className="login-field" style={{ flex: 1 }}>
+                    <label className={shared["login-field"]} style={{ flex: 1 }}>
                         <span>Published host port</span>
-                        <input className="input" value={port} onChange={(e) => setPort(e.target.value)} placeholder="8096" inputMode="numeric" />
+                        <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="8096" inputMode="numeric" />
                     </label>
-                    <label className="login-field" style={{ flex: 1 }}>
+                    <label className={shared["login-field"]} style={{ flex: 1 }}>
                         <span>Upstream scheme</span>
-                        <select className="input" value={scheme} onChange={(e) => setScheme(e.target.value as "http" | "https")}>
+                        <select value={scheme} onChange={(e) => setScheme(e.target.value as "http" | "https")}>
                             <option value="http">http</option>
                             <option value="https">https</option>
                         </select>
@@ -194,9 +197,9 @@ function RouteModal({ servers, existing, onClose, onSaved }: {
                     <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
                     Enabled
                 </label>
-                <div className="modal-actions" style={{ marginTop: 16 }}>
-                    <button className="btn" type="button" onClick={onClose}>Cancel</button>
-                    <button className="btn btn-primary" type="submit" disabled={busy}>
+                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                    <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
+                    <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy}>
                         {busy ? "Saving…" : existing ? "Save" : "Add"}
                     </button>
                 </div>
@@ -243,8 +246,8 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
     const lastApply = state?.lastApply ?? null;
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Reverse proxy</h1>
             </header>
 
@@ -254,15 +257,15 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                 <EmptyState>Loading…</EmptyState>
             ) : !config ? (
                 <div style={{ maxWidth: 520 }}>
-                    <p style={{ color: "var(--fg-muted)", fontSize: 13 }}>
+                    <p style={{ color: colorVars.muted, fontSize: 13 }}>
                         Server Central deploys and manages a Caddy reverse proxy for HTTP(S)
                         traffic into your apps. Pick a node to run it on to get started.
                     </p>
-                    <button className="btn btn-primary" onClick={() => setEditingConfig(true)}>Set up reverse proxy</button>
+                    <button className={cx(shared.btn, shared["btn-primary"])} onClick={() => setEditingConfig(true)}>Set up reverse proxy</button>
                 </div>
             ) : (
                 <>
-                    <section className="panel" style={{ padding: 16, marginBottom: 20 }}>
+                    <section className={shared.panel} style={{ padding: 16, marginBottom: 20 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                             <StatusDot
                                 state={container?.state === "running" ? "online" : container?.present ? "error" : "offline"}
@@ -272,7 +275,7 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                 <div style={{ fontWeight: 600 }}>
                                     Caddy on {nodeName(servers, config.nodeId)}
                                 </div>
-                                <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+                                <div style={{ fontSize: 12, color: colorVars.muted }}>
                                     {container?.present
                                         ? `${container.status ?? container.state} · ${container.image ?? ""}`
                                         : "Not deployed yet"}
@@ -280,7 +283,7 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                     {" · "}ports {config.httpPort ?? 80}/{config.httpsPort ?? 443}
                                 </div>
                                 {container?.error && (
-                                    <div style={{ fontSize: 12, color: "var(--danger, #e5534b)" }}>
+                                    <div style={{ fontSize: 12, color: colorVars.err }}>
                                         {container.error}
                                     </div>
                                 )}
@@ -299,7 +302,7 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                     </button>
                                 )}
                                 {lastApply && (
-                                    <div style={{ fontSize: 12, color: lastApply.ok ? "var(--fg-muted)" : "var(--danger, #e5534b)" }}>
+                                    <div style={{ fontSize: 12, color: lastApply.ok ? colorVars.muted : colorVars.err }}>
                                         {lastApply.ok
                                             ? `Config applied ${new Date(lastApply.at).toLocaleString()}`
                                             : `Config apply failed: ${lastApply.error}`}
@@ -307,16 +310,16 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                 )}
                             </div>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                <button className="btn" disabled={busy !== null} onClick={() => setEditingConfig(true)}>Settings</button>
+                                <button className={shared.btn} disabled={busy !== null} onClick={() => setEditingConfig(true)}>Settings</button>
                                 <button
-                                    className="btn"
+                                    className={shared.btn}
                                     disabled={busy !== null}
                                     onClick={() => void run("apply", () => api("applyProxyConfig", undefined))}
                                 >
                                     {busy === "apply" ? "Applying…" : "Apply config"}
                                 </button>
                                 <button
-                                    className="btn btn-primary"
+                                    className={cx(shared.btn, shared["btn-primary"])}
                                     disabled={busy !== null}
                                     onClick={() => void run("deploy", () => api("deployProxy", undefined))}
                                 >
@@ -324,7 +327,7 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                 </button>
                                 {container?.present && (
                                     <button
-                                        className="btn"
+                                        className={shared.btn}
                                         disabled={busy !== null}
                                         onClick={() => {
                                             if (confirm("Remove the proxy container? Routed hostnames stop resolving until it's redeployed. Certificates are kept.")) {
@@ -341,14 +344,14 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
 
                     <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 12 }}>
                         <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0, flex: 1 }}>Routes</h2>
-                        <button className="btn btn-primary" onClick={() => setRouteModal({ existing: null })}>Add route</button>
+                        <button className={cx(shared.btn, shared["btn-primary"])} onClick={() => setRouteModal({ existing: null })}>Add route</button>
                     </div>
 
                     {state.routes.length === 0 ? (
                         <EmptyState>No routes yet. Add one to expose an app through the proxy.</EmptyState>
                     ) : (
-                        <section className="panel">
-                            <table className="data-table">
+                        <section className={shared.panel}>
+                            <table className={shared["data-table"]}>
                                 <thead>
                                     <tr>
                                         <th>Host</th>
@@ -361,17 +364,17 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                 <tbody>
                                     {state.routes.map((r) => (
                                         <tr key={r.id} style={r.enabled ? undefined : { opacity: 0.55 }}>
-                                            <td className="file-name">{r.host}</td>
-                                            <td className="mono dim">{r.pathPrefix ?? "/"}</td>
-                                            <td className="dim">
+                                            <td className={shared["file-name"]}>{r.host}</td>
+                                            <td className={cx(shared.mono, shared.dim)}>{r.pathPrefix ?? "/"}</td>
+                                            <td className={shared.dim}>
                                                 {r.target.scheme}://{nodeName(servers, r.target.nodeId)}:{r.target.port}
                                                 {r.target.insecureSkipVerify ? " (no verify)" : ""}
                                             </td>
-                                            <td className="dim">{r.enabled ? "Yes" : "No"}</td>
-                                            <td className="row-actions-always">
-                                                <button className="btn" disabled={busy !== null} onClick={() => setRouteModal({ existing: r })}>Edit</button>{" "}
+                                            <td className={shared.dim}>{r.enabled ? "Yes" : "No"}</td>
+                                            <td className={shared["row-actions-always"]}>
+                                                <button className={shared.btn} disabled={busy !== null} onClick={() => setRouteModal({ existing: r })}>Edit</button>{" "}
                                                 <button
-                                                    className="btn"
+                                                    className={shared.btn}
                                                     disabled={busy !== null}
                                                     onClick={() => {
                                                         if (confirm(`Delete the route for ${r.host}?`)) {

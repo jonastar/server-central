@@ -4,6 +4,8 @@ import { api } from "../../api";
 import { useAuth } from "../../hooks/useAuth";
 import { LoginView } from "../LoginView";
 import { EmptyState, ErrorBanner } from "../ui";
+import shared from "../../styles/shared.module.css";
+import { colorVars } from "../../styles/colorVars";
 
 /** Reads the OIDC authorization request off the real query string (this route is
  *  reached via a browser redirect from the relying party, not hash routing). */
@@ -68,9 +70,9 @@ export function OidcAuthorizeView() {
 
     if (!params) {
         return (
-            <div className="login-screen">
-                <div className="login-card">
-                    <h1 className="login-title">Server Central</h1>
+            <div className={shared["login-screen"]}>
+                <div className={shared["login-card"]}>
+                    <h1 className={shared["login-title"]}>Server Central</h1>
                     <ErrorBanner>This sign-in link is invalid or incomplete.</ErrorBanner>
                 </div>
             </div>
@@ -88,24 +90,24 @@ export function OidcAuthorizeView() {
     }
 
     return (
-        <div className="login-screen">
-            <div className="login-card">
-                <h1 className="login-title">Server Central</h1>
+        <div className={shared["login-screen"]}>
+            <div className={shared["login-card"]}>
+                <h1 className={shared["login-title"]}>Server Central</h1>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
                 {!request ? (
-                    <p className="login-subtitle">Loading request…</p>
+                    <p className={shared["login-subtitle"]}>Loading request…</p>
                 ) : (
                     <>
-                        <p className="login-subtitle">
+                        <p className={shared["login-subtitle"]}>
                             Continue as <strong>{auth.user.username}</strong> to <strong>{request.appName}</strong>?
                         </p>
-                        <p style={{ fontSize: 12, color: "var(--fg-muted)", marginTop: -8 }}>
+                        <p style={{ fontSize: 12, color: colorVars.muted, marginTop: -8 }}>
                             You'll be redirected to <code>{request.redirectUri}</code>.
                         </p>
-                        <button className="login-submit" type="button" disabled={busy} onClick={() => void handleContinue()}>
+                        <button className={shared["login-submit"]} type="button" disabled={busy} onClick={() => void handleContinue()}>
                             {busy ? "Continuing…" : "Continue"}
                         </button>
-                        <button className="btn" type="button" style={{ marginTop: 8 }} disabled={busy} onClick={() => void auth.logout()}>
+                        <button className={shared.btn} type="button" style={{ marginTop: 8 }} disabled={busy} onClick={() => void auth.logout()}>
                             Not you? Sign out
                         </button>
                     </>

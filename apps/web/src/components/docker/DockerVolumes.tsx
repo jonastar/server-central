@@ -3,6 +3,8 @@ import type { DockerState, DockerVolumeDetail, DockerVolumeInfo } from "@central
 import { api } from "../../api";
 import { cx } from "../../utils";
 import { EmptyState, ErrorBanner, Modal } from "../ui";
+import shared from "../../styles/shared.module.css";
+import uiStyles from "../ui.module.css";
 
 const REFRESH_MS = 15_000;
 
@@ -52,7 +54,7 @@ export function DockerVolumes({ serverId, onBrowse }: { serverId: string; onBrow
     }
 
     return (
-        <section className="panel">
+        <section className={shared.panel}>
             <h3>Volumes ({docker?.volumes.length ?? 0})</h3>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -64,18 +66,18 @@ export function DockerVolumes({ serverId, onBrowse }: { serverId: string; onBrow
             {docker?.available && (docker.volumes.length === 0 ? (
                 <EmptyState>No volumes.</EmptyState>
             ) : (
-                <table className="data-table">
+                <table className={shared["data-table"]}>
                     <thead><tr><th>Name</th><th>Driver</th><th>Mountpoint</th><th /></tr></thead>
                     <tbody>
                         {docker.volumes.map((v) => (
-                            <tr key={v.name} className={cx(busy === v.name && "row-busy")}>
+                            <tr key={v.name} className={cx(busy === v.name && shared["row-busy"])}>
                                 <td><b>{v.name}</b></td>
-                                <td className="dim">{v.driver}</td>
-                                <td className="dim mono">{v.mountpoint}</td>
-                                <td className="row-actions-always">
-                                    <button className="btn btn-sm" onClick={() => void inspect(v)}>Inspect</button>
-                                    <button className="btn btn-sm" onClick={() => onBrowse(v.name)}>Browse</button>
-                                    <button className="btn btn-sm btn-danger" disabled={busy !== null} onClick={() => void remove(v)}>✕</button>
+                                <td className={shared.dim}>{v.driver}</td>
+                                <td className={cx(shared.dim, shared.mono)}>{v.mountpoint}</td>
+                                <td className={shared["row-actions-always"]}>
+                                    <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => void inspect(v)}>Inspect</button>
+                                    <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => onBrowse(v.name)}>Browse</button>
+                                    <button className={cx(shared.btn, shared["btn-sm"], shared["btn-danger"])} disabled={busy !== null} onClick={() => void remove(v)}>✕</button>
                                 </td>
                             </tr>
                         ))}
@@ -85,16 +87,16 @@ export function DockerVolumes({ serverId, onBrowse }: { serverId: string; onBrow
 
             {detail && (
                 <Modal title={`Volume — ${detail.name}`} onClose={() => setDetail(null)} width={680}>
-                    <div className="detail-grid">
-                        <div className="detail-row"><div className="detail-label">Driver</div><div className="detail-value">{detail.driver}</div></div>
-                        <div className="detail-row"><div className="detail-label">Mountpoint</div><div className="detail-value mono">{detail.mountpoint}</div></div>
-                        {detail.createdAt && <div className="detail-row"><div className="detail-label">Created</div><div className="detail-value">{detail.createdAt}</div></div>}
-                        {detail.labels && <div className="detail-row"><div className="detail-label">Labels</div><div className="detail-value mono">{detail.labels}</div></div>}
-                        <div className="detail-row">
-                            <div className="detail-label">Attached</div>
-                            <div className="detail-value">
+                    <div className={shared["detail-grid"]}>
+                        <div className={uiStyles["detail-row"]}><div className={uiStyles["detail-label"]}>Driver</div><div className={uiStyles["detail-value"]}>{detail.driver}</div></div>
+                        <div className={uiStyles["detail-row"]}><div className={uiStyles["detail-label"]}>Mountpoint</div><div className={cx(uiStyles["detail-value"], shared.mono)}>{detail.mountpoint}</div></div>
+                        {detail.createdAt && <div className={uiStyles["detail-row"]}><div className={uiStyles["detail-label"]}>Created</div><div className={uiStyles["detail-value"]}>{detail.createdAt}</div></div>}
+                        {detail.labels && <div className={uiStyles["detail-row"]}><div className={uiStyles["detail-label"]}>Labels</div><div className={cx(uiStyles["detail-value"], shared.mono)}>{detail.labels}</div></div>}
+                        <div className={uiStyles["detail-row"]}>
+                            <div className={uiStyles["detail-label"]}>Attached</div>
+                            <div className={uiStyles["detail-value"]}>
                                 {detail.attached.length === 0 ? "—" : (
-                                    <ul className="detail-list">{detail.attached.map((c) => <li key={c.id}>{c.name}</li>)}</ul>
+                                    <ul className={shared["detail-list"]}>{detail.attached.map((c) => <li key={c.id}>{c.name}</li>)}</ul>
                                 )}
                             </div>
                         </div>

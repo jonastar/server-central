@@ -8,6 +8,8 @@ import { taskModalManager } from "../taskModal";
 import { cx } from "../utils";
 import { DetailPair, Modal } from "./ui";
 import { LogViewer } from "./LogViewer";
+import styles from "./TaskModal.module.css";
+import shared from "../styles/shared.module.css";
 
 /**
  * Live detail view for a single task run, opened via `taskModalManager.open(id)`
@@ -41,9 +43,9 @@ export function TaskModal() {
 
     return (
         <Modal title={specSummary(run.spec)} onClose={() => taskModalManager.close()} large tone={modalTone(run.status)}>
-            <div className="task-modal-meta">
+            <div className={styles["task-modal-meta"]}>
                 <DetailPair label="Status">
-                    <span className={cx("badge", `badge-${tone}`)}>{STATUS_LABEL[run.status]}</span>
+                    <span className={cx(shared.badge, shared[`badge-${tone}`])}>{STATUS_LABEL[run.status]}</span>
                 </DetailPair>
                 <DetailPair label="Target">{serverLabel(run.target, servers)}</DetailPair>
                 <DetailPair label="Started">{fmtTime(run.startedAt ?? run.createdAt)}</DetailPair>
@@ -51,7 +53,7 @@ export function TaskModal() {
                 <DetailPair label="Result">{resultSummary(run)}</DetailPair>
                 {run.error && <DetailPair label="Error">{run.error}</DetailPair>}
             </div>
-            <div className="task-modal-log">
+            <div className={styles["task-modal-log"]}>
                 <LogViewer text={lines.length ? lines.map((l) => l.text).join("\n") : "(no output yet)"} />
             </div>
         </Modal>

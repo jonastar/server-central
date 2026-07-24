@@ -1,0 +1,14 @@
+.link-btn {
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.link-btn:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}

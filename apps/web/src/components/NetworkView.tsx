@@ -4,10 +4,11 @@ import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import { cx } from "../utils";
 import { EmptyState, ErrorBanner } from "./ui";
+import shared from "../styles/shared.module.css";
 
 const REFRESH_MS = 15_000;
 
-function stateBadge(state: string): string {
+function stateBadge(state: string): "badge-ok" | "badge-err" | "badge-warn" {
     if (state === "UP") {
         return "badge-ok";
     }
@@ -19,26 +20,26 @@ function stateBadge(state: string): string {
 
 function InterfaceCard({ iface }: { iface: NetworkInterface }) {
     return (
-        <section className="panel">
+        <section className={shared.panel}>
             <h3>
                 {iface.name}{" "}
-                <span className={cx("badge", stateBadge(iface.state))}>{iface.state}</span>
+                <span className={cx(shared.badge, shared[stateBadge(iface.state)])}>{iface.state}</span>
             </h3>
-            <div className="info-chips">
-                {iface.mac && <span className="info-chip"><span className="info-chip-label">MAC</span><span className="info-chip-value mono">{iface.mac}</span></span>}
-                {iface.mtu > 0 && <span className="info-chip"><span className="info-chip-label">MTU</span><span className="info-chip-value">{iface.mtu}</span></span>}
+            <div className={shared["info-chips"]}>
+                {iface.mac && <span className={shared["info-chip"]}><span className={shared["info-chip-label"]}>MAC</span><span className={cx(shared["info-chip-value"], shared.mono)}>{iface.mac}</span></span>}
+                {iface.mtu > 0 && <span className={shared["info-chip"]}><span className={shared["info-chip-label"]}>MTU</span><span className={shared["info-chip-value"]}>{iface.mtu}</span></span>}
             </div>
             {iface.addresses.length === 0 ? (
                 <EmptyState>No addresses.</EmptyState>
             ) : (
-                <table className="data-table">
+                <table className={shared["data-table"]}>
                     <thead><tr><th>Family</th><th>Address</th><th>Scope</th></tr></thead>
                     <tbody>
                         {iface.addresses.map((a) => (
                             <tr key={`${a.family}-${a.address}`}>
-                                <td className="dim">{a.family === "inet" ? "IPv4" : a.family === "inet6" ? "IPv6" : a.family}</td>
-                                <td className="mono">{a.address}/{a.prefixlen}</td>
-                                <td className="dim">{a.scope}</td>
+                                <td className={shared.dim}>{a.family === "inet" ? "IPv4" : a.family === "inet6" ? "IPv6" : a.family}</td>
+                                <td className={shared.mono}>{a.address}/{a.prefixlen}</td>
+                                <td className={shared.dim}>{a.scope}</td>
                             </tr>
                         ))}
                     </tbody>
@@ -80,10 +81,10 @@ export function NetworkView({ serverId }: { serverId: string }) {
     }, [load]);
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Network</h1>
-                <button className="btn" onClick={() => void load()}>Refresh</button>
+                <button className={shared.btn} onClick={() => void load()}>Refresh</button>
             </header>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -94,14 +95,14 @@ export function NetworkView({ serverId }: { serverId: string }) {
 
             {net?.available && (
                 <>
-                    <div className="info-chips">
-                        <span className="info-chip">
-                            <span className="info-chip-label">Remote IP (seen by control plane)</span>
-                            <span className="info-chip-value mono">{net.remoteIp ?? "— (embedded host)"}</span>
+                    <div className={shared["info-chips"]}>
+                        <span className={shared["info-chip"]}>
+                            <span className={shared["info-chip-label"]}>Remote IP (seen by control plane)</span>
+                            <span className={cx(shared["info-chip-value"], shared.mono)}>{net.remoteIp ?? "— (embedded host)"}</span>
                         </span>
-                        <span className="info-chip">
-                            <span className="info-chip-label">STUN (seen by this node)</span>
-                            <span className="info-chip-value mono">
+                        <span className={shared["info-chip"]}>
+                            <span className={shared["info-chip-label"]}>STUN (seen by this node)</span>
+                            <span className={cx(shared["info-chip-value"], shared.mono)}>
                                 {stunRun && !stunInFlight
                                     ? (stunRun.status === "failed"
                                         ? `Failed: ${stunRun.error ?? "unknown error"}`
@@ -109,7 +110,7 @@ export function NetworkView({ serverId }: { serverId: string }) {
                                     : "—"}
                             </span>
                         </span>
-                        <button className="btn" type="button" disabled={stunInFlight} onClick={() => void checkStun()}>
+                        <button className={shared.btn} type="button" disabled={stunInFlight} onClick={() => void checkStun()}>
                             {stunInFlight ? "Checking…" : "Check STUN"}
                         </button>
                     </div>
@@ -118,21 +119,21 @@ export function NetworkView({ serverId }: { serverId: string }) {
                         <InterfaceCard key={iface.name} iface={iface} />
                     ))}
 
-                    <section className="panel">
+                    <section className={shared.panel}>
                         <h3>Routes ({net.routes.length})</h3>
                         {net.routes.length === 0 ? (
                             <EmptyState>No routes.</EmptyState>
                         ) : (
-                            <table className="data-table">
+                            <table className={shared["data-table"]}>
                                 <thead><tr><th>Destination</th><th>Gateway</th><th>Interface</th><th>Source</th><th>Protocol</th></tr></thead>
                                 <tbody>
                                     {net.routes.map((r, i) => (
                                         <tr key={`${r.dst}-${r.dev}-${i}`}>
-                                            <td className="mono">{r.dst}</td>
-                                            <td className="mono dim">{r.gateway ?? "—"}</td>
+                                            <td className={shared.mono}>{r.dst}</td>
+                                            <td className={cx(shared.mono, shared.dim)}>{r.gateway ?? "—"}</td>
                                             <td>{r.dev}</td>
-                                            <td className="mono dim">{r.src ?? "—"}</td>
-                                            <td className="dim">{r.protocol ?? "—"}</td>
+                                            <td className={cx(shared.mono, shared.dim)}>{r.src ?? "—"}</td>
+                                            <td className={shared.dim}>{r.protocol ?? "—"}</td>
                                         </tr>
                                     ))}
                                 </tbody>

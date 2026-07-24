@@ -1,0 +1,692 @@
+.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+}
+
+.dim {
+    color: var(--muted);
+}
+
+/* ---- Main / views ------------------------------------------------------------ */
+
+.view {
+    padding: 18px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
+    min-height: 0;
+}
+
+.view-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.view-header h1 {
+    font-size: 18px;
+    margin: 0;
+    margin-right: auto;
+}
+
+@media (max-width: 768px) {
+    .view {
+        padding: 12px;
+    }
+}
+
+/* ---- Buttons / inputs ----------------------------------------------------------- */
+
+.btn {
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+}
+
+.btn:hover {
+    background: var(--panel-2);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: #2f5ce0;
+}
+
+.btn-danger {
+    color: var(--err);
+    border-color: color-mix(in srgb, var(--err) 40%, var(--border));
+}
+
+.btn-danger:hover {
+    background: color-mix(in srgb, var(--err) 8%, var(--panel));
+}
+
+.btn-sm {
+    padding: 2px 8px;
+    font-size: 12px;
+}
+
+.btn-icon {
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+.btn-icon:hover {
+    background: var(--panel-2);
+    color: var(--text);
+}
+
+.filter-input {
+    width: 240px;
+}
+
+/* ---- Panels ------------------------------------------------------------------- */
+
+.panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+}
+
+.panel h3 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
+.panel-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 14px;
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.panel-head h3 {
+    margin: 0;
+    margin-right: auto;
+}
+
+/* ---- Info chips ------------------------------------------------------------------ */
+
+.info-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.info-chip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.info-chip-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+}
+
+.info-chip-value {
+    font-size: 12.5px;
+    font-weight: 600;
+}
+
+/* ---- Badges --------------------------------------------------------------------- */
+
+.badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.badge-ok {
+    background: color-mix(in srgb, var(--ok) 14%, transparent);
+    color: var(--ok);
+}
+
+.badge-warn {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    color: var(--warn);
+}
+
+.badge-err {
+    background: color-mix(in srgb, var(--err) 12%, transparent);
+    color: var(--err);
+}
+
+.badge-muted {
+    background: color-mix(in srgb, var(--muted) 14%, transparent);
+    color: var(--muted);
+}
+
+/* ---- Tables ------------------------------------------------------------------------ */
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+    border-bottom: none;
+}
+
+.th-sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+.row-clickable {
+    cursor: pointer;
+}
+
+/* Cascade order matters here: zebra < status tint < hover < active. */
+
+/* Zebra striping. */
+.data-table tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--panel-2) 55%, transparent);
+}
+
+/* Status tint across the whole row + a bold accent bar on the leading cell,
+   set via .row-status-* on the row. */
+.data-table td:first-child {
+    box-shadow: inset 4px 0 0 transparent;
+}
+
+.data-table tbody tr.row-status-ok td {
+    background: color-mix(in srgb, var(--ok) 9%, var(--panel));
+}
+
+.data-table tbody tr.row-status-warn td {
+    background: color-mix(in srgb, var(--warn) 11%, var(--panel));
+}
+
+.data-table tbody tr.row-status-err td {
+    background: color-mix(in srgb, var(--err) 10%, var(--panel));
+}
+
+.data-table tbody tr.row-status-muted td {
+    background: color-mix(in srgb, var(--muted) 6%, var(--panel));
+}
+
+.row-status-ok td:first-child {
+    box-shadow: inset 4px 0 0 var(--ok);
+}
+
+.row-status-warn td:first-child {
+    box-shadow: inset 4px 0 0 var(--warn);
+}
+
+.row-status-err td:first-child {
+    box-shadow: inset 4px 0 0 var(--err);
+}
+
+.row-status-muted td:first-child {
+    box-shadow: inset 4px 0 0 color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+/* A clear hover so it's obvious which row's buttons you're on (wins over status tint). */
+.data-table tbody tr:hover td {
+    background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+}
+
+.data-table tbody tr:hover td:first-child {
+    box-shadow: inset 4px 0 0 var(--accent);
+}
+
+.data-table tbody tr:hover .row-actions-always .btn {
+    border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.data-table tbody tr.row-active td {
+    background: var(--accent-soft);
+}
+
+.row-busy {
+    opacity: 0.5;
+}
+
+.row-actions {
+    visibility: hidden;
+    white-space: nowrap;
+    text-align: right;
+}
+
+tr:hover .row-actions {
+    visibility: visible;
+}
+
+.row-actions-always {
+    white-space: nowrap;
+    text-align: right;
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+/* Expandable rows: a leading chevron toggles an inline detail panel. */
+.col-expander {
+    width: 24px;
+    padding-right: 0 !important;
+    text-align: center;
+}
+
+.row-expander {
+    display: inline-block;
+    color: var(--muted);
+    font-size: 10px;
+    transition: transform 0.12s ease;
+}
+
+.row-expander.open {
+    transform: rotate(90deg);
+    color: var(--accent);
+}
+
+.row-clickable td {
+    cursor: pointer;
+}
+
+/* The detail panel occupies its own full-width row directly under the clicked one.
+   Neutralise the zebra/status/hover tints so it reads as an attached drawer. */
+.row-detail-tr td {
+    padding: 0 !important;
+    background: var(--panel-2) !important;
+    box-shadow: none !important;
+}
+
+.data-table tbody tr.row-detail-tr:hover td {
+    background: var(--panel-2) !important;
+}
+
+/* Smooth expand: a grid whose single row animates 0fr → 1fr so the drawer grows
+   the actual table height (no pop), while the inner element clips the overflow.
+   grid-template-rows is interpolated by the keyframe; opacity fades in alongside. */
+.row-detail-wrap {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    animation: row-detail-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+@keyframes row-detail-in {
+    to {
+        grid-template-rows: 1fr;
+        opacity: 1;
+    }
+}
+
+.row-detail {
+    overflow: hidden;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px 4px 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .row-detail-wrap {
+        grid-template-rows: 1fr;
+        opacity: 1;
+        animation: none;
+    }
+}
+
+.row-detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.row-detail-body {
+    display: grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.4fr);
+    gap: 18px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .row-detail-body {
+        grid-template-columns: 1fr;
+    }
+}
+
+.row-detail-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.cmd-cell,
+.ports-cell {
+    max-width: 420px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-name {
+    font-weight: 500;
+}
+
+.file-name.dir {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.file-name.symlink {
+    color: var(--warn);
+}
+
+/* ---- Breadcrumbs (Files view, Directory picker) ------------------------------------- */
+
+.breadcrumbs {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.crumb {
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    padding: 2px 3px;
+    border-radius: 4px;
+}
+
+.crumb:hover {
+    background: var(--accent-soft);
+}
+
+.crumb-sep {
+    color: var(--muted);
+}
+
+.editor-loading {
+    padding: 20px;
+    color: var(--muted);
+}
+
+/* ---- Log excerpts shared across views (Services/Docker log tail, log selects) -------- */
+
+.logs-pre {
+    margin: 0;
+    max-height: 60vh;
+    overflow: auto;
+    background: #1d2026;
+    color: #d6d9de;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.log-select {
+    font-size: 12px;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--panel);
+    color: var(--text);
+}
+
+.log-toolbar-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+/* ---- Modal / forms ------------------------------------------------------------------------ */
+
+.form-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.form-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+    font-weight: 400;
+    color: var(--text);
+}
+
+.form-row {
+    display: flex;
+    gap: 10px;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+/* ---- Tab strip (Settings, etc.) ---------------------------------------------------------------- */
+
+.tab-strip {
+    display: flex;
+    gap: 8px;
+}
+
+/* ---- Docker sub-tabs (also used by ContainerDetail) ---------------------------------- */
+
+.sub-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+}
+
+.sub-tab {
+    padding: 6px 12px;
+    border: none;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.sub-tab:hover {
+    color: var(--text);
+}
+
+.sub-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+}
+
+/* ---- Detail grid (docker container/volume detail panels) ----------------------------- */
+
+.detail-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.detail-list {
+    margin: 0;
+    padding-left: 16px;
+}
+
+.detail-list li {
+    margin: 1px 0;
+    word-break: break-all;
+}
+
+/* ---- Login / first-run setup (also used by the OIDC authorize screen) ---------------- */
+
+.login-screen {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    padding: 24px;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 360px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.login-title {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.login-subtitle {
+    margin: 0;
+    color: var(--muted);
+}
+
+.login-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.login-field span {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.login-field input {
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel-2);
+    color: var(--text);
+    font: inherit;
+}
+
+.login-field input:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--panel);
+}
+
+.login-submit {
+    margin-top: 4px;
+    padding: 10px;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.login-submit:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+/* ---- Add Node command block (also used by the setup wizard) -------------------------- */
+
+.add-node-command-wrap {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin-top: 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.add-node-command {
+    flex: 1;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text);
+    background: none;
+    font-family: var(--mono, monospace);
+}

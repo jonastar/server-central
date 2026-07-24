@@ -3,6 +3,10 @@ import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import { UsersTab } from "./settings/UsersTab";
 import { AppsTab } from "./settings/AppsTab";
+import { cx } from "../utils";
+import shared from "../styles/shared.module.css";
+import uiStyles from "./ui.module.css";
+import { colorVars } from "../styles/colorVars";
 
 interface ControlPlaneStatus {
     version: string;
@@ -120,42 +124,42 @@ function GeneralSettings() {
                 <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>Control plane</h2>
                 {cp ? (
                     <>
-                        <p style={{ margin: "0 0 12px", color: "var(--fg-muted)", fontSize: 13 }}>
+                        <p style={{ margin: "0 0 12px", color: colorVars.muted, fontSize: 13 }}>
                             Version <code>{cp.version}</code>
                             {cp.latestVersion && cp.latestVersion !== cp.version && <> · latest <code>{cp.latestVersion}</code></>}
                             {!cp.installed && " — not installed as a service"}
                         </p>
                         {cp.updateAvailable && (
-                            <button className="btn btn-primary" type="button" disabled={updating} onClick={handleUpdateControlPlane}>
+                            <button className={cx(shared.btn, shared["btn-primary"])} type="button" disabled={updating} onClick={handleUpdateControlPlane}>
                                 {updating ? "Updating…" : `Update to ${cp.latestVersion}`}
                             </button>
                         )}
                         {cp.installed && !cp.updateAvailable && cp.latestVersion && (
-                            <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>Up to date.</div>
+                            <div style={{ fontSize: 12, color: colorVars.muted }}>Up to date.</div>
                         )}
                         {!cp.installed && (
-                            <div style={{ fontSize: 12, color: "var(--fg-muted)" }}>
+                            <div style={{ fontSize: 12, color: colorVars.muted }}>
                                 Self-update is available once the control plane is installed as a service.
                             </div>
                         )}
-                        {cpMsg && <div style={{ marginTop: 8, fontSize: 12, color: "var(--fg-muted)" }}>{cpMsg}</div>}
+                        {cpMsg && <div style={{ marginTop: 8, fontSize: 12, color: colorVars.muted }}>{cpMsg}</div>}
                     </>
                 ) : (
-                    <p style={{ margin: 0, color: "var(--fg-muted)", fontSize: 13 }}>Loading…</p>
+                    <p style={{ margin: 0, color: colorVars.muted, fontSize: 13 }}>Loading…</p>
                 )}
             </div>
 
             <div style={{ maxWidth: 480, marginBottom: 28 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>External (WAN) IP</h2>
-                <p style={{ margin: "0 0 12px", color: "var(--fg-muted)", fontSize: 13 }}>
+                <p style={{ margin: "0 0 12px", color: colorVars.muted, fontSize: 13 }}>
                     The control plane's public IP, discovered via STUN.
                 </p>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <button className="btn" type="button" disabled={wanInFlight} onClick={checkWanIp}>
+                    <button className={shared.btn} type="button" disabled={wanInFlight} onClick={checkWanIp}>
                         {wanInFlight ? "Checking…" : "Check now"}
                     </button>
                     {wanRun && !wanInFlight && (
-                        <span style={{ fontSize: 13, color: "var(--fg-muted)" }}>
+                        <span style={{ fontSize: 13, color: colorVars.muted }}>
                             {wanRun.status === "failed"
                                 ? `Failed: ${wanRun.error ?? "unknown error"}`
                                 : <>
@@ -169,7 +173,7 @@ function GeneralSettings() {
 
             <div style={{ maxWidth: 480 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>External domain</h2>
-                <p style={{ margin: "0 0 12px", color: "var(--fg-muted)", fontSize: 13 }}>
+                <p style={{ margin: "0 0 12px", color: colorVars.muted, fontSize: 13 }}>
                     Optional. When set, the node install command will include this domain as an alternate control-plane address,
                     allowing nodes outside your LAN to connect.
                 </p>
@@ -177,26 +181,25 @@ function GeneralSettings() {
                 <form onSubmit={handleSave} style={{ display: "flex", gap: 8 }}>
                     <input
                         type="text"
-                        className="input"
                         placeholder="e.g. central.example.com"
                         value={domain}
                         onChange={(e) => setDomain(e.target.value)}
                         style={{ flex: 1 }}
                     />
-                    <button className="btn btn-primary" type="submit" disabled={saving}>
+                    <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={saving}>
                         {saving ? "Saving…" : "Save"}
                     </button>
                     {saved && (
-                        <button className="btn" type="button" disabled={saving} onClick={handleClear}>
+                        <button className={shared.btn} type="button" disabled={saving} onClick={handleClear}>
                             Clear
                         </button>
                     )}
                 </form>
 
-                {error && <div className="error-banner" style={{ marginTop: 8 }}>{error}</div>}
+                {error && <div className={uiStyles["error-banner"]} style={{ marginTop: 8 }}>{error}</div>}
 
                 {saved && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: "var(--fg-muted)" }}>
+                    <div style={{ marginTop: 8, fontSize: 12, color: colorVars.muted }}>
                         Current: <code>{saved}</code>
                     </div>
                 )}
@@ -204,7 +207,7 @@ function GeneralSettings() {
 
             <div style={{ maxWidth: 480, marginTop: 28 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>OIDC issuer URL</h2>
-                <p style={{ margin: "0 0 12px", color: "var(--fg-muted)", fontSize: 13 }}>
+                <p style={{ margin: "0 0 12px", color: colorVars.muted, fontSize: 13 }}>
                     Required before registering SSO clients. The stable, absolute URL relying parties
                     will reach this server at — used as the token issuer, so it shouldn't change once
                     a client trusts it.
@@ -213,20 +216,19 @@ function GeneralSettings() {
                 <form onSubmit={handleSaveIssuerUrl} style={{ display: "flex", gap: 8 }}>
                     <input
                         type="text"
-                        className="input"
                         placeholder="https://central.example.com"
                         value={issuerUrl}
                         onChange={(e) => setIssuerUrl(e.target.value)}
                         style={{ flex: 1 }}
                     />
-                    <button className="btn btn-primary" type="submit" disabled={issuerSaving}>
+                    <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={issuerSaving}>
                         {issuerSaving ? "Saving…" : "Save"}
                     </button>
                 </form>
 
                 {saved && (
                     <button
-                        className="btn btn-sm"
+                        className={cx(shared.btn, shared["btn-sm"])}
                         type="button"
                         style={{ marginTop: 8 }}
                         onClick={() => setIssuerUrl(`https://${saved}`)}
@@ -236,10 +238,10 @@ function GeneralSettings() {
                     </button>
                 )}
 
-                {issuerError && <div className="error-banner" style={{ marginTop: 8 }}>{issuerError}</div>}
+                {issuerError && <div className={uiStyles["error-banner"]} style={{ marginTop: 8 }}>{issuerError}</div>}
 
                 {issuerSaved && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: "var(--fg-muted)" }}>
+                    <div style={{ marginTop: 8, fontSize: 12, color: colorVars.muted }}>
                         Current: <code>{issuerSaved}</code>
                     </div>
                 )}
@@ -252,16 +254,16 @@ export function SettingsView() {
     const [tab, setTab] = useState<SettingsTab>("general");
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Settings</h1>
             </header>
 
-            <div className="tab-strip" style={{ marginBottom: 20 }}>
+            <div className={shared["tab-strip"]} style={{ marginBottom: 20 }}>
                 {TABS.map((t) => (
                     <button
                         key={t.id}
-                        className={`btn${tab === t.id ? " btn-primary" : ""}`}
+                        className={cx(shared.btn, tab === t.id && shared["btn-primary"])}
                         onClick={() => setTab(t.id)}
                     >
                         {t.label}

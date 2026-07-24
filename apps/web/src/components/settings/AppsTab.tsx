@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import type { App } from "@central/shared";
 import { api } from "../../api";
 import { EmptyState, ErrorBanner, Modal } from "../ui";
+import { cx } from "../../utils";
+import shared from "../../styles/shared.module.css";
+import { colorVars } from "../../styles/colorVars";
 
 function AddAppModal({ onClose, onCreated }: { onClose: () => void; onCreated: (app: App) => void }) {
     const [name, setName] = useState("");
@@ -41,24 +44,24 @@ function AddAppModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
     if (created) {
         return (
             <Modal title="App created" onClose={onClose} width={480}>
-                <p style={{ marginTop: 0, color: "var(--fg-muted)" }}>
+                <p style={{ marginTop: 0, color: colorVars.muted }}>
                     This is the only time the client secret is shown — copy it into the app's config now.
                 </p>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Client ID</span>
-                    <input className="input" readOnly value={created.app.id} />
+                    <input readOnly value={created.app.id} />
                 </label>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Client secret</span>
                     <div style={{ display: "flex", gap: 8 }}>
-                        <input className="input" readOnly value={created.clientSecret} style={{ flex: 1 }} />
-                        <button type="button" className={`btn${copied ? " btn-primary" : ""}`} onClick={handleCopy}>
+                        <input readOnly value={created.clientSecret} style={{ flex: 1 }} />
+                        <button type="button" className={cx(shared.btn, copied && shared["btn-primary"])} onClick={handleCopy}>
                             {copied ? "Copied!" : "Copy"}
                         </button>
                     </div>
                 </label>
-                <div className="modal-actions" style={{ marginTop: 16 }}>
-                    <button className="btn btn-primary" onClick={onClose}>Done</button>
+                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                    <button className={cx(shared.btn, shared["btn-primary"])} onClick={onClose}>Done</button>
                 </div>
             </Modal>
         );
@@ -68,23 +71,22 @@ function AddAppModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         <Modal title="Add app" onClose={onClose} width={480}>
             <form onSubmit={handleSubmit}>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Name</span>
                     <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
                 </label>
-                <label className="login-field">
+                <label className={shared["login-field"]}>
                     <span>Redirect URIs (one per line)</span>
                     <textarea
-                        className="input"
                         rows={3}
                         value={redirectUris}
                         onChange={(e) => setRedirectUris(e.target.value)}
                         placeholder="https://app.example.com/callback"
                     />
                 </label>
-                <div className="modal-actions" style={{ marginTop: 16 }}>
-                    <button className="btn" type="button" onClick={onClose}>Cancel</button>
-                    <button className="btn btn-primary" type="submit" disabled={busy}>
+                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                    <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
+                    <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy}>
                         {busy ? "Creating…" : "Create"}
                     </button>
                 </div>
@@ -126,7 +128,7 @@ export function AppsTab() {
             {error && <ErrorBanner>{error}</ErrorBanner>}
 
             <div style={{ marginBottom: 12 }}>
-                <button className="btn btn-primary" onClick={() => setAdding(true)}>Add app</button>
+                <button className={cx(shared.btn, shared["btn-primary"])} onClick={() => setAdding(true)}>Add app</button>
             </div>
 
             {apps === null ? (
@@ -134,8 +136,8 @@ export function AppsTab() {
             ) : apps.length === 0 ? (
                 <EmptyState>No apps registered.</EmptyState>
             ) : (
-                <section className="panel">
-                    <table className="data-table">
+                <section className={shared.panel}>
+                    <table className={shared["data-table"]}>
                         <thead>
                             <tr>
                                 <th>Name</th>
@@ -148,12 +150,12 @@ export function AppsTab() {
                         <tbody>
                             {apps.map((a) => (
                                 <tr key={a.id}>
-                                    <td className="file-name">{a.name}</td>
-                                    <td className="mono dim">{a.id}</td>
-                                    <td className="dim">{a.redirectUris.join(", ")}</td>
-                                    <td className="dim">{new Date(a.createdAt).toLocaleString()}</td>
-                                    <td className="row-actions-always">
-                                        <button className="btn" disabled={busyId === a.id} onClick={() => void handleDelete(a)}>
+                                    <td className={shared["file-name"]}>{a.name}</td>
+                                    <td className={cx(shared.mono, shared.dim)}>{a.id}</td>
+                                    <td className={shared.dim}>{a.redirectUris.join(", ")}</td>
+                                    <td className={shared.dim}>{new Date(a.createdAt).toLocaleString()}</td>
+                                    <td className={shared["row-actions-always"]}>
+                                        <button className={shared.btn} disabled={busyId === a.id} onClick={() => void handleDelete(a)}>
                                             Delete
                                         </button>
                                     </td>

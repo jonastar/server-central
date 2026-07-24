@@ -21,6 +21,7 @@ import { TaskWidget } from "./components/TaskWidget";
 import { TaskModal } from "./components/TaskModal";
 import { SettingsView } from "./components/SettingsView";
 import { EmptyState } from "./components/ui";
+import styles from "./App.module.css";
 
 function AuthedApp({ onLogout }: { onLogout: () => void }) {
     const conn = useConnection();
@@ -119,7 +120,7 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
     }
 
     return (
-        <div className="app">
+        <div className={styles.app}>
             <Sidebar
                 servers={conn.servers}
                 route={route}
@@ -127,7 +128,7 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                 onNavigate={setRoute}
                 onLogout={onLogout}
             />
-            <main className="main">{renderMain()}</main>
+            <main className={styles.main}>{renderMain()}</main>
             <TaskWidget />
             <TaskModal />
         </div>

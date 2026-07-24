@@ -2,6 +2,8 @@ import { Fragment, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, 
 import type { LogOrder } from "@central/shared";
 import { ansiStyleToCss, ansiToSegments, type AnsiSegment } from "../ansi";
 import { cx } from "../utils";
+import styles from "./LogViewer.module.css";
+import shared from "../styles/shared.module.css";
 
 function escapeRegExp(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -95,7 +97,7 @@ export function LogViewer({ text, order = "oldest", loading, onRefresh, controls
                 <mark
                     key={`${key}-m${idx}`}
                     data-match={idx}
-                    className={cx("log-match", idx === current && "active")}
+                    className={cx(styles["log-match"], idx === current && styles.active)}
                     style={css}
                 >
                     {m[0]}
@@ -115,11 +117,11 @@ export function LogViewer({ text, order = "oldest", loading, onRefresh, controls
     const counter = { n: 0 };
 
     return (
-        <div className="log-viewer">
-            {controls && <div className="log-controls">{controls}</div>}
-            <div className="log-toolbar">
+        <div className={styles["log-viewer"]}>
+            {controls && <div className={styles["log-controls"]}>{controls}</div>}
+            <div className={styles["log-toolbar"]}>
                 <input
-                    className="filter-input"
+                    className={shared["filter-input"]}
                     placeholder="Search logs…"
                     value={query}
                     onChange={(e) => { setQuery(e.target.value); setCurrent(0); }}
@@ -130,27 +132,27 @@ export function LogViewer({ text, order = "oldest", loading, onRefresh, controls
                     }}
                 />
                 {query && (
-                    <span className="log-match-count">
+                    <span className={styles["log-match-count"]}>
                         {matchCount === 0 ? "0/0" : `${current + 1}/${matchCount}`}
                     </span>
                 )}
-                <button className="btn btn-sm" disabled={matchCount === 0} onClick={() => step(-1)}>↑</button>
-                <button className="btn btn-sm" disabled={matchCount === 0} onClick={() => step(1)}>↓</button>
-                <label className="log-toolbar-toggle">
+                <button className={cx(shared.btn, shared["btn-sm"])} disabled={matchCount === 0} onClick={() => step(-1)}>↑</button>
+                <button className={cx(shared.btn, shared["btn-sm"])} disabled={matchCount === 0} onClick={() => step(1)}>↓</button>
+                <label className={shared["log-toolbar-toggle"]}>
                     <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} /> Wrap
                 </label>
-                <span className="log-line-count">{lineCount.toLocaleString()} lines</span>
-                <button className="btn btn-sm" title="Copy" onClick={() => void navigator.clipboard.writeText(text)}>Copy</button>
-                <button className="btn btn-sm" title="Download" onClick={downloadLog}>Download</button>
+                <span className={styles["log-line-count"]}>{lineCount.toLocaleString()} lines</span>
+                <button className={cx(shared.btn, shared["btn-sm"])} title="Copy" onClick={() => void navigator.clipboard.writeText(text)}>Copy</button>
+                <button className={cx(shared.btn, shared["btn-sm"])} title="Download" onClick={downloadLog}>Download</button>
                 {onRefresh && (
-                    <button className="btn btn-sm" disabled={loading} onClick={onRefresh}>
+                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={loading} onClick={onRefresh}>
                         {loading ? "…" : "Refresh"}
                     </button>
                 )}
             </div>
-            <div ref={bodyRef} className={cx("log-body", wrap ? "wrap" : "nowrap")}>
+            <div ref={bodyRef} className={cx(styles["log-body"], wrap ? styles.wrap : styles.nowrap)}>
                 {lines.map((segs, i) => (
-                    <div key={i} className="log-line">
+                    <div key={i} className={styles["log-line"]}>
                         {segs.length === 0
                             ? "​"
                             : segs.map((seg, j) => renderSegment(seg, j, counter))}

@@ -1,0 +1,19 @@
+.terminal-view {
+    padding: 14px;
+}
+
+.terminal-host {
+    flex: 1;
+    min-height: 0;
+    background: #1d2026;
+    border-radius: var(--radius);
+}
+
+/* Padding lives on .xterm itself (not .terminal-host) so FitAddon's row/col
+   math — which reads padding off the terminal element, not its parent — sees
+   it too; padding on the parent only would let the terminal size itself past
+   the visible inset, clipping the last line. */
+.terminal-host :global(.xterm) {
+    height: 100%;
+    padding: 8px;
+}

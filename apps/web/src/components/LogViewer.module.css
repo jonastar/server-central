@@ -1,0 +1,71 @@
+.log-viewer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-height: 0;
+}
+
+.log-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.log-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.log-match-count {
+    color: var(--muted);
+    font-size: 12px;
+    min-width: 44px;
+    text-align: center;
+}
+
+.log-line-count {
+    color: var(--muted);
+    font-size: 12px;
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.log-body {
+    margin: 0;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    background: #1d2026;
+    color: #d6d9de;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.log-body.wrap .log-line {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.log-body.nowrap {
+    white-space: pre;
+}
+
+.log-line {
+    min-height: 1em;
+}
+
+.log-match {
+    background: #d19a66;
+    color: #1d2026;
+    border-radius: 2px;
+}
+
+.log-match.active {
+    background: #e5c07b;
+    outline: 1px solid #fff;
+}

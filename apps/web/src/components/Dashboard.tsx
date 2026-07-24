@@ -1,7 +1,9 @@
 import type { MetricsSnapshot, ServerEntry } from "@central/shared";
-import { fmtKb, fmtPct, fmtRate, fmtUptime } from "../utils";
+import { cx, fmtKb, fmtPct, fmtRate, fmtUptime } from "../utils";
 import { Sparkline, UsageBar } from "./charts";
 import { StatusDot, EmptyState } from "./ui";
+import styles from "./Dashboard.module.css";
+import shared from "../styles/shared.module.css";
 
 export function Dashboard({ servers, metrics, onOpenServer }: {
     servers: ServerEntry[];
@@ -9,8 +11,8 @@ export function Dashboard({ servers, metrics, onOpenServer }: {
     onOpenServer: (serverId: string) => void;
 }) {
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Dashboard</h1>
             </header>
 
@@ -20,7 +22,7 @@ export function Dashboard({ servers, metrics, onOpenServer }: {
                 </EmptyState>
             )}
 
-            <div className="card-grid">
+            <div className={styles["card-grid"]}>
                 {servers.map((entry) => {
                     const history = metrics[entry.id] ?? [];
                     const latest = history.at(-1);
@@ -31,20 +33,23 @@ export function Dashboard({ servers, metrics, onOpenServer }: {
                         null,
                     );
                     return (
-                        <div key={entry.id} className="server-card" onClick={() => onOpenServer(entry.id)}>
-                            <div className="card-head">
+                        <div key={entry.id} className={styles["server-card"]} onClick={() => onOpenServer(entry.id)}>
+                            <div className={styles["card-head"]}>
                                 <StatusDot state={entry.status.state} title={entry.status.error ?? entry.status.state} />
-                                <span className="card-title">{entry.name}</span>
-                                <span className="card-host">{info?.primaryIp ?? ""}</span>
+                                <span className={styles["card-title"]}>{entry.name}</span>
+                                <span className={styles["card-host"]}>{info?.primaryIp ?? ""}</span>
                             </div>
-                            <div className="card-sub">
+                            <div className={styles["card-sub"]}>
                                 {info ? `${info.os} · up ${fmtUptime(uptime!)}` : entry.status.error ?? entry.status.state}
                             </div>
                             {latest ? (
                                 <>
-                                    <div className="card-row">
-                                        <span className="card-label">CPU</span>
-                                        <Sparkline points={history.map((s) => ({ ts: s.ts, v: s.cpu.total }))} />
+                                    <div className={styles["card-row"]}>
+                                        <span className={styles["card-label"]}>CPU</span>
+                                        <Sparkline
+                                            points={history.map((s) => ({ ts: s.ts, v: s.cpu.total }))}
+                                            className={styles["card-sparkline"]}
+                                        />
                                         <b>{fmtPct(latest.cpu.total)}</b>
                                     </div>
                                     <UsageBar
@@ -59,14 +64,14 @@ export function Dashboard({ servers, metrics, onOpenServer }: {
                                             detail={`${fmtKb(worstDisk.usedKb)} / ${fmtKb(worstDisk.totalKb)}`}
                                         />
                                     )}
-                                    <div className="card-row card-net">
-                                        <span className="card-label">Net</span>
+                                    <div className={cx(styles["card-row"], styles["card-net"])}>
+                                        <span className={styles["card-label"]}>Net</span>
                                         <span>↓ {fmtRate(latest.network.rxBytesPerSec)}</span>
                                         <span>↑ {fmtRate(latest.network.txBytesPerSec)}</span>
                                     </div>
                                 </>
                             ) : (
-                                <div className="card-pending">
+                                <div className={styles["card-pending"]}>
                                     {entry.status.state === "online" ? "Collecting metrics…" : "No metrics — server not connected"}
                                 </div>
                             )}

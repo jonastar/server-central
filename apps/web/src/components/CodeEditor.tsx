@@ -1,4 +1,6 @@
 import { lazy, Suspense, useMemo } from "react";
+import styles from "./CodeEditor.module.css";
+import shared from "../styles/shared.module.css";
 
 const MonacoPane = lazy(() => import("./MonacoPane"));
 
@@ -20,7 +22,7 @@ export function CodeEditor({ path, value, onChange, onSave }: {
     if (useBasicEditor) {
         return (
             <textarea
-                className="editor-textarea"
+                className={styles["editor-textarea"]}
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 spellCheck={false}
@@ -35,7 +37,7 @@ export function CodeEditor({ path, value, onChange, onSave }: {
     }
 
     return (
-        <Suspense fallback={<div className="editor-loading">Loading editor…</div>}>
+        <Suspense fallback={<div className={shared["editor-loading"]}>Loading editor…</div>}>
             <MonacoPane path={path} value={value} onChange={onChange} onSave={onSave} />
         </Suspense>
     );

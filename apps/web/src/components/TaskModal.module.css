@@ -1,0 +1,12 @@
+.task-modal-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin-bottom: 12px;
+}
+
+.task-modal-log {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+}

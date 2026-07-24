@@ -3,6 +3,10 @@ import type { InstallMechanism, ServerEntry } from "@central/shared";
 import { Modal } from "./ui";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { api } from "../api";
+import { cx } from "../utils";
+import shared from "../styles/shared.module.css";
+import uiStyles from "./ui.module.css";
+import { colorVars } from "../styles/colorVars";
 
 const FALLBACK_INSTALL_DIR = "/usr/local/bin";
 const FALLBACK_DATA_DIR = "/var/lib/sc-agent";
@@ -59,15 +63,15 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
     if (startCommand) {
         return (
             <Modal title={`Finish setup on ${entry.name}`} onClose={onClose} width={640}>
-                <p style={{ marginTop: 0, color: "var(--fg-muted)" }}>
+                <p style={{ marginTop: 0, color: colorVars.muted }}>
                     The agent is installed and has been started. To make it survive reboots, add this
                     command to your host's init system (e.g. a TrueNAS <strong>Init/Shutdown</strong> POSTINIT
                     script, or a cron <code>@reboot</code> entry):
                 </p>
-                <div className="add-node-command-wrap">
-                    <pre className="add-node-command">{startCommand}</pre>
+                <div className={shared["add-node-command-wrap"]}>
+                    <pre className={shared["add-node-command"]}>{startCommand}</pre>
                     <button
-                        className={`btn${copied ? " btn-primary" : ""}`}
+                        className={cx(shared.btn, copied && shared["btn-primary"])}
                         style={{ flexShrink: 0 }}
                         onClick={() => {
                             void navigator.clipboard.writeText(startCommand);
@@ -78,8 +82,8 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
                         {copied ? "Copied!" : "Copy"}
                     </button>
                 </div>
-                <div className="modal-actions" style={{ marginTop: 16 }}>
-                    <button className="btn btn-primary" onClick={onClose}>Done</button>
+                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                    <button className={cx(shared.btn, shared["btn-primary"])} onClick={onClose}>Done</button>
                 </div>
             </Modal>
         );
@@ -87,7 +91,7 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
 
     return (
         <Modal title={`Set up ${entry.name}`} onClose={onClose} width={640}>
-            <p style={{ marginTop: 0, color: "var(--fg-muted)" }}>
+            <p style={{ marginTop: 0, color: colorVars.muted }}>
                 Promote this live agent to a permanent service that survives reboots and takes over
                 from the live connection.
             </p>
@@ -97,16 +101,16 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
                     <div style={{ fontSize: 13, marginBottom: 8 }}>
                         Install as a <strong>systemd service</strong> using the default locations:
                     </div>
-                    <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13, color: "var(--fg-muted)" }}>
+                    <ul style={{ margin: "0 0 8px", paddingLeft: 18, fontSize: 13, color: colorVars.muted }}>
                         <li>Binary: <code>{defaultInstallDir}</code></li>
                         <li>Data (cert, config, state): <code>{defaultDataDir}</code></li>
                     </ul>
-                    <button className="btn" onClick={() => setCustom(true)}>Customize paths…</button>
+                    <button className={shared.btn} onClick={() => setCustom(true)}>Customize paths…</button>
                 </>
             ) : (
                 <>
                     {!defaultsUsable && (
-                        <div className="error-banner" style={{ marginBottom: 12 }}>
+                        <div className={uiStyles["error-banner"]} style={{ marginBottom: 12 }}>
                             ⚠ The default paths aren't writable/executable on this host (e.g. a read-only OS
                             root or noexec mount). Choose locations on a writable, exec-capable storage pool.
                         </div>
@@ -131,7 +135,7 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
                     </div>
 
                     {defaultsUsable && (
-                        <button className="btn" style={{ marginTop: 12 }} onClick={() => setCustom(false)}>
+                        <button className={shared.btn} style={{ marginTop: 12 }} onClick={() => setCustom(false)}>
                             ← Use defaults
                         </button>
                     )}
@@ -139,7 +143,7 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
             )}
 
             {error && (
-                <div className="error-banner" style={{ marginTop: 12 }}>
+                <div className={uiStyles["error-banner"]} style={{ marginTop: 12 }}>
                     {error}
                     {alreadyInstalled && (
                         <label style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 8, fontWeight: "normal" }}>
@@ -151,9 +155,9 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
                 </div>
             )}
 
-            <div className="modal-actions" style={{ marginTop: 16 }}>
-                <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-                <button className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
+            <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                <button className={shared.btn} onClick={onClose} disabled={busy}>Cancel</button>
+                <button className={cx(shared.btn, shared["btn-primary"])} onClick={() => void submit()} disabled={busy}>
                     {busy ? "Installing…" : "Install"}
                 </button>
             </div>

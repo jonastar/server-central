@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import type { SystemUserHostStatus } from "@central/shared";
 import { api } from "../../api";
 import { EmptyState, ErrorBanner, Modal } from "../ui";
+import { cx } from "../../utils";
+import shared from "../../styles/shared.module.css";
 
-const STATUS_BADGE: Record<SystemUserHostStatus["status"], { label: string; className: string }> = {
-    exists: { label: "exists", className: "badge badge-ok" },
-    missing: { label: "missing", className: "badge badge-warn" },
-    offline: { label: "offline", className: "badge" },
-    error: { label: "error", className: "badge badge-err" },
+const STATUS_BADGE: Record<SystemUserHostStatus["status"], { label: string; variant: "badge-ok" | "badge-warn" | "badge-err" | null }> = {
+    exists: { label: "exists", variant: "badge-ok" },
+    missing: { label: "missing", variant: "badge-warn" },
+    offline: { label: "offline", variant: null },
+    error: { label: "error", variant: "badge-err" },
 };
 
 /** One host row: status, account details, and the per-status action (create the
@@ -53,17 +55,17 @@ function HostRow({ systemUser, host, onChanged }: {
         <tr>
             <td><b>{host.serverName}</b></td>
             <td>
-                <span className={badge.className}>{badge.label}</span>
-                {host.error && <span className="dim" style={{ marginLeft: 6, fontSize: 12 }}>{host.error}</span>}
+                <span className={cx(shared.badge, badge.variant && shared[badge.variant])}>{badge.label}</span>
+                {host.error && <span className={shared.dim} style={{ marginLeft: 6, fontSize: 12 }}>{host.error}</span>}
             </td>
-            <td className="dim">{host.user ? host.user.uid : "—"}</td>
+            <td className={shared.dim}>{host.user ? host.user.uid : "—"}</td>
             <td>
                 {host.status === "exists" && !editing && (
-                    <span className="dim">{host.user?.groups.join(", ") || "—"}</span>
+                    <span className={shared.dim}>{host.user?.groups.join(", ") || "—"}</span>
                 )}
                 {editing && (
                     <input
-                        className="input mono"
+                        className={shared.mono}
                         autoFocus
                         value={groupsInput}
                         onChange={(e) => setGroupsInput(e.target.value)}
@@ -71,18 +73,18 @@ function HostRow({ systemUser, host, onChanged }: {
                         style={{ width: "100%", minWidth: 140 }}
                     />
                 )}
-                {host.status !== "exists" && <span className="dim">—</span>}
+                {host.status !== "exists" && <span className={shared.dim}>—</span>}
             </td>
-            <td className="mono dim">{host.user?.shell ?? "—"}</td>
+            <td className={cx(shared.mono, shared.dim)}>{host.user?.shell ?? "—"}</td>
             <td style={{ whiteSpace: "nowrap" }}>
                 {host.status === "missing" && (
-                    <button className="btn btn-sm" disabled={busy} onClick={handleCreate}>
+                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy} onClick={handleCreate}>
                         {busy ? "Creating…" : "Create account"}
                     </button>
                 )}
                 {host.status === "exists" && !editing && (
                     <button
-                        className="btn btn-sm"
+                        className={cx(shared.btn, shared["btn-sm"])}
                         onClick={() => {
                             setGroupsInput(supplementary.join(", "));
                             setEditing(true);
@@ -93,15 +95,15 @@ function HostRow({ systemUser, host, onChanged }: {
                 )}
                 {editing && (
                     <>
-                        <button className="btn btn-sm btn-primary" disabled={busy} onClick={handleSaveGroups}>
+                        <button className={cx(shared.btn, shared["btn-sm"], shared["btn-primary"])} disabled={busy} onClick={handleSaveGroups}>
                             {busy ? "Saving…" : "Save"}
                         </button>
-                        <button className="btn btn-sm" disabled={busy} onClick={() => setEditing(false)} style={{ marginLeft: 4 }}>
+                        <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy} onClick={() => setEditing(false)} style={{ marginLeft: 4 }}>
                             Cancel
                         </button>
                     </>
                 )}
-                {error && <div className="dim" style={{ fontSize: 12, color: "var(--err)" }}>{error}</div>}
+                {error && <div className={shared.dim} style={{ fontSize: 12, color: "var(--err)" }}>{error}</div>}
             </td>
         </tr>
     );
@@ -135,7 +137,7 @@ export function MappedSystemUsersModal({ scUsername, systemUser, onClose }: {
             {error && <ErrorBanner>{error}</ErrorBanner>}
             {hosts === null && !error && <EmptyState>Checking hosts…</EmptyState>}
             {hosts !== null && (
-                <table className="data-table">
+                <table className={shared["data-table"]}>
                     <thead>
                         <tr><th>Host</th><th>Status</th><th>UID</th><th>Groups</th><th>Shell</th><th /></tr>
                     </thead>
@@ -146,7 +148,7 @@ export function MappedSystemUsersModal({ scUsername, systemUser, onClose }: {
                     </tbody>
                 </table>
             )}
-            <p className="dim" style={{ fontSize: 12, marginTop: 8 }}>
+            <p className={shared.dim} style={{ fontSize: 12, marginTop: 8 }}>
                 "Create account" runs useradd -m with no extra groups — add groups
                 afterwards. Editing groups replaces the supplementary list (primary
                 group untouched); groups must already exist on that host. Careful

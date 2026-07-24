@@ -8,6 +8,7 @@ import { taskModalManager } from "../taskModal";
 import { cx } from "../utils";
 import { DetailPair, EmptyState, ErrorBanner } from "./ui";
 import { LogViewer } from "./LogViewer";
+import shared from "../styles/shared.module.css";
 
 /**
  * Run history for the task system: every run the control plane knows about
@@ -48,22 +49,22 @@ export function TasksView() {
     }
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Tasks</h1>
             </header>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
 
-            <section className="panel">
-                <div className="panel-head">
+            <section className={shared.panel}>
+                <div className={shared["panel-head"]}>
                     <h3>Runs ({shown.length})</h3>
-                    <select className="log-select" value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
+                    <select className={shared["log-select"]} value={kindFilter} onChange={(e) => setKindFilter(e.target.value)}>
                         <option value="all">All kinds</option>
                         {kinds.map((k) => <option key={k} value={k}>{k}</option>)}
                     </select>
                     <select
-                        className="log-select"
+                        className={shared["log-select"]}
                         value={statusFilter}
                         onChange={(e) => setStatusFilter(e.target.value as "all" | TaskStatus)}
                     >
@@ -75,10 +76,10 @@ export function TasksView() {
                 {shown.length === 0 ? (
                     <EmptyState>No task runs yet.</EmptyState>
                 ) : (
-                    <table className="data-table">
+                    <table className={shared["data-table"]}>
                         <thead>
                             <tr>
-                                <th className="col-expander" />
+                                <th className={shared["col-expander"]} />
                                 <th>Kind</th>
                                 <th>Target</th>
                                 <th>Status</th>
@@ -95,24 +96,24 @@ export function TasksView() {
                                 return (
                                     <Fragment key={run.id}>
                                         <tr
-                                            className={cx("row-clickable", `row-status-${tone}`, isExpanded && "row-active")}
+                                            className={cx(shared["row-clickable"], shared[`row-status-${tone}`], isExpanded && shared["row-active"])}
                                             onClick={() => void toggle(run)}
                                         >
-                                            <td className="col-expander"><span className={cx("row-expander", isExpanded && "open")}>▸</span></td>
+                                            <td className={shared["col-expander"]}><span className={cx(shared["row-expander"], isExpanded && shared.open)}>▸</span></td>
                                             <td><b>{run.spec.kind}</b></td>
-                                            <td className="dim">{serverLabel(run.target, servers)}</td>
-                                            <td><span className={cx("badge", `badge-${tone}`)}>{STATUS_LABEL[run.status]}</span></td>
-                                            <td className="dim">{fmtTime(run.startedAt ?? run.createdAt)}</td>
-                                            <td className="dim">{fmtDuration(run)}</td>
-                                            <td className="dim cmd-cell" title={resultSummary(run)}>{resultSummary(run)}</td>
+                                            <td className={shared.dim}>{serverLabel(run.target, servers)}</td>
+                                            <td><span className={cx(shared.badge, shared[`badge-${tone}`])}>{STATUS_LABEL[run.status]}</span></td>
+                                            <td className={shared.dim}>{fmtTime(run.startedAt ?? run.createdAt)}</td>
+                                            <td className={shared.dim}>{fmtDuration(run)}</td>
+                                            <td className={cx(shared.dim, shared["cmd-cell"])} title={resultSummary(run)}>{resultSummary(run)}</td>
                                         </tr>
                                         {isExpanded && (
-                                            <tr className="row-detail-tr">
+                                            <tr className={shared["row-detail-tr"]}>
                                                 <td />
                                                 <td colSpan={6}>
-                                                    <div className="row-detail-wrap"><div className="row-detail">
-                                                        <div className="row-detail-meta">
-                                                            <DetailPair label="Run id"><span className="mono">{run.id}</span></DetailPair>
+                                                    <div className={shared["row-detail-wrap"]}><div className={shared["row-detail"]}>
+                                                        <div className={shared["row-detail-meta"]}>
+                                                            <DetailPair label="Run id"><span className={shared.mono}>{run.id}</span></DetailPair>
                                                             <DetailPair label="Spec">{specSummary(run.spec)}</DetailPair>
                                                             <DetailPair label="Trigger">
                                                                 {run.trigger.kind}
@@ -123,7 +124,7 @@ export function TasksView() {
                                                             {run.error && <DetailPair label="Error">{run.error}</DetailPair>}
                                                         </div>
                                                         {lines && lines.length > 0 && (
-                                                            <div className="row-detail-body">
+                                                            <div className={shared["row-detail-body"]}>
                                                                 <LogViewer text={lines.map((l) => l.text).join("\n")} />
                                                             </div>
                                                         )}

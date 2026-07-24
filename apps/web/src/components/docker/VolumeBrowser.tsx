@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../../api";
 import { EmptyState, ErrorBanner } from "../ui";
 import { FilesView } from "../FilesView";
+import { cx } from "../../utils";
+import shared from "../../styles/shared.module.css";
 
 /**
  * Browses a Docker volume's contents by resolving its mountpoint via
@@ -29,9 +31,9 @@ export function VolumeBrowser({ serverId, volume, path, file, onNavigate, onBack
     }, [serverId, volume]);
 
     return (
-        <section className="panel">
-            <div className="panel-head">
-                <button className="btn btn-sm" onClick={onBack}>← Volumes</button>
+        <section className={shared.panel}>
+            <div className={shared["panel-head"]}>
+                <button className={cx(shared.btn, shared["btn-sm"])} onClick={onBack}>← Volumes</button>
                 <h3 style={{ margin: 0 }}>{volume}</h3>
             </div>
 

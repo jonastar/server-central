@@ -1,0 +1,18 @@
+.app {
+    display: flex;
+    height: 100%;
+}
+
+.main {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+@media (max-width: 768px) {
+    .app {
+        flex-direction: column;
+    }
+}

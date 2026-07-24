@@ -6,6 +6,7 @@ import { DetailPair, EmptyState, ErrorBanner, Modal } from "./ui";
 import { LogViewerModal } from "./LogViewerModal";
 import { LogPreview } from "./LogPreview";
 import { StatusFilter, type StatusToken } from "./StatusFilter";
+import shared from "../styles/shared.module.css";
 
 const REFRESH_MS = 15_000;
 
@@ -81,8 +82,8 @@ export function ServicesView({ serverId }: { serverId: string }) {
     const shown = textFiltered.filter((s) => statusFilter === "all" || activeStatus(s.active) === statusFilter);
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Services</h1>
             </header>
 
@@ -93,11 +94,11 @@ export function ServicesView({ serverId }: { serverId: string }) {
             )}
 
             {state?.available && (
-                <section className="panel">
-                    <div className="panel-head">
+                <section className={shared.panel}>
+                    <div className={shared["panel-head"]}>
                         <h3>Services ({shown.length})</h3>
                         <input
-                            className="filter-input"
+                            className={shared["filter-input"]}
                             placeholder="Filter by unit or description…"
                             value={filter}
                             onChange={(e) => setFilter(e.target.value)}
@@ -112,14 +113,14 @@ export function ServicesView({ serverId }: { serverId: string }) {
                                 { value: "err", label: "Failed", count: counts.err },
                             ]}
                         />
-                        <button className="btn" onClick={() => void load()}>Refresh</button>
+                        <button className={shared.btn} onClick={() => void load()}>Refresh</button>
                     </div>
                     {shown.length === 0 ? (
                         <EmptyState>No matching services.</EmptyState>
                     ) : (
-                        <table className="data-table">
+                        <table className={shared["data-table"]}>
                             <thead>
-                                <tr><th className="col-expander" /><th>Unit</th><th>Active</th><th>Sub</th><th>Startup</th><th>Description</th></tr>
+                                <tr><th className={shared["col-expander"]} /><th>Unit</th><th>Active</th><th>Sub</th><th>Startup</th><th>Description</th></tr>
                             </thead>
                             <tbody>
                                 {shown.map((s) => {
@@ -127,42 +128,42 @@ export function ServicesView({ serverId }: { serverId: string }) {
                                     return (
                                         <Fragment key={s.unit}>
                                             <tr
-                                                className={cx("row-clickable", `row-status-${activeStatus(s.active)}`, busyUnit === s.unit && "row-busy", expanded && "row-active")}
+                                                className={cx(shared["row-clickable"], shared[`row-status-${activeStatus(s.active)}`], busyUnit === s.unit && shared["row-busy"], expanded && shared["row-active"])}
                                                 onClick={() => setExpandedUnit(expanded ? null : s.unit)}
                                             >
-                                                <td className="col-expander"><span className={cx("row-expander", expanded && "open")}>▸</span></td>
+                                                <td className={shared["col-expander"]}><span className={cx(shared["row-expander"], expanded && shared.open)}>▸</span></td>
                                                 <td><b>{s.unit.replace(/\.service$/, "")}</b></td>
-                                                <td><span className={cx("badge", `badge-${activeStatus(s.active)}`)}>{s.active}</span></td>
-                                                <td className="dim">{s.sub}</td>
-                                                <td className="dim">{s.enabledState ?? "—"}</td>
-                                                <td className="dim cmd-cell" title={s.description}>{s.description}</td>
+                                                <td><span className={cx(shared.badge, shared[`badge-${activeStatus(s.active)}`])}>{s.active}</span></td>
+                                                <td className={shared.dim}>{s.sub}</td>
+                                                <td className={shared.dim}>{s.enabledState ?? "—"}</td>
+                                                <td className={cx(shared.dim, shared["cmd-cell"])} title={s.description}>{s.description}</td>
                                             </tr>
                                             {expanded && (
-                                                <tr className="row-detail-tr">
+                                                <tr className={shared["row-detail-tr"]}>
                                                     <td />
                                                     <td colSpan={5}>
-                                                        <div className="row-detail-wrap"><div className="row-detail">
-                                                            <div className="row-detail-actions">
+                                                        <div className={shared["row-detail-wrap"]}><div className={shared["row-detail"]}>
+                                                            <div className={shared["row-detail-actions"]}>
                                                                 {s.active === "active" ? (
                                                                     <>
-                                                                        <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "restart")}>Restart</button>
-                                                                        <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "stop")}>Stop</button>
+                                                                        <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "restart")}>Restart</button>
+                                                                        <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "stop")}>Stop</button>
                                                                     </>
                                                                 ) : (
-                                                                    <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "start")}>Start</button>
+                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "start")}>Start</button>
                                                                 )}
                                                                 {s.enabledState === "enabled" ? (
-                                                                    <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "disable")}>Disable</button>
+                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "disable")}>Disable</button>
                                                                 ) : s.enabledState === "disabled" ? (
-                                                                    <button className="btn btn-sm" disabled={busyUnit !== null} onClick={() => void action(s, "enable")}>Enable</button>
+                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "enable")}>Enable</button>
                                                                 ) : null}
-                                                                <button className="btn btn-sm" onClick={() => void showUnitFile(s)}>Unit file</button>
+                                                                <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => void showUnitFile(s)}>Unit file</button>
                                                             </div>
-                                                            <div className="row-detail-body">
-                                                                <div className="row-detail-meta">
-                                                                    <DetailPair label="Unit"><span className="mono">{s.unit}</span></DetailPair>
+                                                            <div className={shared["row-detail-body"]}>
+                                                                <div className={shared["row-detail-meta"]}>
+                                                                    <DetailPair label="Unit"><span className={shared.mono}>{s.unit}</span></DetailPair>
                                                                     <DetailPair label="Description">{s.description || "—"}</DetailPair>
-                                                                    <DetailPair label="Active">{s.active} <span className="dim">({s.sub})</span></DetailPair>
+                                                                    <DetailPair label="Active">{s.active} <span className={shared.dim}>({s.sub})</span></DetailPair>
                                                                     <DetailPair label="Loaded">{s.load}</DetailPair>
                                                                     <DetailPair label="Startup">{s.enabledState ?? "—"}</DetailPair>
                                                                 </div>
@@ -186,7 +187,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
 
             {detail && (
                 <Modal title={detail.title} onClose={() => setDetail(null)} width={820}>
-                    <pre className="logs-pre">{detail.text}</pre>
+                    <pre className={shared["logs-pre"]}>{detail.text}</pre>
                 </Modal>
             )}
 

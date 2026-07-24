@@ -2,12 +2,13 @@ import type { MetricsSnapshot, ServerEntry } from "@central/shared";
 import { fmtKb, fmtPct, fmtRate, fmtUptime } from "../utils";
 import { CoreGrid, TimeSeriesChart, UsageBar } from "./charts";
 import { EmptyState, ErrorBanner } from "./ui";
+import shared from "../styles/shared.module.css";
 
 function InfoChip({ label, value }: { label: string; value: string }) {
     return (
-        <div className="info-chip">
-            <span className="info-chip-label">{label}</span>
-            <span className="info-chip-value">{value}</span>
+        <div className={shared["info-chip"]}>
+            <span className={shared["info-chip-label"]}>{label}</span>
+            <span className={shared["info-chip-value"]}>{value}</span>
         </div>
     );
 }
@@ -23,8 +24,8 @@ export function ServerOverview({ entry, history }: {
     const pts = (pick: (s: MetricsSnapshot) => number) => history.map((s) => ({ ts: s.ts, v: pick(s) }));
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>{entry.name}</h1>
             </header>
 
@@ -33,7 +34,7 @@ export function ServerOverview({ entry, history }: {
             )}
 
             {info && (
-                <div className="info-chips">
+                <div className={shared["info-chips"]}>
                     <InfoChip label="Hostname" value={info.hostname} />
                     <InfoChip label="OS" value={info.os} />
                     <InfoChip label="Kernel" value={info.kernel} />
@@ -53,8 +54,8 @@ export function ServerOverview({ entry, history }: {
                 </EmptyState>
             ) : (
                 <>
-                    <div className="panel-grid">
-                        <section className="panel">
+                    <div className={shared["panel-grid"]}>
+                        <section className={shared.panel}>
                             <h3>CPU</h3>
                             <TimeSeriesChart
                                 series={[{ label: "total", color: "#3b6ef6", points: pts((s) => s.cpu.total) }]}
@@ -63,7 +64,7 @@ export function ServerOverview({ entry, history }: {
                             />
                             {latest && <CoreGrid perCore={latest.cpu.perCore} />}
                         </section>
-                        <section className="panel">
+                        <section className={shared.panel}>
                             <h3>Memory</h3>
                             <TimeSeriesChart
                                 series={[
@@ -76,7 +77,7 @@ export function ServerOverview({ entry, history }: {
                                 fmt={fmtKb}
                             />
                         </section>
-                        <section className="panel">
+                        <section className={shared.panel}>
                             <h3>Network</h3>
                             <TimeSeriesChart
                                 series={[
@@ -86,7 +87,7 @@ export function ServerOverview({ entry, history }: {
                                 fmt={fmtRate}
                             />
                         </section>
-                        <section className="panel">
+                        <section className={shared.panel}>
                             <h3>Disk IO</h3>
                             <TimeSeriesChart
                                 series={[
@@ -99,7 +100,7 @@ export function ServerOverview({ entry, history }: {
                     </div>
 
                     {latest && latest.disks.length > 0 && (
-                        <section className="panel">
+                        <section className={shared.panel}>
                             <h3>Disk usage</h3>
                             {latest.disks.map((d) => (
                                 <UsageBar

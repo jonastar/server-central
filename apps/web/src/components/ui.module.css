@@ -1,0 +1,169 @@
+/* ---- Status dot ------------------------------------------------------------- */
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--muted);
+}
+
+.status-online {
+    background: var(--ok);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent);
+}
+
+.status-connecting {
+    background: var(--warn);
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+.status-offline {
+    background: #9aa1ab;
+}
+
+.status-error {
+    background: var(--err);
+}
+
+@keyframes pulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+/* ---- Modal / forms ------------------------------------------------------------------------ */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(25, 30, 40, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+}
+
+.modal {
+    background: var(--panel);
+    border-radius: 10px;
+    width: 520px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 64px);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 12px 40px rgba(20, 30, 60, 0.25);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Task modal header accents: blue while in progress, green/red/gray once it lands. */
+.modal-tone-info {
+    background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+    border-bottom-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+
+.modal-tone-ok {
+    background: color-mix(in srgb, var(--ok) 10%, var(--panel));
+    border-bottom-color: color-mix(in srgb, var(--ok) 35%, var(--border));
+}
+
+.modal-tone-err {
+    background: color-mix(in srgb, var(--err) 10%, var(--panel));
+    border-bottom-color: color-mix(in srgb, var(--err) 35%, var(--border));
+}
+
+.modal-tone-muted {
+    background: color-mix(in srgb, var(--muted) 10%, var(--panel));
+    border-bottom-color: color-mix(in srgb, var(--muted) 35%, var(--border));
+}
+
+.modal-spinner {
+    color: var(--accent);
+}
+
+.modal-body {
+    padding: 16px;
+    overflow-y: auto;
+}
+
+/* Near-fullscreen modal with a flex-fill body (log viewer, etc.). */
+.modal-large {
+    width: min(1600px, 96vw);
+    max-width: 96vw;
+    height: 94vh;
+    max-height: 94vh;
+}
+
+.modal-body-fill {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.empty-state {
+    padding: 40px;
+    text-align: center;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+}
+
+.error-banner {
+    background: color-mix(in srgb, var(--err) 9%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--err) 35%, var(--border));
+    color: var(--err);
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+.detail-row {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 12px;
+    align-items: baseline;
+}
+
+.detail-label {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.detail-value {
+    min-width: 0;
+    word-break: break-word;
+}
+
+/* Reusable spinner ring: sized/colored by whatever wraps it via `color`. */
+.spinner {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
+    animation: spinner-spin 0.8s linear infinite;
+}
+
+@keyframes spinner-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}

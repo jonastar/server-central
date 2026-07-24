@@ -4,6 +4,8 @@ import { cx, isAgentOutdated } from "../utils";
 import { SERVER_TABS, type Route } from "../routes";
 import { StatusDot } from "./ui";
 import { AddNodeModal } from "./AddNodeModal";
+import styles from "./Sidebar.module.css";
+import shared from "../styles/shared.module.css";
 
 export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout }: {
     servers: ServerEntry[];
@@ -16,47 +18,47 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
     const updatesAvailable = servers.some(isAgentOutdated);
 
     return (
-        <aside className="sidebar">
+        <aside className={styles.sidebar}>
             {addingNode && <AddNodeModal servers={servers} onClose={() => setAddingNode(false)} />}
-            <div className="sidebar-brand" onClick={() => onNavigate({ view: "dashboard" })}>
-                <span className="brand-mark">⬡</span> Server Central
+            <div className={styles["sidebar-brand"]} onClick={() => onNavigate({ view: "dashboard" })}>
+                <span className={styles["brand-mark"]}>⬡</span> Server Central
             </div>
 
             <button
-                className={cx("nav-item", route.view === "dashboard" && "active")}
+                className={cx(styles["nav-item"], route.view === "dashboard" && styles.active)}
                 onClick={() => onNavigate({ view: "dashboard" })}
             >
                 Dashboard
             </button>
 
             <button
-                className={cx("nav-item", route.view === "agents" && "active")}
+                className={cx(styles["nav-item"], route.view === "agents" && styles.active)}
                 onClick={() => onNavigate({ view: "agents" })}
             >
                 Agents
                 {updatesAvailable && (
-                    <span className="nav-badge" title="An agent update is available">⚠</span>
+                    <span className={styles["nav-badge"]} title="An agent update is available">⚠</span>
                 )}
             </button>
 
             <button
-                className={cx("nav-item", route.view === "proxy" && "active")}
+                className={cx(styles["nav-item"], route.view === "proxy" && styles.active)}
                 onClick={() => onNavigate({ view: "proxy" })}
             >
                 Proxy
             </button>
 
             <button
-                className={cx("nav-item", route.view === "tasks" && "active")}
+                className={cx(styles["nav-item"], route.view === "tasks" && styles.active)}
                 onClick={() => onNavigate({ view: "tasks" })}
             >
                 Tasks
             </button>
 
-            <div className="sidebar-section">
+            <div className={styles["sidebar-section"]}>
                 <span>Servers</span>
                 <button
-                    className="btn-icon"
+                    className={shared["btn-icon"]}
                     title="Add node"
                     onClick={() => setAddingNode(true)}
                     style={{ marginLeft: "auto", fontSize: 16, lineHeight: 1 }}
@@ -66,30 +68,30 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
             </div>
 
             {servers.length === 0 && (
-                <div className="sidebar-empty">No agents connected.</div>
+                <div className={styles["sidebar-empty"]}>No agents connected.</div>
             )}
 
             {servers.map((entry) => {
                 const selected = route.view === "server" && route.serverId === entry.id;
                 const ip = entry.status.info?.primaryIp ?? "—";
                 return (
-                    <div key={entry.id} className={cx("server-block", selected && "selected")}>
+                    <div key={entry.id} className={cx(styles["server-block"], selected && styles.selected)}>
                         <button
-                            className="server-row"
+                            className={styles["server-row"]}
                             onClick={() => onNavigate({ view: "server", serverId: entry.id, tab: selected && route.view === "server" ? route.tab : "overview" })}
                         >
                             <StatusDot state={entry.status.state} title={entry.status.error ?? entry.status.state} />
-                            <span className="server-row-main">
-                                <span className="server-name">{entry.name}</span>
-                                <span className="server-meta">{ip}</span>
+                            <span className={styles["server-row-main"]}>
+                                <span className={styles["server-name"]}>{entry.name}</span>
+                                <span className={styles["server-meta"]}>{ip}</span>
                             </span>
                         </button>
                         {selected && (
-                            <div className="server-tabs">
+                            <div>
                                 {SERVER_TABS.map((tab) => (
                                     <button
                                         key={tab.id}
-                                        className={cx("nav-item sub", route.view === "server" && route.tab === tab.id && "active")}
+                                        className={cx(styles["nav-item"], styles.sub, route.view === "server" && route.tab === tab.id && styles.active)}
                                         onClick={() => onNavigate({ view: "server", serverId: entry.id, tab: tab.id })}
                                     >
                                         {tab.label}
@@ -101,15 +103,15 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                 );
             })}
 
-            <div className="sidebar-footer">
+            <div className={styles["sidebar-footer"]}>
                 <button
-                    className={cx("nav-item", route.view === "settings" && "active")}
+                    className={cx(styles["nav-item"], route.view === "settings" && styles.active)}
                     onClick={() => onNavigate({ view: "settings" })}
                     style={{ marginBottom: 8 }}
                 >
                     Settings
                 </button>
-                <button className="nav-item" onClick={onLogout} style={{ marginBottom: 8 }}>
+                <button className={styles["nav-item"]} onClick={onLogout} style={{ marginBottom: 8 }}>
                     Sign out
                 </button>
                 <StatusDot state={backendConnected ? "online" : "connecting"} />

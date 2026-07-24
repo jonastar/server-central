@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import type { DirEntry, InstallProbeResult } from "@central/shared";
 import { api } from "../api";
 import { cx } from "../utils";
+import shared from "../styles/shared.module.css";
+import uiStyles from "./ui.module.css";
 
 function joinPath(dir: string, name: string): string {
     return dir === "/" ? `/${name}` : `${dir}/${name}`;
@@ -11,6 +13,12 @@ function parentOf(p: string): string {
     const idx = p.lastIndexOf("/");
     return idx <= 0 ? "/" : p.slice(0, idx);
 }
+
+/** Only "dir" and "symlink" get a modifier class; plain files use the base style. */
+const fileTypeClass: Partial<Record<DirEntry["type"], string>> = {
+    dir: shared.dir,
+    symlink: shared.symlink,
+};
 
 /**
  * Browse the agent's filesystem and select a directory. The directory currently
@@ -66,39 +74,38 @@ export function DirectoryPicker({ serverId, value, onChange }: {
     const usable = probe?.writable && probe?.execCapable;
 
     return (
-        <div className="dir-picker">
-            <div className="breadcrumbs" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
+        <div>
+            <div className={shared.breadcrumbs} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 2 }}>
                 {crumbs.map((seg, i) => {
                     const target = i === 0 ? "/" : crumbs.slice(0, i + 1).join("/");
                     return (
                         <span key={target}>
-                            {i > 0 && <span className="crumb-sep">/</span>}
-                            <button className="crumb" onClick={() => onChange(target)}>{i === 0 ? "/" : seg}</button>
+                            {i > 0 && <span className={shared["crumb-sep"]}>/</span>}
+                            <button className={shared.crumb} onClick={() => onChange(target)}>{i === 0 ? "/" : seg}</button>
                         </span>
                     );
                 })}
                 <span style={{ flex: 1 }} />
-                <button className="btn" onClick={() => void mkdir()}>New folder</button>
+                <button className={shared.btn} onClick={() => void mkdir()}>New folder</button>
             </div>
 
             <div
-                className="dir-picker-list"
                 style={{ maxHeight: 200, overflow: "auto", border: "1px solid var(--border, #333)", borderRadius: 4, marginTop: 6 }}
             >
-                <table className="data-table">
+                <table className={shared["data-table"]}>
                     <tbody>
                         {value !== "/" && (
-                            <tr className="row-clickable" onClick={() => onChange(parentOf(value))}>
-                                <td className="file-name dir">..</td>
+                            <tr className={shared["row-clickable"]} onClick={() => onChange(parentOf(value))}>
+                                <td className={cx(shared["file-name"], shared.dir)}>..</td>
                             </tr>
                         )}
-                        {entries === null && <tr><td className="dim">Loading…</td></tr>}
+                        {entries === null && <tr><td className={shared.dim}>Loading…</td></tr>}
                         {entries?.map((entry) => (
-                            <tr key={entry.name} className="row-clickable" onClick={() => onChange(joinPath(value, entry.name))}>
-                                <td className={cx("file-name", entry.type)}>{entry.name}{entry.type === "symlink" && " →"}</td>
+                            <tr key={entry.name} className={shared["row-clickable"]} onClick={() => onChange(joinPath(value, entry.name))}>
+                                <td className={cx(shared["file-name"], fileTypeClass[entry.type])}>{entry.name}{entry.type === "symlink" && " →"}</td>
                             </tr>
                         ))}
-                        {entries?.length === 0 && !error && <tr><td className="dim">No subfolders</td></tr>}
+                        {entries?.length === 0 && !error && <tr><td className={shared.dim}>No subfolders</td></tr>}
                     </tbody>
                 </table>
             </div>
@@ -106,7 +113,7 @@ export function DirectoryPicker({ serverId, value, onChange }: {
             <div style={{ marginTop: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
                 <code style={{ flex: 1 }}>{value}</code>
                 {probe && (
-                    <span className={cx("badge", usable ? "badge-ok" : "badge-warn")}>
+                    <span className={cx(shared.badge, usable ? shared["badge-ok"] : shared["badge-warn"])}>
                         {usable
                             ? (probe.exists ? "writable + executable" : "will be created")
                             : !probe.writable ? "not writable" : "noexec mount"}
@@ -114,7 +121,7 @@ export function DirectoryPicker({ serverId, value, onChange }: {
                 )}
             </div>
 
-            {error && <div className="error-banner" style={{ marginTop: 8 }}>{error}</div>}
+            {error && <div className={uiStyles["error-banner"]} style={{ marginTop: 8 }}>{error}</div>}
         </div>
     );
 }

@@ -1,4 +1,5 @@
 import { cx } from "../utils";
+import styles from "./StatusFilter.module.css";
 
 /** "all" plus the row-status tokens shared with the table accent colors. */
 export type StatusToken = "all" | "ok" | "warn" | "err";
@@ -20,16 +21,16 @@ export function StatusFilter({ value, onChange, options }: {
     options: StatusOption[];
 }) {
     return (
-        <div className="status-filter">
+        <div className={styles["status-filter"]}>
             {options.map((o) => (
                 <button
                     key={o.value}
-                    className={cx("status-pill", value === o.value && "active")}
+                    className={cx(styles["status-pill"], value === o.value && styles.active)}
                     onClick={() => onChange(o.value)}
                 >
-                    {o.value !== "all" && <span className={cx("pill-dot", `pill-dot-${o.value}`)} />}
+                    {o.value !== "all" && <span className={cx(styles["pill-dot"], styles[`pill-dot-${o.value}`])} />}
                     {o.label}
-                    <span className="status-pill-count">{o.count}</span>
+                    <span className={styles["status-pill-count"]}>{o.count}</span>
                 </button>
             ))}
         </div>

@@ -4,6 +4,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalClientMessage, TerminalServerMessage } from "@central/shared";
 import { API_HOST, getToken } from "../api";
+import { cx } from "../utils";
+import styles from "./TerminalView.module.css";
+import shared from "../styles/shared.module.css";
 
 export function TerminalView({ serverId }: { serverId: string }) {
     const hostRef = useRef<HTMLDivElement>(null);
@@ -86,8 +89,8 @@ export function TerminalView({ serverId }: { serverId: string }) {
     }, [serverId]);
 
     return (
-        <div className="view terminal-view">
-            <div ref={hostRef} className="terminal-host" />
+        <div className={cx(shared.view, styles["terminal-view"])}>
+            <div ref={hostRef} className={styles["terminal-host"]} />
         </div>
     );
 }

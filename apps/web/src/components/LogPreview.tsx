@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LogQueryFull } from "./LogViewerModal";
+import { cx } from "../utils";
+import styles from "./LogPreview.module.css";
+import shared from "../styles/shared.module.css";
+import uiStyles from "./ui.module.css";
 
 const PREVIEW_LINES = 12;
 
@@ -46,15 +50,15 @@ export function LogPreview({ fetchLogs, onOpenFull }: {
     }, [text, error]);
 
     return (
-        <div className="log-preview">
-            <div className="log-preview-head">
-                <span className="detail-label">Recent logs</span>
-                <button className="btn btn-sm" onClick={() => void load()} disabled={loading} title="Refresh">
+        <div className={styles["log-preview"]}>
+            <div className={styles["log-preview-head"]}>
+                <span className={cx(uiStyles["detail-label"], styles["log-preview-label"])}>Recent logs</span>
+                <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => void load()} disabled={loading} title="Refresh">
                     {loading ? "…" : "↻"}
                 </button>
-                {onOpenFull && <button className="btn btn-sm" onClick={onOpenFull}>Open full logs</button>}
+                {onOpenFull && <button className={cx(shared.btn, shared["btn-sm"])} onClick={onOpenFull}>Open full logs</button>}
             </div>
-            <pre ref={bodyRef} className={"log-preview-body" + (error ? " dim" : "")}>
+            <pre ref={bodyRef} className={cx(styles["log-preview-body"], error && shared.dim)}>
                 {error ?? text ?? "Loading…"}
             </pre>
         </div>

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { cx, fmtPct } from "../utils";
+import styles from "./charts.module.css";
 
 export interface Series {
     label: string;
@@ -55,20 +56,20 @@ export function TimeSeriesChart({ series, max = "auto", height = 110, windowMs =
         : max;
 
     return (
-        <div className="chart">
-            <div className="chart-legend">
+        <div className={styles.chart}>
+            <div className={styles["chart-legend"]}>
                 {visible.map((s) => (
-                    <span key={s.label} className="chart-legend-item">
-                        <span className="chart-swatch" style={{ background: s.color }} />
+                    <span key={s.label} className={styles["chart-legend-item"]}>
+                        <span className={styles["chart-swatch"]} style={{ background: s.color }} />
                         {s.label}
                         <b>{s.points.length ? fmt(s.points.at(-1)!.v) : "—"}</b>
                     </span>
                 ))}
-                <span className="chart-max">max {fmt(effMax)}</span>
+                <span className={styles["chart-max"]}>max {fmt(effMax)}</span>
             </div>
             <svg viewBox={`0 0 ${VIEW_W} ${height}`} preserveAspectRatio="none" style={{ height }}>
                 {[0.25, 0.5, 0.75].map((f) => (
-                    <line key={f} x1={0} x2={VIEW_W} y1={height * f} y2={height * f} className="chart-grid" />
+                    <line key={f} x1={0} x2={VIEW_W} y1={height * f} y2={height * f} className={styles["chart-grid"]} />
                 ))}
                 {visible.map((s) => s.points.length > 1 && (
                     <g key={s.label}>
@@ -85,21 +86,22 @@ export function TimeSeriesChart({ series, max = "auto", height = 110, windowMs =
     );
 }
 
-export function Sparkline({ points, color = "var(--accent)", height = 28, windowMs = 10 * 60_000, max = 100 }: {
+export function Sparkline({ points, color = "var(--accent)", height = 28, windowMs = 10 * 60_000, max = 100, className }: {
     points: Array<{ ts: number; v: number }>;
     color?: string;
     height?: number;
     windowMs?: number;
     max?: number;
+    className?: string;
 }) {
     const t1 = points.at(-1)?.ts ?? Date.now();
     const t0 = t1 - windowMs;
     const visible = points.filter((p) => p.ts >= t0);
     if (visible.length < 2) {
-        return <svg className="sparkline" style={{ height }} />;
+        return <svg className={cx(styles.sparkline, className)} style={{ height }} />;
     }
     return (
-        <svg className="sparkline" viewBox={`0 0 ${VIEW_W} ${height}`} preserveAspectRatio="none" style={{ height }}>
+        <svg className={cx(styles.sparkline, className)} viewBox={`0 0 ${VIEW_W} ${height}`} preserveAspectRatio="none" style={{ height }}>
             <path d={toPath(visible, t0, t1, max, height)} fill="none" stroke={color} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
         </svg>
     );
@@ -107,22 +109,22 @@ export function Sparkline({ points, color = "var(--accent)", height = 28, window
 
 function loadClass(pct: number): string {
     if (pct >= 90) {
-        return "load-high";
+        return styles["load-high"];
     }
     if (pct >= 60) {
-        return "load-mid";
+        return styles["load-mid"];
     }
-    return "load-low";
+    return styles["load-low"];
 }
 
 export function UsageBar({ label, pct, detail }: { label: string; pct: number; detail?: string }) {
     return (
-        <div className="usage-bar">
-            <span className="usage-label" title={label}>{label}</span>
-            <div className="usage-track">
-                <div className={cx("usage-fill", loadClass(pct))} style={{ width: `${Math.min(100, pct)}%` }} />
+        <div className={styles["usage-bar"]}>
+            <span className={styles["usage-label"]} title={label}>{label}</span>
+            <div className={styles["usage-track"]}>
+                <div className={cx(styles["usage-fill"], loadClass(pct))} style={{ width: `${Math.min(100, pct)}%` }} />
             </div>
-            <span className="usage-detail">{detail ?? fmtPct(pct)}</span>
+            <span className={styles["usage-detail"]}>{detail ?? fmtPct(pct)}</span>
         </div>
     );
 }
@@ -130,15 +132,15 @@ export function UsageBar({ label, pct, detail }: { label: string; pct: number; d
 /** Per-core CPU load as a row of small vertical bars. */
 export function CoreGrid({ perCore }: { perCore: (number | null)[] }) {
     return (
-        <div className="core-grid">
+        <div className={styles["core-grid"]}>
             {perCore.map((raw, i) => {
                 const pct = raw ?? 0;
                 return (
-                    <div key={i} className="core-cell" title={`core ${i}: ${fmtPct(pct)}`}>
-                        <div className="core-track">
-                            <div className={cx("core-fill", loadClass(pct))} style={{ height: `${Math.max(2, Math.min(100, pct))}%` }} />
+                    <div key={i} className={styles["core-cell"]} title={`core ${i}: ${fmtPct(pct)}`}>
+                        <div className={styles["core-track"]}>
+                            <div className={cx(styles["core-fill"], loadClass(pct))} style={{ height: `${Math.max(2, Math.min(100, pct))}%` }} />
                         </div>
-                        <span className="core-label">{i}</span>
+                        <span className={styles["core-label"]}>{i}</span>
                     </div>
                 );
             })}

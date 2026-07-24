@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProcessInfo } from "@central/shared";
 import { api } from "../api";
-import { fmtKb } from "../utils";
+import { cx, fmtKb } from "../utils";
 import { EmptyState, ErrorBanner } from "./ui";
+import shared from "../styles/shared.module.css";
 
 type SortKey = "cpuPct" | "memPct";
 
@@ -34,32 +35,32 @@ export function ProcessesView({ serverId }: { serverId: string }) {
         .slice(0, 100);
 
     return (
-        <div className="view">
-            <header className="view-header">
+        <div className={shared.view}>
+            <header className={shared["view-header"]}>
                 <h1>Processes</h1>
                 <input
-                    className="filter-input"
+                    className={shared["filter-input"]}
                     placeholder="Filter by command or user…"
                     value={filter}
                     onChange={(e) => setFilter(e.target.value)}
                 />
-                <button className="btn" onClick={() => void load()}>Refresh</button>
+                <button className={shared.btn} onClick={() => void load()}>Refresh</button>
             </header>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
             {processes === null && !error && <EmptyState>Loading…</EmptyState>}
 
             {processes && (
-                <section className="panel">
-                    <table className="data-table">
+                <section className={shared.panel}>
+                    <table className={shared["data-table"]}>
                         <thead>
                             <tr>
                                 <th>PID</th>
                                 <th>User</th>
-                                <th className="th-sortable" onClick={() => setSortKey("cpuPct")}>
+                                <th className={shared["th-sortable"]} onClick={() => setSortKey("cpuPct")}>
                                     CPU%{sortKey === "cpuPct" && " ▾"}
                                 </th>
-                                <th className="th-sortable" onClick={() => setSortKey("memPct")}>
+                                <th className={shared["th-sortable"]} onClick={() => setSortKey("memPct")}>
                                     Mem%{sortKey === "memPct" && " ▾"}
                                 </th>
                                 <th>RSS</th>
@@ -70,13 +71,13 @@ export function ProcessesView({ serverId }: { serverId: string }) {
                         <tbody>
                             {shown.map((p) => (
                                 <tr key={p.pid}>
-                                    <td className="dim">{p.pid}</td>
+                                    <td className={shared.dim}>{p.pid}</td>
                                     <td>{p.user}</td>
                                     <td>{p.cpuPct.toFixed(1)}</td>
                                     <td>{p.memPct.toFixed(1)}</td>
-                                    <td className="dim">{fmtKb(p.rssKb)}</td>
-                                    <td className="dim">{p.started}</td>
-                                    <td className="mono cmd-cell" title={p.command}>{p.command}</td>
+                                    <td className={shared.dim}>{fmtKb(p.rssKb)}</td>
+                                    <td className={shared.dim}>{p.started}</td>
+                                    <td className={cx(shared.mono, shared["cmd-cell"])} title={p.command}>{p.command}</td>
                                 </tr>
                             ))}
                         </tbody>

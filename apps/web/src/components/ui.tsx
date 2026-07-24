@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import type { ServerConnState } from "@central/shared";
 import { cx } from "../utils";
+import styles from "./ui.module.css";
+import shared from "../styles/shared.module.css";
 
 export function StatusDot({ state, title }: { state: ServerConnState; title?: string }) {
-    return <span className={cx("status-dot", `status-${state}`)} title={title ?? state} />;
+    return <span className={cx(styles["status-dot"], styles[`status-${state}`])} title={title ?? state} />;
 }
 
 export function Modal({ title, onClose, children, width, large, tone }: {
@@ -18,35 +20,35 @@ export function Modal({ title, onClose, children, width, large, tone }: {
     tone?: "info" | "ok" | "err" | "muted";
 }) {
     return (
-        <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-            <div className={cx("modal", large && "modal-large")} style={!large && width ? { width } : undefined}>
-                <div className={cx("modal-header", tone && `modal-tone-${tone}`)}>
+        <div className={styles["modal-overlay"]} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+            <div className={cx(styles.modal, large && styles["modal-large"])} style={!large && width ? { width } : undefined}>
+                <div className={cx(styles["modal-header"], tone && styles[`modal-tone-${tone}`])}>
                     <h2>
-                        {tone === "info" && <span className="spinner modal-spinner" />}
+                        {tone === "info" && <span className={cx(styles.spinner, styles["modal-spinner"])} />}
                         {title}
                     </h2>
-                    <button className="btn-icon" onClick={onClose} aria-label="Close">✕</button>
+                    <button className={shared["btn-icon"]} onClick={onClose} aria-label="Close">✕</button>
                 </div>
-                <div className={cx("modal-body", large && "modal-body-fill")}>{children}</div>
+                <div className={cx(styles["modal-body"], large && styles["modal-body-fill"])}>{children}</div>
             </div>
         </div>
     );
 }
 
 export function EmptyState({ children }: { children: ReactNode }) {
-    return <div className="empty-state">{children}</div>;
+    return <div className={styles["empty-state"]}>{children}</div>;
 }
 
 /** Aligned label/value pair used in detail modals and expanded table rows. */
 export function DetailPair({ label, children }: { label: string; children: ReactNode }) {
     return (
-        <div className="detail-row">
-            <div className="detail-label">{label}</div>
-            <div className="detail-value">{children}</div>
+        <div className={styles["detail-row"]}>
+            <div className={styles["detail-label"]}>{label}</div>
+            <div className={styles["detail-value"]}>{children}</div>
         </div>
     );
 }
 
 export function ErrorBanner({ children }: { children: ReactNode }) {
-    return <div className="error-banner">{children}</div>;
+    return <div className={styles["error-banner"]}>{children}</div>;
 }
