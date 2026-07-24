@@ -42,10 +42,25 @@ export interface SpawnedAgent {
  * production binary uses, run from source (no compile step). Exercises real arg
  * parsing, the WsTransport, the connect/reconnect loop, and startMetrics().
  */
-export function spawnTestAgent(opts: { control: string; token: string; certPath: string }): SpawnedAgent {
+export function spawnTestAgent(opts: {
+    control: string;
+    token: string;
+    certPath: string;
+    /** Second control URL, tried when the primary fails (`--alt-control`). */
+    altControl?: string;
+    /** Extra env for the agent process — SC_AGENT_DIR to isolate its state dir,
+     *  SC_AGENT_HEARTBEAT_TIMEOUT_MS to shorten the watchdog. */
+    env?: Record<string, string>;
+}): SpawnedAgent {
     const proc = Bun.spawn(
-        ["bun", AGENT_ENTRY, "--agent", "--control", opts.control, "--token", opts.token, "--cert", opts.certPath],
-        { stdout: "pipe", stderr: "pipe" },
+        [
+            "bun", AGENT_ENTRY, "--agent",
+            "--control", opts.control,
+            ...(opts.altControl ? ["--alt-control", opts.altControl] : []),
+            "--token", opts.token,
+            "--cert", opts.certPath,
+        ],
+        { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...opts.env } },
     );
 
     const chunks: string[] = [];

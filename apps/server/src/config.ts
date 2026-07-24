@@ -1,12 +1,31 @@
 import * as fs from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import type { AgentMode, SystemInfo, TaskRun } from "@central/shared";
 
-// State dir for config, TLS, tokens, and the agent-binary cache. Relative ".sc-data"
-// in dev (resolved against cwd); an installed control plane sets SC_DATA_DIR to an
-// absolute path (e.g. /var/lib/sc-central) via its systemd unit.
-export const CONFIG_DIR = process.env.SC_DATA_DIR || ".sc-data";
+/**
+ * Where config, TLS, tokens, and the agent-binary cache live. Relative ".sc-data"
+ * in dev (resolved against cwd); an installed control plane sets SC_DATA_DIR to an
+ * absolute path (e.g. /var/lib/sc-central) via its systemd unit.
+ *
+ * Under `bun test` the relative default is never acceptable: it resolves against
+ * cwd, and tests chdir into throwaway dirs while fire-and-forget writes are still
+ * in flight — which is how a test run once clobbered a live dev instance's
+ * agents.json. `test/env-preload.ts` normally pins SC_DATA_DIR, but bunfig (and so
+ * the preload) is only discovered when `bun test` runs from apps/server, leaving
+ * a repo-root `bun test` unprotected. Bun sets NODE_ENV=test, so this backstop
+ * holds regardless of how the runner was invoked.
+ */
+function defaultDataDir(): string {
+    if (process.env.NODE_ENV === "test") {
+        return mkdtempSync(path.join(os.tmpdir(), "sc-test-data-"));
+    }
+    return ".sc-data";
+}
+
+export const CONFIG_DIR = process.env.SC_DATA_DIR || defaultDataDir();
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const AGENT_STATE_FILE = path.join(CONFIG_DIR, "agents.json");
 const AGENT_TOKENS_FILE = path.join(CONFIG_DIR, "agent-tokens.json");

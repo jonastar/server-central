@@ -15,6 +15,7 @@ import {
     run,
     writeManifest,
 } from "./self-install";
+import { readRuntimeState, writeRuntimeState } from "./state";
 
 // ---- CLI argument parsing ----------------------------------------------------
 
@@ -124,12 +125,41 @@ class WsTransport implements AgentTransport {
 
 const RECONNECT_DELAY_MS = 5_000;
 
+/** Deadline for a single connect attempt, covering TCP + TLS + the WS upgrade +
+ *  the control plane's `acknowledged`. Without it an attempt is bounded only by
+ *  the OS: a black-holed host (dropped SYN — the normal shape of "the LAN
+ *  address isn't reachable from here") takes ~127s of TCP SYN retries before
+ *  failing over to the alt URL, and a peer that accepts the socket but never
+ *  acknowledges hangs the loop *forever* — no alt attempt, no reconnect. Same
+ *  hazard the self-update download already guards with DOWNLOAD_TIMEOUT_MS. */
+const CONNECT_TIMEOUT_MS = 10_000;
+
+/** How long the agent tolerates silence from a control plane that has beaten at
+ *  least once. Must clear several missed beats (the control plane pings every
+ *  15s) so a slow link doesn't cause reconnect churn. Overridable for tests and
+ *  for links where that default is the wrong tradeoff. */
+const HEARTBEAT_TIMEOUT_MS = Number(process.env.SC_AGENT_HEARTBEAT_TIMEOUT_MS) || 45_000;
+
+/** Every Nth reconnect cycle, ignore the remembered endpoint and try the
+ *  configured order instead, so an agent that fell back to the alt URL
+ *  re-discovers the (usually LAN-local, cheaper) primary once it's reachable
+ *  again. Only costs a probe on hosts that are already flapping. */
+const PRIMARY_REPROBE_EVERY = 10;
+
 interface Identity {
     token: string;
     machineId: string;
     mode: AgentMode;
     info: SystemInfo;
     certPem: string;
+}
+
+/** Callbacks the connect loop hands the Agent, plus the loop's own success hook. */
+interface Handlers {
+    onInstallService: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism, force?: boolean) => Promise<{ startCommand: string | null }>;
+    onUpdateService: (version: string, force?: boolean) => Promise<void>;
+    /** Called with the URL that just reached the control plane and was acknowledged. */
+    onConnected: (url: string) => void;
 }
 
 // ---- Self-install (live → installed service) ---------------------------------
@@ -344,6 +374,21 @@ async function updateSelf(opts: {
     setTimeout(() => process.exit(0), 1500);
 }
 
+/** Drop a socket now, without waiting for a close handshake the peer may never
+ *  answer — the whole point when we've decided the link is dead. */
+function hangUp(ws: WebSocket): void {
+    try {
+        // Bun exposes ws-style terminate(); close() alone can wait on a peer that
+        // will never reply, which on a half-open TCP means minutes of nothing.
+        const terminate = (ws as WebSocket & { terminate?: () => void }).terminate;
+        if (typeof terminate === "function") {
+            terminate.call(ws);
+        } else {
+            ws.close();
+        }
+    } catch { /* already gone */ }
+}
+
 async function connect(url: string, id: Identity): Promise<WebSocket> {
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(url, {
@@ -355,6 +400,26 @@ async function connect(url: string, id: Identity): Promise<WebSocket> {
             // since they only ever trust this CA.
             tls: { ca: id.certPem },
         });
+
+        // One-shot settle: the handlers below stay installed until runWithUrl
+        // replaces them, and the deadline fires independently of both.
+        let settled = false;
+        const timer = setTimeout(() => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            hangUp(ws);
+            reject(new Error(`timed out after ${CONNECT_TIMEOUT_MS / 1000}s (no acknowledgement)`));
+        }, CONNECT_TIMEOUT_MS);
+        const settle = (done: () => void) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(timer);
+            done();
+        };
 
         ws.onopen = () => {
             ws.send(JSON.stringify({
@@ -368,40 +433,84 @@ async function connect(url: string, id: Identity): Promise<WebSocket> {
                 const msg = JSON.parse(String(event.data));
                 if (msg.type === "acknowledged") {
                     const standby = msg.active ? "" : " (standby — another agent is active for this machine)";
-                    console.log(`Connected to control plane (machine ${msg.nodeId}, mode ${id.mode})${standby}`);
-                    resolve(ws);
+                    settle(() => {
+                        console.log(`Connected to control plane at ${url} (machine ${msg.nodeId}, mode ${id.mode})${standby}`);
+                        resolve(ws);
+                    });
                 }
             } catch { }
         };
 
-        ws.onerror = (err) => reject(err);
-        ws.onclose = () => reject(new Error("Connection closed before acknowledged"));
+        ws.onerror = (err) => settle(() => reject(err));
+        ws.onclose = () => settle(() => reject(new Error("Connection closed before acknowledged")));
     });
 }
 
-async function runWithUrl(
-    url: string,
-    id: Identity,
-    onInstallService: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism, force?: boolean) => Promise<{ startCommand: string | null }>,
-    onUpdateService: (version: string, force?: boolean) => Promise<void>,
-): Promise<void> {
+async function runWithUrl(url: string, id: Identity, handlers: Handlers): Promise<void> {
     const ws = await connect(url, id);
-    const agent = new Agent(new WsTransport(ws), false, onInstallService, onUpdateService);
+    handlers.onConnected(url);
+    const agent = new Agent(new WsTransport(ws), false, handlers.onInstallService, handlers.onUpdateService);
     agent.startMetrics();
 
     return new Promise((resolve) => {
+        // Armed by the first `ping` and refreshed by every message after it, so a
+        // control plane too old to beat (or one that stops beating mid-connection)
+        // keeps the pre-heartbeat behaviour instead of reconnect-looping.
+        let watchdog: ReturnType<typeof setTimeout> | null = null;
+        let done = false;
+        const finish = (why: string | null) => {
+            if (done) {
+                return;
+            }
+            done = true;
+            if (watchdog) {
+                clearTimeout(watchdog);
+            }
+            agent.stopMetrics();
+            if (why) {
+                console.warn(why);
+            }
+            resolve();
+        };
+        const armWatchdog = () => {
+            if (watchdog) {
+                clearTimeout(watchdog);
+            }
+            watchdog = setTimeout(() => {
+                // Don't wait for onclose: a half-open socket may never produce one
+                // (our close frame goes into a void), which is exactly the state
+                // we're trying to escape. Hang up and drive the reconnect here.
+                hangUp(ws);
+                finish(`No heartbeat from the control plane in ${HEARTBEAT_TIMEOUT_MS / 1000}s; treating the connection as dead.`);
+            }, HEARTBEAT_TIMEOUT_MS);
+        };
+
         ws.onmessage = (event) => {
             try {
-                void agent.onMessage(JSON.parse(String(event.data)));
+                const msg = JSON.parse(String(event.data));
+                if (msg.type === "ping" || watchdog) {
+                    armWatchdog();
+                }
+                void agent.onMessage(msg);
             } catch { }
         };
 
-        ws.onclose = () => { agent.stopMetrics(); resolve(); };
-        ws.onerror = () => { agent.stopMetrics(); resolve(); };
+        ws.onclose = () => finish(null);
+        ws.onerror = () => finish(null);
     });
 }
 
 // ---- Entry -------------------------------------------------------------------
+
+/** Put the remembered endpoint first, keeping the configured order behind it.
+ *  Ignores a remembered URL that's no longer configured (the operator moved the
+ *  control plane), so state can never strand an agent on a dead address. */
+function orderUrls(urls: string[], preferred: string | null): string[] {
+    if (!preferred || urls[0] === preferred || !urls.includes(preferred)) {
+        return urls;
+    }
+    return [preferred, ...urls.filter((u) => u !== preferred)];
+}
 
 /** Run as a host agent (`server --agent …`), connecting to a control plane. */
 export async function runAgentCli(argv: string[]): Promise<void> {
@@ -419,13 +528,28 @@ export async function runAgentCli(argv: string[]): Promise<void> {
     // installDir/dataDir come from the installed agent's config file (null for live).
     const onUpdateService = (version: string, force?: boolean) => updateSelf({ control, altControl, certPem, token, version, force, installDir, dataDir });
 
-    console.log(`sc-agent starting (mode ${mode}, machine ${machineId}), connecting to ${control}`);
+    // Which URL worked last time, remembered across restarts. A host that only
+    // reaches the control plane via the alt endpoint (typically off-LAN, where
+    // the primary is a LAN address) would otherwise burn a full connect timeout
+    // on the primary before every single reconnect.
+    let preferred = (await readRuntimeState(dataDir)).lastControl ?? null;
+    const onConnected = (url: string) => {
+        if (url === preferred) {
+            return;
+        }
+        preferred = url;
+        void writeRuntimeState(dataDir, { lastControl: url, lastControlAt: Date.now() });
+    };
+    const handlers: Handlers = { onInstallService, onUpdateService, onConnected };
 
-    while (true) {
+    console.log(`sc-agent starting (mode ${mode}, machine ${machineId}), connecting to ${preferred ?? control}`);
+
+    for (let cycle = 0; ; cycle++) {
+        const reprobe = cycle > 0 && cycle % PRIMARY_REPROBE_EVERY === 0;
         let connected = false;
-        for (const url of urls) {
+        for (const url of orderUrls(urls, reprobe ? null : preferred)) {
             try {
-                await runWithUrl(url, id, onInstallService, onUpdateService);
+                await runWithUrl(url, id, handlers);
                 connected = true;
                 break;
             } catch (err) {

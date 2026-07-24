@@ -2,7 +2,6 @@
 
 ## Smaller items
 
-- Agents should maybe track the valid control url if there's multiple
 - View agent config in the agents section
 
 - base64 encoding of the blob to manually send it in the body is not ideal, can we support multipart somehow?
@@ -184,6 +183,23 @@ So maybe this could be a flows thing? with various triggers?
 But at some point maybe it's better to just jump into htop in the terminal?
 
 # Already implemented, archive
+
+- [DONE] Agent reconnect hardening (2026-07-24) — connect deadline, sticky control URL, heartbeat
+  - `connect()` had no timeout of any kind: a black-holed endpoint cost ~127s of TCP SYN retries
+    before trying the alt URL, and a peer that accepted the socket but never acknowledged wedged the
+    loop forever. Now a 10s per-attempt deadline (`CONNECT_TIMEOUT_MS`).
+  - The URL that last worked is persisted in a new `state.json` (install data dir, or
+    `SC_AGENT_DIR`/`~/.sc-agent` for a live agent) and tried first, with a re-probe of the configured
+    order every 10th reconnect cycle. Kept out of `config.json` on purpose — that's installer-written
+    input, rewritten wholesale by `installSelf`.
+  - Heartbeat: control plane pings every 15s (capability-gated, one beat immediately on connect),
+    agent pongs and runs a 45s watchdog that terminates the socket and reconnects. Closes the
+    half-open-TCP hole where an agent wrote metrics into a void indefinitely. Node server WS
+    `idleTimeout` pinned to 60s so the control plane's own view of a dead connection self-heals faster.
+  - Covered by `apps/server/test/integration/agent-reconnect.test.ts` (real agent subprocess against
+    a real NodeServer: hung-primary fallthrough + sticky persistence, capability-gated pinging, and
+    watchdog-driven reconnect against a fake control plane that goes silent). Not yet observed on a
+    real flaky link — the half-open case is simulated, not reproduced against real NAT eviction.
 
 - [DONE] Force reinstall option for a broken agent install (2026-07-23)
   - `installNodeService` / the `installService` node-protocol message gained an optional `force`

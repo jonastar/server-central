@@ -7,7 +7,61 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+### Added
+
+- **Agent heartbeat**: the control plane now sends a `ping` every 15s to agents advertising the new
+  `heartbeat` capability (once immediately on connect, so the agent's watchdog arms right away), and
+  the agent replies `pong`. The point is the receiving side: an agent that has seen a beat and then
+  goes 45s without one (`SC_AGENT_HEARTBEAT_TIMEOUT_MS` to override) declares the link dead,
+  terminates the socket, and reconnects. TCP alone never resolved this — on a half-open connection
+  (NAT table eviction, gateway reboot) the agent kept writing metrics into a void indefinitely and
+  never reconnected, since `runWithUrl`'s promise only settled on a close/error that never arrived.
+  The watchdog arms only after the first beat, so an older control plane that never pings keeps the
+  previous behaviour instead of reconnect-looping; the beat is capability-gated so older agents
+  (which have no watchdog to feed) aren't pinged at all. The socket is torn down with `terminate()`
+  rather than `close()`, and the watchdog resolves the connection promise itself — waiting on a close
+  handshake the dead peer will never answer is exactly the stall being escaped. Server side, the node
+  server's WS `idleTimeout` is now an explicit 60s (Bun's default is 120s), halving how long a
+  half-open connection lingers in the fleet; agents send metrics every 5s, so live ones clear it
+  easily.
+
+- **Agents remember which control URL worked** (`state.json`): the working endpoint is persisted and
+  tried first on the next reconnect *and* across restarts. Previously the configured order
+  (`--control`, then `--alt-control`) was retried from the top every single time, so a host that only
+  reaches the control plane via the alt endpoint — the normal case off-LAN, where the primary is a
+  LAN address — paid a full failed attempt on every reconnect, forever. Every 10th reconnect cycle
+  ignores the memory and re-probes the configured order, so an agent that fell back to the alt
+  re-discovers the (cheaper, LAN-local) primary once it's reachable; a remembered URL that's no
+  longer configured is ignored outright, so stale state can't strand an agent. State lives in
+  `state.json` next to the install's cert/config (or under `SC_AGENT_DIR`/`~/.sc-agent` for a live
+  agent) — deliberately *not* in `config.json`, which is operator/installer-authored input rewritten
+  wholesale by `installSelf`. Writes are atomic (temp + rename) and entirely best-effort: the file is
+  a cache, and losing it costs one slower reconnect.
+
 ### Fixed
+
+- **The data-dir test isolation didn't cover `bun test` from the repo root**: the SC_DATA_DIR pin
+  added earlier lives in `apps/server/test/env-preload.ts`, wired via `apps/server/bunfig.toml` —
+  but Bun only reads bunfig from the directory it was invoked in, so running the suite from the repo
+  root (which is what a monorepo-wide `bun test` does) skipped the preload entirely and put
+  `CONFIG_DIR` back to the relative `.sc-data`, reopening the exact race that clobbered a live dev
+  instance's `agents.json`. Two fixes: a root `bunfig.toml` mirroring the preload, and — since a
+  config detail shouldn't be the only thing standing between a test run and real data — a backstop
+  in `config.ts` that resolves the data dir to a throwaway temp dir whenever `NODE_ENV=test` (which
+  `bun test` always sets) and SC_DATA_DIR is unset. Verified from the repo root: `CONFIG_DIR` lands
+  under /tmp and a full suite run leaves the real `.sc-data/agents.json` byte-identical. The agent
+  side got the same treatment — `SC_AGENT_DIR` is now pinned in the preload so spawned test agents
+  keep their `state.json`/machine-id fallback out of the developer's home directory.
+
+- **An agent could hang forever on a single control-plane connect attempt**: `connect()` had no
+  deadline at all, so an attempt was bounded only by the OS. A black-holed endpoint (dropped SYN —
+  the usual shape of "that address isn't reachable from this host") burned ~127s of TCP SYN retries
+  before failing over to the alt URL, and a peer that accepted the socket but never sent
+  `acknowledged` wedged the loop permanently: no alt attempt, no reconnect, no recovery short of a
+  restart. Now bounded by a 10s deadline covering TCP + TLS + the WS upgrade + the acknowledgement —
+  the same guard the self-update download already had (`DOWNLOAD_TIMEOUT_MS`) for the identical
+  failure shape. Covered by `apps/server/test/integration/agent-reconnect.test.ts`, which points a
+  real agent at a listener that accepts and never speaks and asserts it falls through to the alt.
 
 - **Task runs left "Running" forever after a control-plane restart**: `TaskRunner` persists every
   status transition, so a run in flight when the process stopped stayed on disk as `pending` or

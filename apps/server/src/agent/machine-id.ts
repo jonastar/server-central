@@ -7,8 +7,12 @@ import * as path from "node:path";
 // and reconnects, which is exactly what we want for a fleet key.
 const OS_MACHINE_ID_SOURCES = ["/etc/machine-id", "/var/lib/dbus/machine-id"];
 
-/** Where we persist a generated id when the OS provides none. */
-function stateDir(): string {
+/**
+ * Fallback state dir for an agent with no install data dir (i.e. a live agent):
+ * where a generated machine id is persisted when the OS provides none, and where
+ * runtime state lands. Installed agents use their configured dataDir instead.
+ */
+export function fallbackStateDir(): string {
     return process.env.SC_AGENT_DIR || path.join(os.homedir(), ".sc-agent");
 }
 
@@ -18,7 +22,7 @@ function hashId(raw: string): string {
 }
 
 async function persistedId(): Promise<string> {
-    const file = path.join(stateDir(), "machine-id");
+    const file = path.join(fallbackStateDir(), "machine-id");
     try {
         const existing = (await fs.readFile(file, "utf8")).trim();
         if (existing) {
@@ -27,7 +31,7 @@ async function persistedId(): Promise<string> {
     } catch { /* generate one below */ }
 
     const id = crypto.randomUUID().replace(/-/g, "");
-    await fs.mkdir(stateDir(), { recursive: true });
+    await fs.mkdir(fallbackStateDir(), { recursive: true });
     await fs.writeFile(file, id);
     return id;
 }

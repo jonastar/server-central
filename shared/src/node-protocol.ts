@@ -36,6 +36,10 @@ export type NodeMessage =
     | { type: "probeInstallPathResponse"; requestId: string; result: InstallProbeResult }
     | { type: "installServiceResponse"; requestId: string; startCommand: string | null }
     | { type: "updateServiceResponse"; requestId: string }
+    // Reply to a control-plane `ping`. The control plane doesn't need it for
+    // liveness (metrics already flow every 5s) — it exists so the exchange is a
+    // real round trip, and older control planes ignore it (no requestId).
+    | { type: "pong" }
     | { type: "error"; requestId?: string; message: string };
 
 // ---- Control → Node ----------------------------------------------------------
@@ -78,4 +82,10 @@ export type ControlMessage =
     // Ask an installed agent to update itself to `version`: download that binary
     // from the control plane, repoint its symlink, and restart into it. force
     // bypasses the agent's own "already running this version" refusal.
-    | { type: "updateService"; requestId: string; version: string; force?: boolean };
+    | { type: "updateService"; requestId: string; version: string; force?: boolean }
+    // Periodic liveness beat, sent only to agents advertising the "heartbeat"
+    // capability. The agent replies `pong` and, more importantly, treats a
+    // missing beat as a dead link: TCP alone can leave a half-open socket the
+    // agent happily writes into for many minutes (NAT eviction, gateway reboot),
+    // during which it never reconnects. See HEARTBEAT_* in agent-cli.ts.
+    | { type: "ping" };

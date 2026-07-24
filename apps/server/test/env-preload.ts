@@ -19,3 +19,10 @@ import * as path from "node:path";
 // and no test reads those files back to assert on them, so sharing one directory
 // across files for just this purpose is harmless.)
 process.env.SC_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "sc-test-data-"));
+
+// Same reasoning for the *agent* side of the suite: a live agent with no install
+// data dir keeps its state (machine-id fallback, state.json) under SC_AGENT_DIR,
+// defaulting to ~/.sc-agent. Test agents inherit this env, so pin it here rather
+// than let them scribble in the developer's home directory. Tests that read the
+// state file back set their own SC_AGENT_DIR per spawn.
+process.env.SC_AGENT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "sc-test-agent-"));

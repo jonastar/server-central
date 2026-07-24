@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import type { Server } from "bun";
 import BOOTSTRAP_SCRIPT from "./agent/bootstrap.sh" with { type: "text" };
-import type { MetricsSnapshot, NodeMessage } from "@central/shared";
+import type { ControlMessage, MetricsSnapshot, NodeMessage } from "@central/shared";
 import { ensureTls, localIps, type TlsBundle } from "./tls";
 import { HostAgent } from "./host-agent";
 import type { Fleet } from "./fleet";
@@ -11,7 +11,23 @@ import { BinaryStoreError, resolveAgentBinary } from "./binary-store";
 
 export const NODE_SERVER_PORT = 4142;
 
-type NodeWsData = { channel: "node"; connId: string | null; remoteIp: string | null };
+/** How often the control plane beats at heartbeat-capable agents. Frequent enough
+ *  that an agent notices a dead link in well under a minute (its watchdog clears
+ *  several missed beats), cheap enough to be noise next to 5s metrics. */
+const HEARTBEAT_INTERVAL_MS = 15_000;
+
+/** Seconds without a message from an agent before Bun closes the socket. Agents
+ *  send metrics every 5s, so anything live clears this easily; it bounds how long
+ *  a half-open connection lingers in the fleet (Bun's default is 120s). */
+const WS_IDLE_TIMEOUT_S = 60;
+
+type NodeWsData = {
+    channel: "node";
+    connId: string | null;
+    remoteIp: string | null;
+    /** Heartbeat timer, set once the agent identifies as heartbeat-capable. */
+    heartbeat: ReturnType<typeof setInterval> | null;
+};
 
 interface TokenEntry {
     expiresAt: number;
@@ -274,7 +290,7 @@ export class NodeServer {
 
                 if (url.pathname === "/node") {
                     const remoteIp = serverCtx.requestIP(req)?.address ?? null;
-                    if (serverCtx.upgrade(req, { data: { channel: "node", connId: null, remoteIp } satisfies NodeWsData })) {
+                    if (serverCtx.upgrade(req, { data: { channel: "node", connId: null, remoteIp, heartbeat: null } satisfies NodeWsData })) {
                         return undefined as unknown as Response;
                     }
                     return new Response("Upgrade failed", { status: 400 });
@@ -283,6 +299,7 @@ export class NodeServer {
                 return new Response("Not found", { status: 404 });
             },
             websocket: {
+                idleTimeout: WS_IDLE_TIMEOUT_S,
                 open(_ws) {
                     // Wait for identify message
                 },
@@ -325,6 +342,18 @@ export class NodeServer {
                         const active = self.fleet.register(proxy);
 
                         ws.send(JSON.stringify({ type: "acknowledged", nodeId: msg.machineId, active }));
+
+                        // Beat only at agents that advertise it: older agents ignore
+                        // unknown messages, so pinging them is pure waste — and they
+                        // have no watchdog to feed anyway.
+                        if ((msg.capabilities ?? []).includes("heartbeat")) {
+                            const ping = () => ws.send(JSON.stringify({ type: "ping" } satisfies ControlMessage));
+                            // Beat once immediately so the agent's watchdog arms now
+                            // rather than an interval later.
+                            ping();
+                            ws.data.heartbeat = setInterval(ping, HEARTBEAT_INTERVAL_MS);
+                        }
+
                         const role = active ? msg.mode : `${msg.mode}, standby`;
                         console.log(`Node connected: ${msg.info.hostname} (${msg.machineId}) [${role}]`);
                         return;
@@ -333,6 +362,10 @@ export class NodeServer {
                     self.agents.get(connId)?.receive(msg);
                 },
                 close(ws) {
+                    if (ws.data.heartbeat) {
+                        clearInterval(ws.data.heartbeat);
+                        ws.data.heartbeat = null;
+                    }
                     const connId = ws.data.connId;
                     if (!connId) {
                         return;

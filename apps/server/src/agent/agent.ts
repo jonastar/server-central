@@ -155,6 +155,12 @@ export class Agent {
             case "acknowledged":
                 break;
 
+            case "ping":
+                // The reply is for symmetry; the beat's real job is on the receiving
+                // side — the connect loop's watchdog treats its absence as a dead link.
+                this.transport.send({ type: "pong" });
+                break;
+
             case "execRequest": {
                 const result = await this.runExec(msg.command).catch((e) => ({
                     stdout: "", stderr: String(e), code: 1,

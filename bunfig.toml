@@ -1,0 +1,7 @@
+# Bun only reads bunfig.toml from the directory it was invoked in, so this mirrors
+# apps/server/bunfig.toml for the (very common) `bun test` from the repo root —
+# without it the data-dir isolation preload silently doesn't run and the suite
+# writes into a real dev instance's .sc-data. config.ts has its own NODE_ENV=test
+# backstop; this keeps both entry points on the identical path.
+[test]
+preload = ["./apps/server/test/env-preload.ts"]
