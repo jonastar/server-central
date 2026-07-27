@@ -73,6 +73,24 @@
 >
 > - emit the agent pid to a file. Not yet implemented.
 
+### Backup, config tracking & secrets
+
+> Design spec: [doc/idea_backup_secrets.md](doc/idea_backup_secrets.md) (2026-07-25).
+> SC as the abstraction layer above the OS: every stack, every piece of app config, and
+> SC's own state declared in SC and backed up to a central repo, so an OS reinstall is
+> recoverable. Core model — classify by *who writes it*, not by which layer it belongs to.
+> Per-volume classification (`declared` / `captured` / `regenerable` / `external`, with
+> unclassified as a **blocking** state so backups never silently lie), plus a `tracked`
+> class for individual files SC observes but doesn't own (the `postgresql.conf`-inside-PGDATA
+> case). Four destinations: plaintext git repo, an encrypted secret blob with **bounded**
+> retention (deliberately *not* in git — history can't be un-published on GitHub, and
+> retained ciphertext makes rotation meaningless), an encrypted restic archive store for
+> app-written volumes, and nothing. Compose files never contain secrets, only `${sc:...}`
+> references materialized at deploy. Drift detection is the actual deliverable — being in
+> git is worthless if nothing compares.
+> Depends on the stack registry (per-volume metadata hangs off `StackRoot`). Open question
+> flagged there: SC-as-repo-writer (leaning) vs full GitOps reconcile.
+
 ## Stack management
 
 TODO
