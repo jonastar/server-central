@@ -7,6 +7,8 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+## [0.8.0] - 2026-07-27
+
 ### Added
 
 - **Agent heartbeat**: the control plane now sends a `ping` every 15s to agents advertising the new
