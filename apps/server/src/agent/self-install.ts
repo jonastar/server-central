@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { tempSibling } from "../fs-atomic";
 import { probeDir } from "./mounts";
 
 // Role-agnostic self-install primitives shared by the host agent and the control
@@ -69,9 +70,16 @@ export async function run(cmd: string, args: string[]): Promise<void> {
 
 /** Atomically point `link` at `target` (replacing any existing file/symlink). */
 export async function pointSymlink(target: string, link: string): Promise<void> {
-    const tmp = `${link}.tmp-${process.pid}`;
-    await fs.symlink(target, tmp);
-    await fs.rename(tmp, link); // rename over an existing path is atomic on Linux
+    const tmp = tempSibling(link);
+    try {
+        await fs.symlink(target, tmp);
+        await fs.rename(tmp, link); // rename over an existing path is atomic on Linux
+    } catch (err) {
+        // Leave no dangling half-swapped symlink behind on failure; a kill between
+        // the two calls is what sweepTempFiles cleans up later.
+        await fs.rm(tmp, { force: true }).catch(() => { });
+        throw err;
+    }
 }
 
 /**

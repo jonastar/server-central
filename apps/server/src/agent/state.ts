@@ -1,5 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { writeFileAtomic } from "../fs-atomic";
 import { fallbackStateDir } from "./machine-id";
 
 /**
@@ -24,10 +25,14 @@ export interface AgentRuntimeState {
     [key: string]: unknown;
 }
 
-/** State file location: the install data dir for an installed agent (alongside
- *  its cert/config), else the live agent's fallback state dir. */
+/** Where this agent keeps runtime state: the install data dir for an installed
+ *  agent (alongside its cert/config), else the live agent's fallback state dir. */
+export function runtimeStateDir(dataDir: string | null): string {
+    return dataDir ?? fallbackStateDir();
+}
+
 export function stateFilePath(dataDir: string | null): string {
-    return path.join(dataDir ?? fallbackStateDir(), "state.json");
+    return path.join(runtimeStateDir(dataDir), "state.json");
 }
 
 /** Read persisted state. A missing or corrupt file is simply empty state — this
@@ -53,9 +58,7 @@ export async function writeRuntimeState(dataDir: string | null, patch: AgentRunt
     try {
         const merged = { ...(await readRuntimeState(dataDir)), ...patch };
         await fs.mkdir(path.dirname(file), { recursive: true });
-        const tmp = `${file}.tmp-${process.pid}`;
-        await Bun.write(tmp, JSON.stringify(merged, null, 2));
-        await fs.rename(tmp, file);
+        await writeFileAtomic(file, JSON.stringify(merged, null, 2));
     } catch (err) {
         console.warn(`Could not persist agent state to ${file}: ${(err as Error)?.message ?? err}`);
     }

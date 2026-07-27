@@ -2,8 +2,8 @@ import * as fs from "node:fs/promises";
 import { mkdtempSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { randomBytes } from "node:crypto";
 import type { AgentMode, SystemInfo, TaskRun } from "@central/shared";
+import { writeFileAtomic } from "./fs-atomic";
 
 /**
  * Where config, TLS, tokens, and the agent-binary cache live. Relative ".sc-data"
@@ -69,17 +69,10 @@ async function ensureDir(): Promise<void> {
     await fs.mkdir(CONFIG_DIR, { recursive: true });
 }
 
-/**
- * Write a file atomically: write to a temp sibling, then rename over the target.
- * rename(2) is atomic within a filesystem, so a crash mid-write leaves the old
- * file intact rather than a truncated one — important for the user/session/token
- * stores, where a corrupt file would lock everyone out or orphan every agent.
- */
-export async function writeFileAtomic(file: string, content: string): Promise<void> {
-    const tmp = `${file}.${randomBytes(6).toString("hex")}.tmp`;
-    await fs.writeFile(tmp, content);
-    await fs.rename(tmp, file);
-}
+// Re-exported so the many `import { CONFIG_DIR, writeFileAtomic } from "./config"`
+// call sites keep working; the implementation lives in fs-atomic.ts alongside the
+// sweeper that cleans up after it.
+export { writeFileAtomic };
 
 export async function readConfig(): Promise<Config> {
     try {

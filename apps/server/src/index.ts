@@ -3,6 +3,7 @@ import type { ServerWebSocket } from "bun";
 import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
 import type { ShellSession } from "./host-agent";
 import { CONFIG_DIR, readConfig } from "./config";
+import { sweepTempFilesIn } from "./fs-atomic";
 import { AuthStore, type AuthContext } from "./auth";
 import { Fleet } from "./fleet";
 import { CentralHandler } from "./handler";
@@ -61,6 +62,12 @@ function broadcast(event: ApiEvent): void {
         socket.send(payload);
     }
 }
+
+// Clear temp files abandoned by a previous run that was killed between write and
+// rename (a crash, a self-update, power loss). Nothing in the data dir is in use
+// yet, and only files older than the sweeper's grace period are touched, so this
+// is safe even if another instance happens to share the directory.
+await sweepTempFilesIn([CONFIG_DIR, path.join(CONFIG_DIR, "agent-binaries")], "cleanup");
 
 const fleet = new Fleet(
     (serverId, snapshot) => broadcast({ kind: "metrics", data: { serverId, snapshot } }),

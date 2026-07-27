@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { AGENT_VERSION } from "@central/shared";
 import { CONFIG_DIR, readConfig } from "./config";
+import { writeFileAtomic } from "./fs-atomic";
 
 // The control plane serves agent binaries to enrolling/updating agents, but it only
 // needs its *own* platform binary to run. Rather than ship every platform up front,
@@ -144,10 +145,7 @@ export async function downloadVerifiedBinary(platform: string, version: string, 
         throw new BinaryStoreError(`Checksum mismatch for ${asset} (expected ${expected}, got ${actual})`, 502);
     }
 
-    const tmp = `${dest}.download-${process.pid}`;
-    await Bun.write(tmp, binary);
-    await fs.chmod(tmp, 0o755);
-    await fs.rename(tmp, dest);
+    await writeFileAtomic(dest, binary, { mode: 0o755 });
     console.log(`[binary-store] wrote ${asset} → ${dest} (${binary.byteLength} bytes, verified)`);
     return dest;
 }

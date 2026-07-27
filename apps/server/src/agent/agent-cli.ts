@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import type { AgentMode, InstallMechanism, NodeMessage, SystemInfo } from "@central/shared";
 import { AGENT_CAPABILITIES, AGENT_VERSION } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, DEFAULT_DATA_DIR, DEFAULT_INSTALL_DIR, resolveMachineId } from "./agent";
+import { sweepTempFilesIn, writeFileAtomic } from "../fs-atomic";
 import {
     type InstallPaths,
     type ServiceSpec,
@@ -15,7 +16,7 @@ import {
     run,
     writeManifest,
 } from "./self-install";
-import { readRuntimeState, writeRuntimeState } from "./state";
+import { readRuntimeState, runtimeStateDir, writeRuntimeState } from "./state";
 
 // ---- CLI argument parsing ----------------------------------------------------
 
@@ -204,9 +205,6 @@ export async function downloadBinary(opts: { control: string; altControl: string
 
     let lastErr: unknown;
     for (const url of urls) {
-        // Download to a temp sibling and rename into place, so a failed/partial
-        // download never leaves a corrupt binary the symlink could point at.
-        const tmp = `${opts.dest}.download-${process.pid}`;
         const startedAt = Date.now();
         try {
             console.log(`[update] fetching ${url} (timeout ${DOWNLOAD_TIMEOUT_MS / 1000}s)`);
@@ -227,13 +225,14 @@ export async function downloadBinary(opts: { control: string; altControl: string
             // wire but the write hangs until the AbortSignal.timeout fires. Buffering
             // is fine — the binary is tens of MB. curl on the install path avoids this
             // because it terminates cleanly on Content-Length.
-            const bytes = await Bun.write(tmp, await res.arrayBuffer());
-            await fs.chmod(tmp, 0o755);
-            await fs.rename(tmp, opts.dest);
-            console.log(`[update] downloaded ${bytes} bytes from ${url} in ${Date.now() - startedAt}ms`);
+            const body = await res.arrayBuffer();
+            // Written to a temp sibling and renamed into place (and removed again on
+            // failure), so a partial download never leaves a corrupt binary the
+            // symlink could point at.
+            await writeFileAtomic(opts.dest, body, { mode: 0o755 });
+            console.log(`[update] downloaded ${body.byteLength} bytes from ${url} in ${Date.now() - startedAt}ms`);
             return;
         } catch (err) {
-            await fs.rm(tmp, { force: true }).catch(() => { });
             lastErr = err;
             console.warn(`[update] download from ${url} failed after ${Date.now() - startedAt}ms: ${(err as Error)?.message ?? err}`);
         }
@@ -541,6 +540,12 @@ export async function runAgentCli(argv: string[]): Promise<void> {
         void writeRuntimeState(dataDir, { lastControl: url, lastControlAt: Date.now() });
     };
     const handlers: Handlers = { onInstallService, onUpdateService, onConnected };
+
+    // Clear debris from a previous run killed mid-write: a partial self-update
+    // download or symlink swap under the install dir, an interrupted state write
+    // under the data dir. Nothing here is in use at startup, and an unclean kill
+    // (systemd stop during an update, power loss) is exactly when it's left behind.
+    await sweepTempFilesIn([installDir, runtimeStateDir(dataDir)], "agent");
 
     console.log(`sc-agent starting (mode ${mode}, machine ${machineId}), connecting to ${preferred ?? control}`);
 
