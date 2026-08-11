@@ -3,7 +3,7 @@ import type { InstallMechanism, ServerEntry } from "@central/shared";
 import { Modal } from "./ui";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { api } from "../api";
-import { cx } from "../utils";
+import { cx, copyToClipboard } from "../utils";
 import shared from "../styles/shared.module.css";
 import uiStyles from "./ui.module.css";
 import { colorVars } from "../styles/colorVars";
@@ -74,7 +74,7 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
                         className={cx(shared.btn, copied && shared["btn-primary"])}
                         style={{ flexShrink: 0 }}
                         onClick={() => {
-                            void navigator.clipboard.writeText(startCommand);
+                            void copyToClipboard(startCommand);
                             setCopied(true);
                             setTimeout(() => setCopied(false), 1500);
                         }}

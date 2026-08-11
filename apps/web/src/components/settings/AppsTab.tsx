@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { App } from "@central/shared";
 import { api } from "../../api";
 import { EmptyState, ErrorBanner, Modal } from "../ui";
-import { cx } from "../../utils";
+import { cx, copyToClipboard } from "../../utils";
 import shared from "../../styles/shared.module.css";
 import { colorVars } from "../../styles/colorVars";
 
@@ -34,7 +34,7 @@ function AddAppModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
         if (!created) {
             return;
         }
-        await navigator.clipboard.writeText(created.clientSecret);
+        await copyToClipboard(created.clientSecret);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     }

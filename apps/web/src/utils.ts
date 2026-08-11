@@ -76,6 +76,32 @@ export function base64ToBytes(base64: string): Uint8Array {
     return bytes;
 }
 
+/**
+ * The async Clipboard API is only exposed in secure contexts (HTTPS or
+ * localhost), so `navigator.clipboard` is undefined when the control plane is
+ * reached over plain HTTP. Fall back to the old execCommand trick there.
+ */
+export async function copyToClipboard(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    try {
+        if (!document.execCommand("copy")) {
+            throw new Error("Copy command failed");
+        }
+    } finally {
+        document.body.removeChild(textarea);
+    }
+}
+
 export function fmtDateTime(msEpoch: number): string {
     return new Date(msEpoch).toLocaleString(undefined, {
         month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",

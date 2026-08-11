@@ -3,7 +3,7 @@ import type { ServerEntry } from "@central/shared";
 import { Modal } from "./ui";
 import { SetupWizard } from "./SetupWizard";
 import { api } from "../api";
-import { cx } from "../utils";
+import { cx, copyToClipboard } from "../utils";
 import styles from "./AddNodeModal.module.css";
 import shared from "../styles/shared.module.css";
 import uiStyles from "./ui.module.css";
@@ -94,7 +94,7 @@ export function AddNodeModal({ servers, onClose }: { servers: ServerEntry[]; onC
         if (!command) {
             return;
         }
-        await navigator.clipboard.writeText(command);
+        await copyToClipboard(command);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     }

@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LogOrder } from "@central/shared";
 import { ansiStyleToCss, ansiToSegments, type AnsiSegment } from "../ansi";
-import { cx } from "../utils";
+import { cx, copyToClipboard } from "../utils";
 import styles from "./LogViewer.module.css";
 import shared from "../styles/shared.module.css";
 
@@ -142,7 +142,7 @@ export function LogViewer({ text, order = "oldest", loading, onRefresh, controls
                     <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} /> Wrap
                 </label>
                 <span className={styles["log-line-count"]}>{lineCount.toLocaleString()} lines</span>
-                <button className={cx(shared.btn, shared["btn-sm"])} title="Copy" onClick={() => void navigator.clipboard.writeText(text)}>Copy</button>
+                <button className={cx(shared.btn, shared["btn-sm"])} title="Copy" onClick={() => void copyToClipboard(text)}>Copy</button>
                 <button className={cx(shared.btn, shared["btn-sm"])} title="Download" onClick={downloadLog}>Download</button>
                 {onRefresh && (
                     <button className={cx(shared.btn, shared["btn-sm"])} disabled={loading} onClick={onRefresh}>
