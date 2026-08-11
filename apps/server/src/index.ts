@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
+import { MAX_UPLOAD_BYTES } from "@central/shared";
 import type { ShellSession } from "./host-agent";
 import { CONFIG_DIR, readConfig } from "./config";
 import { sweepTempFilesIn } from "./fs-atomic";
@@ -224,8 +225,14 @@ async function openTerminal(ws: ServerWebSocket<WsData>): Promise<void> {
 
 // ---- HTTP / WebSocket ----------------------------------------------------------
 
+// uploadFile ships the file as base64 (~4/3 the raw size) inside a JSON body, so the
+// HTTP body cap has to clear MAX_UPLOAD_BYTES by more than Bun's ~128MB default before
+// the request even reaches the handler to enforce the real limit itself.
+const MAX_REQUEST_BODY_BYTES = Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 16 * 1024 * 1024;
+
 const server = Bun.serve<WsData>({
     port: Number(process.env.PORT) || 4141,
+    maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     async fetch(req, serverCtx) {
         const url = new URL(req.url);
 

@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ControlMessage, DirEntry, DirEntryType, FileContent, InstallMechanism, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
-import { AGENT_VERSION, MetricsCollector } from "@central/shared";
+import { AGENT_VERSION, MAX_UPLOAD_BYTES, METRICS_HISTORY_MAX, MetricsCollector } from "@central/shared";
 import { probeDir } from "./mounts";
 import { discoverWanIp } from "../stun";
 
@@ -18,12 +18,10 @@ export interface AgentTransport {
 }
 
 const METRICS_INTERVAL_MS = 5_000;
-const HISTORY_MAX = 720;
+const HISTORY_MAX = METRICS_HISTORY_MAX;
 const MAX_FILE_BYTES = 1024 * 1024;
 /** Images can be larger than text files since they're previewed, not edited. */
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
-/** Upload cap — kept within the control plane's request timeout and body limits. */
-const MAX_UPLOAD_BYTES = 64 * 1024 * 1024;
 
 /** Recognized image extensions → MIME type, for in-browser preview. */
 const IMAGE_MIME: Record<string, string> = {

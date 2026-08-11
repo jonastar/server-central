@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { DirEntry } from "@central/shared";
+import { MAX_UPLOAD_BYTES, type DirEntry } from "@central/shared";
 import { api } from "../api";
-import { bytesToBase64, cx, fmtBytes, fmtDateTime } from "../utils";
+import { base64ToBytes, bytesToBase64, cx, fmtBytes, fmtDateTime } from "../utils";
 import { CodeEditor } from "./CodeEditor";
 import { ErrorBanner } from "./ui";
 import styles from "./FilesView.module.css";
@@ -96,6 +96,21 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         onNavigate({ file: filePath });
     }
 
+    function downloadFile() {
+        if (!file) {
+            return;
+        }
+        const blob = file.binary
+            ? new Blob([base64ToBytes(file.content) as BlobPart], { type: file.mimeType || "application/octet-stream" })
+            : new Blob([file.content], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.path.slice(file.path.lastIndexOf("/") + 1) || "download";
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
     async function saveFile() {
         if (!file || file.binary || file.truncated) {
             return;
@@ -141,16 +156,25 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
     async function uploadFiles(files: FileList) {
         setUploading(true);
         setError(null);
-        try {
-            for (const f of Array.from(files)) {
+        // One bad file (too large, rejected, ...) shouldn't stop the rest of the batch —
+        // collect failures and keep going, then report them all together.
+        const failures: string[] = [];
+        for (const f of Array.from(files)) {
+            if (f.size > MAX_UPLOAD_BYTES) {
+                failures.push(`${f.name}: too large (${fmtBytes(f.size)}, max ${fmtBytes(MAX_UPLOAD_BYTES)})`);
+                continue;
+            }
+            try {
                 const bytes = new Uint8Array(await f.arrayBuffer());
                 await api("uploadFile", { serverId, path: joinPath(path, f.name), contentBase64: bytesToBase64(bytes) });
+            } catch (err) {
+                failures.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
             }
-            void load(path);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        } finally {
-            setUploading(false);
+        }
+        void load(path);
+        setUploading(false);
+        if (failures.length > 0) {
+            setError(failures.join("; "));
         }
     }
 
@@ -286,6 +310,14 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
                             {file.truncated && <span className={cx(shared.badge, shared["badge-warn"])}>truncated — read only</span>}
                             {file.mimeType && <span className={cx(shared.badge, shared["badge-ok"])}>image</span>}
                             {file.binary && !file.mimeType && <span className={cx(shared.badge, shared["badge-warn"])}>binary</span>}
+                            <button
+                                className={shared.btn}
+                                onClick={downloadFile}
+                                disabled={file.truncated}
+                                title={file.truncated ? "Can't download — only a truncated preview was loaded" : "Download"}
+                            >
+                                Download
+                            </button>
                             {!file.mimeType && (
                                 <button
                                     className={cx(shared.btn, shared["btn-primary"])}

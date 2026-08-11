@@ -66,6 +66,16 @@ export function bytesToBase64(bytes: Uint8Array): string {
     return btoa(binary);
 }
 
+/** Inverse of {@link bytesToBase64}. */
+export function base64ToBytes(base64: string): Uint8Array {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+}
+
 export function fmtDateTime(msEpoch: number): string {
     return new Date(msEpoch).toLocaleString(undefined, {
         month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",

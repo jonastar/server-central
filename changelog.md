@@ -7,6 +7,36 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+### Added
+
+- **File browser: download button.** The open-file editor pane gained a Download button
+  (text, binary, and image files) that builds the file client-side from the already-loaded
+  buffer — no new server endpoint. Disabled for truncated files (only a partial preview was
+  loaded, so a "download" would silently be incomplete).
+
+- **Linux arm64 builds**: releases now ship `sc-agent-linux-arm64` alongside the existing
+  x64/mac/windows binaries (`scripts/build-agent.sh`, release workflow, `binary-store.ts`'s
+  `SUPPORTED_PLATFORMS`), so the lazy binary registry can serve arm64 agents on demand and
+  arm64 hosts can install the control plane directly.
+- **Per-machine Vite dev-server override** (`apps/web/vite.config.local.example.ts`): copy to
+  the gitignored `vite.config.local.ts` for machine-specific dev settings (e.g. `server.host`/
+  `allowedHosts` for tailnet access) without touching the committed config.
+- **File browser upload cap raised 64MB → 256MB** (`MAX_UPLOAD_BYTES`). Two things had to move
+  with it or the raised limit wouldn't actually work: the control plane's HTTP server now sets
+  an explicit `maxRequestBodySize` (sized off `MAX_UPLOAD_BYTES` with base64's ~4/3 overhead
+  plus margin) since Bun's ~128MB default would otherwise 413 a large upload before it reached
+  the handler; and `uploadFile`'s control-plane→agent request now gets its own 120s timeout
+  (`UPLOAD_TIMEOUT_MS` in `host-agent.ts`) instead of the 30s default sized for quick RPCs,
+  since a few-hundred-MB transfer over a slow link could plausibly miss that window.
+
+### Fixed
+
+- **File browser: multi-file upload aborted the whole batch on the first failure** (e.g. one
+  oversized file among several selected) instead of continuing with the rest. Each file is now
+  attempted independently and failures are collected into one combined error message; an
+  oversized file is now also rejected client-side against the shared `MAX_UPLOAD_BYTES` before
+  it's read and base64-encoded, instead of only after the wasted work.
+
 ## [0.8.0] - 2026-07-27
 
 ### Added

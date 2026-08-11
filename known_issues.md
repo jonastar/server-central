@@ -54,5 +54,3 @@ sudo-nopasswd "admin" mapping). Needs implementation.
   the `ps aux` parser in `handler.handleGetProcesses`, and systemd list merging are
   all pure, fragile string-splitting, and untested — while the harder networked
   paths *are* tested. Cheap, high-value unit tests to add.
-- **`HISTORY_MAX = 720` duplicated** in `agent.ts` (`HISTORY_MAX`) and `host-agent.ts`
-  (the literal `720`). Pull into `@central/shared`.

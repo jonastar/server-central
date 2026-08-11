@@ -76,6 +76,22 @@ export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "he
  */
 export const CONTROL_PLANE_TLS_SERVERNAME = "control-plane";
 
+/**
+ * How many metrics snapshots to keep in memory per host (agent-side history and the
+ * control plane's `HostAgent.history` both trim to this). At the 5s metrics interval,
+ * 720 samples is an hour.
+ */
+export const METRICS_HISTORY_MAX = 720;
+
+/**
+ * Cap on a single `uploadFile` body, enforced by the agent. Shared so the web client
+ * can reject an oversized file before spending time base64-encoding and transferring
+ * it, instead of only finding out from the agent's rejection after the fact. The
+ * control plane's HTTP `maxRequestBodySize` (`apps/server/src/index.ts`) is sized off
+ * this constant (base64 is ~4/3 the raw size) — bump both together.
+ */
+export const MAX_UPLOAD_BYTES = 256 * 1024 * 1024;
+
 export interface SystemInfo {
     hostname: string;
     os: string;

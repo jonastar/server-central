@@ -1,6 +1,14 @@
 import type { AgentMode, ControlMessage, DirEntry, FileContent, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
+import { METRICS_HISTORY_MAX } from "@central/shared";
 
 const REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * `uploadFile` alone can carry up to MAX_UPLOAD_BYTES (256MB, as base64 ~341MB) over
+ * the same request/response channel as every quick RPC — the fixed 30s ceiling was
+ * sized for those, not a few-hundred-MB transfer over a possibly slow link. A flat,
+ * generous timeout here beats making every other request wait longer to fail.
+ */
+const UPLOAD_TIMEOUT_MS = 120_000;
 
 export interface ExecResult {
     stdout: string;
@@ -100,8 +108,8 @@ export class HostAgent {
                 return;
             }
             this.history.push(msg.snapshot);
-            if (this.history.length > 720) {
-                this.history.splice(0, this.history.length - 720);
+            if (this.history.length > METRICS_HISTORY_MAX) {
+                this.history.splice(0, this.history.length - METRICS_HISTORY_MAX);
             }
             this.onMetrics(this.id, msg.snapshot);
             return;
@@ -145,12 +153,12 @@ export class HostAgent {
         this.shells.clear();
     }
 
-    private request<T extends NodeMessage>(msg: ControlMessage & { requestId: string }): Promise<T> {
+    private request<T extends NodeMessage>(msg: ControlMessage & { requestId: string }, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pending.delete(msg.requestId);
                 reject(new Error(`Request ${msg.requestId} timed out`));
-            }, REQUEST_TIMEOUT_MS);
+            }, timeoutMs);
 
             this.pending.set(msg.requestId, {
                 resolve: (response) => { clearTimeout(timer); resolve(response as T); },
@@ -192,7 +200,7 @@ export class HostAgent {
     async uploadFile(filePath: string, contentBase64: string): Promise<void> {
         await this.request<Extract<NodeMessage, { type: "uploadFileResponse" }>>({
             type: "uploadFileRequest", requestId: crypto.randomUUID(), path: filePath, contentBase64,
-        });
+        }, UPLOAD_TIMEOUT_MS);
     }
 
     async createDir(dirPath: string): Promise<void> {
