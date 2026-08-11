@@ -40,7 +40,7 @@ jobs:
       # serving them to (root-running) agents, so it's a required release asset. Hash
       # bare filenames (run from dist/) so the names match the binary-store lookup.
       - name: Checksums
-        run: cd dist && sha256sum sc-agent-linux-x64 sc-agent-mac-x64 sc-agent-windows-x64.exe > SHA256SUMS
+        run: cd dist && sha256sum sc-agent-linux-x64 sc-agent-linux-arm64 sc-agent-mac-x64 sc-agent-windows-x64.exe > SHA256SUMS
 
       - name: Compute release tag
         id: tag
@@ -55,6 +55,7 @@ jobs:
           generate_release_notes: true
           files: |
             dist/sc-agent-linux-x64
+            dist/sc-agent-linux-arm64
             dist/sc-agent-mac-x64
             dist/sc-agent-windows-x64.exe
             dist/SHA256SUMS

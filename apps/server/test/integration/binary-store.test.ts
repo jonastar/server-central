@@ -14,7 +14,7 @@ const CACHE_DIR = path.join(CONFIG_DIR, "agent-binaries");
 // release source and assert the order, the integrity check, and the failure modes.
 
 const DIST_DIR = path.resolve(import.meta.dir, "../../../../dist");
-const DIST_FILES = ["sc-agent-linux-x64", "sc-agent-mac-x64", "sc-agent-windows-x64.exe"];
+const DIST_FILES = ["sc-agent-linux-x64", "sc-agent-linux-arm64", "sc-agent-mac-x64", "sc-agent-windows-x64.exe"];
 
 // A binary served by the fake release source, keyed by asset name.
 const served = new Map<string, Uint8Array>();

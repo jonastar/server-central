@@ -42,10 +42,18 @@ As you can see im still a bit away from just the prototype being done, there's s
 The whole thing ships as a single self-contained binary (control plane + host agent + web UI). To install the control plane, download one binary for your platform from the latest [GitHub release](https://github.com/jonastar/server-central/releases) and let it install itself:
 
 ```sh
+# Linux x64
 curl -fsSL -o sc-agent https://github.com/jonastar/server-central/releases/latest/download/sc-agent-linux-x64
+# Linux arm64
+curl -fsSL -o sc-agent https://github.com/jonastar/server-central/releases/latest/download/sc-agent-linux-arm64
+# macOS x64
+curl -fsSL -o sc-agent https://github.com/jonastar/server-central/releases/latest/download/sc-agent-mac-x64
+
 chmod +x sc-agent
 sudo ./sc-agent --install-server          # or just `sudo ./sc-agent` for an interactive prompt
 ```
+
+Windows: download `sc-agent-windows-x64.exe` from the [release](https://github.com/jonastar/server-central/releases) page and run `sc-agent.exe --install-server` (or `sc-agent.exe` for the interactive prompt) from an elevated shell.
 
 This installs a `sc-central` systemd service (binary in `/usr/local/bin`, state in `/var/lib/sc-central`) and serves the web UI + API on `:4141`. Override locations with `--install-dir` / `--data-dir`.
 

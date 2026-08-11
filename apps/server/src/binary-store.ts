@@ -26,7 +26,7 @@ const DEFAULT_RELEASE_BASE_URL = "https://github.com/jonastar/server-central/rel
  *  any real link, so this only bites an unreachable/slow source. */
 const DOWNLOAD_TIMEOUT_MS = 30_000;
 
-export const SUPPORTED_PLATFORMS = ["linux-x64", "mac-x64", "windows-x64"] as const;
+export const SUPPORTED_PLATFORMS = ["linux-x64", "linux-arm64", "mac-x64", "windows-x64"] as const;
 export type Platform = (typeof SUPPORTED_PLATFORMS)[number];
 
 /** Thrown with an HTTP status so the node-server route can map it to a response. */

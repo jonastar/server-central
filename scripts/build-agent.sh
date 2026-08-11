@@ -46,9 +46,12 @@ echo "Embedding web assets…"
 trap 'bun run scripts/write-generated-stubs.ts >/dev/null 2>&1 || true' EXIT
 bun run scripts/gen-web-assets.ts
 
-# Output names carry the architecture (sc-agent-<os>-<arch>) so arm64 targets can be
-# added later without colliding. Only x64 is built today.
-build_linux()   { echo "Building linux x64 (glibc, portable)…"; "$BUN" build --compile --target=bun-linux-x64   "$ENTRY" --outfile dist/sc-agent-linux-x64; }
+# Output names carry the architecture (sc-agent-<os>-<arch>) so per-OS arches can be
+# added without colliding. Linux ships both x64 and arm64; mac/windows are x64 only.
+build_linux() {
+    echo "Building linux x64 (glibc, portable)…"; "$BUN" build --compile --target=bun-linux-x64   "$ENTRY" --outfile dist/sc-agent-linux-x64
+    echo "Building linux arm64 (glibc, portable)…"; "$BUN" build --compile --target=bun-linux-arm64 "$ENTRY" --outfile dist/sc-agent-linux-arm64
+}
 build_mac()     { echo "Building mac x64…";                     "$BUN" build --compile --target=bun-darwin-x64  "$ENTRY" --outfile dist/sc-agent-mac-x64; }
 build_windows() { echo "Building windows x64…";                 "$BUN" build --compile --target=bun-windows-x64 "$ENTRY" --outfile dist/sc-agent-windows-x64.exe; }
 

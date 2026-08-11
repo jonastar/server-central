@@ -19,6 +19,7 @@ import { ensureTls, type TlsBundle } from "../../src/tls";
 const DIST_DIR = path.resolve(import.meta.dir, "../../../../dist");
 const PLATFORM_BINARY: Record<string, string> = {
     "linux-x64": "sc-agent-linux-x64",
+    "linux-arm64": "sc-agent-linux-arm64",
     "mac-x64": "sc-agent-mac-x64",
     "windows-x64": "sc-agent-windows-x64.exe",
 };
