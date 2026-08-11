@@ -7,6 +7,8 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+## [0.9.0] - 2026-08-11
+
 ### Added
 
 - **File browser: download button.** The open-file editor pane gained a Download button
