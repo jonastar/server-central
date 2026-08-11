@@ -4,6 +4,7 @@ build
 .toolchain
 .env
 .env.local
+apps/web/vite.config.local.ts
 bun.lockb
 data/
 apps/server/.sc-data
