@@ -10,6 +10,8 @@ import { AgentsView } from "./components/AgentsView";
 import { ServerOverview } from "./components/ServerOverview";
 import { FilesView } from "./components/FilesView";
 import { DockerView } from "./components/DockerView";
+import { ZfsView } from "./components/ZfsView";
+import { MountsView } from "./components/MountsView";
 import { ProcessesView } from "./components/ProcessesView";
 import { NetworkView } from "./components/NetworkView";
 import { ServicesView } from "./components/ServicesView";
@@ -106,6 +108,21 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                         })}
                     />
                 );
+            case "zfs":
+                return (
+                    <ZfsView
+                        serverId={currentEntry.id}
+                        section={route.zfsSection ?? "pools"}
+                        onNavigate={(next) => setRoute({
+                            view: "server",
+                            serverId: currentEntry.id,
+                            tab: "zfs",
+                            ...next,
+                        })}
+                    />
+                );
+            case "mounts":
+                return <MountsView serverId={currentEntry.id} />;
             case "processes":
                 return <ProcessesView serverId={currentEntry.id} />;
             case "network":

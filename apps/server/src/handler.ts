@@ -30,6 +30,11 @@ import type {
     TaskSpec,
     UserDetail,
     UserInfo,
+    MountsState,
+    ZfsBlockDevice,
+    ZfsDataset,
+    ZfsSnapshot,
+    ZfsState,
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
 import {
@@ -42,9 +47,11 @@ import {
     dockerVolumeInspect,
     dockerVolumeRemove,
 } from "./docker";
+import { getMounts } from "./host-mounts";
 import { getNetworkInfo } from "./network";
 import { systemdList, systemdServiceLogs, systemdUnitFile } from "./systemd";
 import { systemUserCreate, systemUserLookup, systemUserSetGroups, systemUsersList } from "./system-users";
+import { setDatasetProperty, zfsGetBlockDevices, zfsGetDatasets, zfsGetSnapshots, zfsGetState } from "./zfs";
 import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
@@ -63,6 +70,20 @@ function requireOwner(ctx?: AuthContext): void {
         throw new Error("Only the owner can do this");
     }
 }
+
+/** ZFS pool/vdev topology mutations — the highest blast-radius task kinds —
+ *  are owner-only (see doc/idea_zfs.md's safety model). Dataset/snapshot
+ *  mutations aren't gated, consistent with the rest of the task system today
+ *  (docker/systemd actions aren't role-gated either — see requireOwner's
+ *  comment on the state of per-op RBAC). */
+const ZFS_OWNER_ONLY_TASK_KINDS = new Set<TaskSpec["kind"]>([
+    "zfs_pool_create",
+    "zfs_pool_destroy",
+    "zfs_pool_import",
+    "zfs_pool_export",
+    "zfs_vdev_add",
+    "zfs_device_replace",
+]);
 
 export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> {
     constructor(
@@ -398,6 +419,9 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
     // ---- Tasks -------------------------------------------------------------------------
 
     async handleRunTask(data: { spec: TaskSpec; target: string | null }, ctx?: AuthContext): Promise<{ id: string }> {
+        if (ZFS_OWNER_ONLY_TASK_KINDS.has(data.spec.kind)) {
+            requireOwner(ctx);
+        }
         const run = await this.tasks.start(data.spec, data.target, { kind: "manual", userId: ctx?.user?.id });
         return { id: run.id };
     }
@@ -490,5 +514,37 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
 
     async handleSystemdUnitFile(data: { serverId: string; unit: string }): Promise<{ content: string }> {
         return { content: await systemdUnitFile(this.fleet.get(data.serverId), data.unit) };
+    }
+
+    // ---- ZFS ---------------------------------------------------------------------------
+    //
+    // Read-only + low-risk direct ops. Pool/vdev/dataset/snapshot mutations go
+    // through runTask instead (see the zfs_* TaskSpec kinds and ZFS_OWNER_ONLY_TASK_KINDS
+    // above) — see doc/idea_zfs.md.
+
+    async handleGetZfsState(data: { serverId: string }): Promise<ZfsState> {
+        return zfsGetState(this.fleet.get(data.serverId));
+    }
+
+    async handleGetZfsDatasets(data: { serverId: string; pool?: string }): Promise<ZfsDataset[]> {
+        return zfsGetDatasets(this.fleet.get(data.serverId), data.pool);
+    }
+
+    async handleGetZfsSnapshots(data: { serverId: string; dataset?: string }): Promise<ZfsSnapshot[]> {
+        return zfsGetSnapshots(this.fleet.get(data.serverId), data.dataset);
+    }
+
+    async handleGetZfsBlockDevices(data: { serverId: string }): Promise<ZfsBlockDevice[]> {
+        return zfsGetBlockDevices(this.fleet.get(data.serverId));
+    }
+
+    async handleSetDatasetProperty(data: { serverId: string; name: string; key: string; value: string }): Promise<void> {
+        await setDatasetProperty(this.fleet.get(data.serverId), data.name, data.key, data.value);
+    }
+
+    // ---- Mounts ------------------------------------------------------------------------
+
+    async handleGetMounts(data: { serverId: string }): Promise<MountsState> {
+        return getMounts(this.fleet.get(data.serverId));
     }
 }

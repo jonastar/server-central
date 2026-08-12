@@ -1,6 +1,7 @@
-export type ServerTab = "overview" | "files" | "docker" | "processes" | "network" | "services" | "users" | "terminal";
+export type ServerTab = "overview" | "files" | "docker" | "processes" | "network" | "services" | "users" | "zfs" | "mounts" | "terminal";
 
 export type DockerSection = "overview" | "stacks" | "containers" | "volumes" | "images";
+export type ZfsSection = "pools" | "datasets" | "snapshots";
 
 export type Route =
     | { view: "dashboard" }
@@ -23,14 +24,19 @@ export type Route =
           /** Docker tab, containers section only: initial name/image/stack
            *  filter — lets other views deep-link to a specific container. */
           filter?: string;
+          /** ZFS tab only: active sub-section. Defaults to "pools". */
+          zfsSection?: ZfsSection;
       };
 
 const DOCKER_SECTIONS = new Set<DockerSection>(["overview", "stacks", "containers", "volumes", "images"]);
+const ZFS_SECTIONS = new Set<ZfsSection>(["pools", "datasets", "snapshots"]);
 
 export const SERVER_TABS: Array<{ id: ServerTab; label: string }> = [
     { id: "overview", label: "Overview" },
     { id: "files", label: "Files" },
     { id: "docker", label: "Docker" },
+    { id: "zfs", label: "ZFS" },
+    { id: "mounts", label: "Mounts" },
     { id: "processes", label: "Processes" },
     { id: "network", label: "Network" },
     { id: "services", label: "Services" },
@@ -83,6 +89,8 @@ export function routeToHash(route: Route): string {
                         hash += `?f=${encodeURIComponent(route.file)}`;
                     }
                 }
+            } else if (route.tab === "zfs") {
+                hash += `/${route.zfsSection ?? "pools"}`;
             }
             return hash;
         }
@@ -133,6 +141,11 @@ export function hashToRoute(hash: string): Route {
                 return { view: "server", serverId, tab, section, filter };
             }
             return { view: "server", serverId, tab, section };
+        }
+        if (tab === "zfs") {
+            const zfsSectionSeg = segs[3] as ZfsSection | undefined;
+            const zfsSection = zfsSectionSeg && ZFS_SECTIONS.has(zfsSectionSeg) ? zfsSectionSeg : "pools";
+            return { view: "server", serverId, tab, zfsSection };
         }
         return { view: "server", serverId, tab };
     }

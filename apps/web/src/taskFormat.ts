@@ -78,6 +78,32 @@ export function specSummary(spec: TaskSpec): string {
             return `docker pull ${spec.ref}`;
         case "update_agent":
             return spec.force ? "Update agent (forced)" : "Update agent";
+        case "zfs_pool_create":
+            return `Create pool ${spec.name}`;
+        case "zfs_pool_destroy":
+            return `Destroy pool ${spec.name}`;
+        case "zfs_pool_import":
+            return `Import pool ${spec.name}`;
+        case "zfs_pool_export":
+            return `Export pool ${spec.name}`;
+        case "zfs_vdev_add":
+            return `Add ${spec.vdev.type} vdev to ${spec.pool}`;
+        case "zfs_device_replace":
+            return `Replace ${spec.oldDevice} in ${spec.pool}`;
+        case "zfs_scrub":
+            return `${spec.action === "start" ? "Scrub" : "Stop scrub on"} ${spec.pool}`;
+        case "zfs_dataset_create":
+            return `Create ${spec.type} ${spec.parent}/${spec.name}`;
+        case "zfs_dataset_destroy":
+            return `Destroy dataset ${spec.name}`;
+        case "zfs_snapshot_create":
+            return `Snapshot ${spec.dataset}@${spec.name}`;
+        case "zfs_snapshot_rollback":
+            return `Rollback to ${spec.snapshot}`;
+        case "zfs_snapshot_destroy":
+            return `Destroy snapshot ${spec.snapshot}`;
+        case "zfs_snapshot_clone":
+            return `Clone ${spec.snapshot} → ${spec.target}`;
     }
 }
 
@@ -97,6 +123,19 @@ export function resultSummary(run: TaskRun): string {
         case "docker_stack_action":
         case "docker_container_action":
         case "update_agent":
+        case "zfs_pool_create":
+        case "zfs_pool_destroy":
+        case "zfs_pool_import":
+        case "zfs_pool_export":
+        case "zfs_vdev_add":
+        case "zfs_device_replace":
+        case "zfs_scrub":
+        case "zfs_dataset_create":
+        case "zfs_dataset_destroy":
+        case "zfs_snapshot_create":
+        case "zfs_snapshot_rollback":
+        case "zfs_snapshot_destroy":
+        case "zfs_snapshot_clone":
             return "OK";
         case "docker_image_pull":
             return run.result.message;

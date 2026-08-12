@@ -12,7 +12,7 @@
 // version could swap these hand-written settings for zod schemas — the shape
 // carries over unchanged.)
 
-import type { ContainerAction, ServiceAction, StackAction } from "./index";
+import type { ContainerAction, ServiceAction, StackAction, ZfsVdevType } from "./index";
 
 /** Run something on a shell. */
 export interface TaskCmd {
@@ -61,6 +61,98 @@ export interface TaskUpdateAgent {
     force?: boolean;
 }
 
+// ---- ZFS -------------------------------------------------------------------------
+//
+// Every ZFS mutation runs as a task, even the ones that finish in milliseconds —
+// the point is the audit trail ("who destroyed pool tank, when"), not latency.
+// Pool/vdev topology kinds (create/destroy/import/export/vdev add/device replace)
+// are gated owner-only in handler.ts; see doc/idea_zfs.md's safety model.
+
+/** `devices` are `/dev/disk/by-id/*` paths — never `/dev/sdX`, which isn't
+ *  stable across reboots. */
+export interface TaskZfsPoolCreate {
+    kind: "zfs_pool_create";
+    name: string;
+    vdevs: { type: ZfsVdevType; devices: string[] }[];
+}
+
+export interface TaskZfsPoolDestroy {
+    kind: "zfs_pool_destroy";
+    name: string;
+}
+
+export interface TaskZfsPoolImport {
+    kind: "zfs_pool_import";
+    name: string;
+}
+
+export interface TaskZfsPoolExport {
+    kind: "zfs_pool_export";
+    name: string;
+}
+
+export interface TaskZfsVdevAdd {
+    kind: "zfs_vdev_add";
+    pool: string;
+    vdev: { type: ZfsVdevType; devices: string[] };
+}
+
+export interface TaskZfsDeviceReplace {
+    kind: "zfs_device_replace";
+    pool: string;
+    oldDevice: string;
+    newDevice: string;
+}
+
+export interface TaskZfsScrub {
+    kind: "zfs_scrub";
+    pool: string;
+    action: "start" | "stop";
+}
+
+export interface TaskZfsDatasetCreate {
+    kind: "zfs_dataset_create";
+    /** Parent dataset or pool the new one is created under. */
+    parent: string;
+    name: string;
+    type: "filesystem" | "volume";
+    /** Required for type "volume" (zvol). */
+    volsizeBytes?: number;
+    properties?: Record<string, string>;
+}
+
+export interface TaskZfsDatasetDestroy {
+    kind: "zfs_dataset_destroy";
+    name: string;
+    recursive: boolean;
+}
+
+export interface TaskZfsSnapshotCreate {
+    kind: "zfs_snapshot_create";
+    dataset: string;
+    name: string;
+    recursive: boolean;
+}
+
+export interface TaskZfsSnapshotRollback {
+    kind: "zfs_snapshot_rollback";
+    snapshot: string;
+    /** Destroy intervening snapshots newer than the target (zfs rollback -r).
+     *  The UI must show their count before setting this. */
+    destroyLater: boolean;
+}
+
+export interface TaskZfsSnapshotDestroy {
+    kind: "zfs_snapshot_destroy";
+    snapshot: string;
+}
+
+export interface TaskZfsSnapshotClone {
+    kind: "zfs_snapshot_clone";
+    snapshot: string;
+    target: string;
+}
+
 /** Every task kind. Add a variant here + a handler + a result variant. */
 export type TaskSpec =
     | TaskCmd
@@ -69,7 +161,20 @@ export type TaskSpec =
     | TaskDockerStackAction
     | TaskDockerContainerAction
     | TaskDockerImagePull
-    | TaskUpdateAgent;
+    | TaskUpdateAgent
+    | TaskZfsPoolCreate
+    | TaskZfsPoolDestroy
+    | TaskZfsPoolImport
+    | TaskZfsPoolExport
+    | TaskZfsVdevAdd
+    | TaskZfsDeviceReplace
+    | TaskZfsScrub
+    | TaskZfsDatasetCreate
+    | TaskZfsDatasetDestroy
+    | TaskZfsSnapshotCreate
+    | TaskZfsSnapshotRollback
+    | TaskZfsSnapshotDestroy
+    | TaskZfsSnapshotClone;
 
 /** A task kind's discriminant, e.g. "cmd". */
 export type TaskKind = TaskSpec["kind"];
@@ -120,6 +225,61 @@ export interface TaskUpdateAgentResult {
     kind: "update_agent";
 }
 
+// No extra data beyond confirmation for any ZFS mutation — status/error on the
+// run already says whether it worked, and stdout/stderr streams to the run's logs.
+
+export interface TaskZfsPoolCreateResult {
+    kind: "zfs_pool_create";
+}
+
+export interface TaskZfsPoolDestroyResult {
+    kind: "zfs_pool_destroy";
+}
+
+export interface TaskZfsPoolImportResult {
+    kind: "zfs_pool_import";
+}
+
+export interface TaskZfsPoolExportResult {
+    kind: "zfs_pool_export";
+}
+
+export interface TaskZfsVdevAddResult {
+    kind: "zfs_vdev_add";
+}
+
+export interface TaskZfsDeviceReplaceResult {
+    kind: "zfs_device_replace";
+}
+
+export interface TaskZfsScrubResult {
+    kind: "zfs_scrub";
+}
+
+export interface TaskZfsDatasetCreateResult {
+    kind: "zfs_dataset_create";
+}
+
+export interface TaskZfsDatasetDestroyResult {
+    kind: "zfs_dataset_destroy";
+}
+
+export interface TaskZfsSnapshotCreateResult {
+    kind: "zfs_snapshot_create";
+}
+
+export interface TaskZfsSnapshotRollbackResult {
+    kind: "zfs_snapshot_rollback";
+}
+
+export interface TaskZfsSnapshotDestroyResult {
+    kind: "zfs_snapshot_destroy";
+}
+
+export interface TaskZfsSnapshotCloneResult {
+    kind: "zfs_snapshot_clone";
+}
+
 export type TaskResult =
     | TaskCmdResult
     | TaskFindWanIpResult
@@ -127,7 +287,20 @@ export type TaskResult =
     | TaskDockerStackActionResult
     | TaskDockerContainerActionResult
     | TaskDockerImagePullResult
-    | TaskUpdateAgentResult;
+    | TaskUpdateAgentResult
+    | TaskZfsPoolCreateResult
+    | TaskZfsPoolDestroyResult
+    | TaskZfsPoolImportResult
+    | TaskZfsPoolExportResult
+    | TaskZfsVdevAddResult
+    | TaskZfsDeviceReplaceResult
+    | TaskZfsScrubResult
+    | TaskZfsDatasetCreateResult
+    | TaskZfsDatasetDestroyResult
+    | TaskZfsSnapshotCreateResult
+    | TaskZfsSnapshotRollbackResult
+    | TaskZfsSnapshotDestroyResult
+    | TaskZfsSnapshotCloneResult;
 
 // ---- Envelope ----------------------------------------------------------------
 

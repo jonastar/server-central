@@ -15,6 +15,32 @@ import type {
     TaskSpec,
     TaskUpdateAgent,
     TaskUpdateAgentResult,
+    TaskZfsDatasetCreate,
+    TaskZfsDatasetCreateResult,
+    TaskZfsDatasetDestroy,
+    TaskZfsDatasetDestroyResult,
+    TaskZfsDeviceReplace,
+    TaskZfsDeviceReplaceResult,
+    TaskZfsPoolCreate,
+    TaskZfsPoolCreateResult,
+    TaskZfsPoolDestroy,
+    TaskZfsPoolDestroyResult,
+    TaskZfsPoolExport,
+    TaskZfsPoolExportResult,
+    TaskZfsPoolImport,
+    TaskZfsPoolImportResult,
+    TaskZfsScrub,
+    TaskZfsScrubResult,
+    TaskZfsSnapshotClone,
+    TaskZfsSnapshotCloneResult,
+    TaskZfsSnapshotCreate,
+    TaskZfsSnapshotCreateResult,
+    TaskZfsSnapshotDestroy,
+    TaskZfsSnapshotDestroyResult,
+    TaskZfsSnapshotRollback,
+    TaskZfsSnapshotRollbackResult,
+    TaskZfsVdevAdd,
+    TaskZfsVdevAddResult,
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
 import type { Fleet } from "../fleet";
@@ -22,6 +48,21 @@ import type { HostAgent } from "../host-agent";
 import { discoverWanIp } from "../stun";
 import { dockerContainerAction, dockerImagePull, dockerStackAction } from "../docker";
 import { systemdServiceAction } from "../systemd";
+import {
+    zfsDatasetCreate,
+    zfsDatasetDestroy,
+    zfsDeviceReplace,
+    zfsPoolCreate,
+    zfsPoolDestroy,
+    zfsPoolExport,
+    zfsPoolImport,
+    zfsScrub,
+    zfsSnapshotClone,
+    zfsSnapshotCreate,
+    zfsSnapshotDestroy,
+    zfsSnapshotRollback,
+    zfsVdevAdd,
+} from "../zfs";
 
 // ---- Task handlers: the server half of the spec union ------------------------
 //
@@ -111,6 +152,19 @@ export interface TaskHandlers {
     docker_container_action(spec: TaskDockerContainerAction, ctx: TaskCtx): Promise<TaskDockerContainerActionResult>;
     docker_image_pull(spec: TaskDockerImagePull, ctx: TaskCtx): Promise<TaskDockerImagePullResult>;
     update_agent(spec: TaskUpdateAgent, ctx: TaskCtx): Promise<TaskUpdateAgentResult>;
+    zfs_pool_create(spec: TaskZfsPoolCreate, ctx: TaskCtx): Promise<TaskZfsPoolCreateResult>;
+    zfs_pool_destroy(spec: TaskZfsPoolDestroy, ctx: TaskCtx): Promise<TaskZfsPoolDestroyResult>;
+    zfs_pool_import(spec: TaskZfsPoolImport, ctx: TaskCtx): Promise<TaskZfsPoolImportResult>;
+    zfs_pool_export(spec: TaskZfsPoolExport, ctx: TaskCtx): Promise<TaskZfsPoolExportResult>;
+    zfs_vdev_add(spec: TaskZfsVdevAdd, ctx: TaskCtx): Promise<TaskZfsVdevAddResult>;
+    zfs_device_replace(spec: TaskZfsDeviceReplace, ctx: TaskCtx): Promise<TaskZfsDeviceReplaceResult>;
+    zfs_scrub(spec: TaskZfsScrub, ctx: TaskCtx): Promise<TaskZfsScrubResult>;
+    zfs_dataset_create(spec: TaskZfsDatasetCreate, ctx: TaskCtx): Promise<TaskZfsDatasetCreateResult>;
+    zfs_dataset_destroy(spec: TaskZfsDatasetDestroy, ctx: TaskCtx): Promise<TaskZfsDatasetDestroyResult>;
+    zfs_snapshot_create(spec: TaskZfsSnapshotCreate, ctx: TaskCtx): Promise<TaskZfsSnapshotCreateResult>;
+    zfs_snapshot_rollback(spec: TaskZfsSnapshotRollback, ctx: TaskCtx): Promise<TaskZfsSnapshotRollbackResult>;
+    zfs_snapshot_destroy(spec: TaskZfsSnapshotDestroy, ctx: TaskCtx): Promise<TaskZfsSnapshotDestroyResult>;
+    zfs_snapshot_clone(spec: TaskZfsSnapshotClone, ctx: TaskCtx): Promise<TaskZfsSnapshotCloneResult>;
 }
 
 /** Every kind below requires a target host — thrown as a normal task failure
@@ -190,6 +244,71 @@ export const taskHandlers: TaskHandlers = {
         await waitForAgentReconnect(ctx, ctx.target, agent, AGENT_VERSION, spec.force);
         ctx.log("Agent reconnected — update complete.");
         return { kind: "update_agent" };
+    },
+
+    async zfs_pool_create(spec, ctx) {
+        await zfsPoolCreate(requireAgent(ctx, "zfs_pool_create"), spec.name, spec.vdevs, ctx.log);
+        return { kind: "zfs_pool_create" };
+    },
+
+    async zfs_pool_destroy(spec, ctx) {
+        await zfsPoolDestroy(requireAgent(ctx, "zfs_pool_destroy"), spec.name, ctx.log);
+        return { kind: "zfs_pool_destroy" };
+    },
+
+    async zfs_pool_import(spec, ctx) {
+        await zfsPoolImport(requireAgent(ctx, "zfs_pool_import"), spec.name, ctx.log);
+        return { kind: "zfs_pool_import" };
+    },
+
+    async zfs_pool_export(spec, ctx) {
+        await zfsPoolExport(requireAgent(ctx, "zfs_pool_export"), spec.name, ctx.log);
+        return { kind: "zfs_pool_export" };
+    },
+
+    async zfs_vdev_add(spec, ctx) {
+        await zfsVdevAdd(requireAgent(ctx, "zfs_vdev_add"), spec.pool, spec.vdev, ctx.log);
+        return { kind: "zfs_vdev_add" };
+    },
+
+    async zfs_device_replace(spec, ctx) {
+        await zfsDeviceReplace(requireAgent(ctx, "zfs_device_replace"), spec.pool, spec.oldDevice, spec.newDevice, ctx.log);
+        return { kind: "zfs_device_replace" };
+    },
+
+    async zfs_scrub(spec, ctx) {
+        await zfsScrub(requireAgent(ctx, "zfs_scrub"), spec.pool, spec.action, ctx.log);
+        return { kind: "zfs_scrub" };
+    },
+
+    async zfs_dataset_create(spec, ctx) {
+        await zfsDatasetCreate(requireAgent(ctx, "zfs_dataset_create"), spec.parent, spec.name, spec.type, spec.volsizeBytes, spec.properties, ctx.log);
+        return { kind: "zfs_dataset_create" };
+    },
+
+    async zfs_dataset_destroy(spec, ctx) {
+        await zfsDatasetDestroy(requireAgent(ctx, "zfs_dataset_destroy"), spec.name, spec.recursive, ctx.log);
+        return { kind: "zfs_dataset_destroy" };
+    },
+
+    async zfs_snapshot_create(spec, ctx) {
+        await zfsSnapshotCreate(requireAgent(ctx, "zfs_snapshot_create"), spec.dataset, spec.name, spec.recursive, ctx.log);
+        return { kind: "zfs_snapshot_create" };
+    },
+
+    async zfs_snapshot_rollback(spec, ctx) {
+        await zfsSnapshotRollback(requireAgent(ctx, "zfs_snapshot_rollback"), spec.snapshot, spec.destroyLater, ctx.log);
+        return { kind: "zfs_snapshot_rollback" };
+    },
+
+    async zfs_snapshot_destroy(spec, ctx) {
+        await zfsSnapshotDestroy(requireAgent(ctx, "zfs_snapshot_destroy"), spec.snapshot, ctx.log);
+        return { kind: "zfs_snapshot_destroy" };
+    },
+
+    async zfs_snapshot_clone(spec, ctx) {
+        await zfsSnapshotClone(requireAgent(ctx, "zfs_snapshot_clone"), spec.snapshot, spec.target, ctx.log);
+        return { kind: "zfs_snapshot_clone" };
     },
 };
 

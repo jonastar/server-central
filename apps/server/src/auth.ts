@@ -70,6 +70,7 @@ export class AuthStore {
 
     async init(): Promise<void> {
         this.users = await readJson<Record<string, UserRecord>>(this.usersFile);
+        console.log(this.users);
         this.sessions = await readJson<Record<string, SessionRecord>>(this.sessionsFile);
         this.dummyHash = await Bun.password.hash(randomBytes(16).toString("hex"));
         await this.backfillSessionIds();
