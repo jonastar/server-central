@@ -24,10 +24,15 @@
     Settings → Users); still pending are SC-allocated consistent UIDs across hosts, SSH
     authorized_keys management, delete users / change shell-home, audit log of who opened which
     terminal.
-- Shorcut to sc logs
-- Properl
+- Shortcut to sc logs
 
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
+
+### Module based system
+
+Split server central up into modules each which provides rpc commands and events, tasks, roles, and so on.
+
+The module keyword is probably reserved in js, typescript or whatever languages we may use in the future so find a new word for it as well (plugin?)
 
 ### Reverse proxy — v1 shipped 2026-07-13, follow-ups pending
 
@@ -44,6 +49,15 @@
 
 ### App system
 
+> v1 scope written up 2026-08-12: [doc/idea_app_system.md](doc/idea_app_system.md) —
+> deliberately descoped from the full sketch below to skip the Role-set-redesign
+> dependency: directory + one compose stack + start/stop/restart/pull controls + a volumes
+> file browser, nothing route/role/reconciler-shaped yet. Also absorbs the registry half of
+> [doc/idea_stack_registry.md](doc/idea_stack_registry.md) (an App directory *is* a stack
+> root) and flags that `up`/`pull` need the streaming-exec prerequisite that doc already
+> called out — `docker_image_pull` already silently eats this limitation today (single
+> end-of-command log line, no true streaming, capped by `exec`'s 30s timeout).
+>
 > Concept from a 2026-07-02 discussion; architecture sketched 2026-07-13 (App = binding record in
 > SC store referencing a compose stack + routes + provided roles + oidc section, per-section
 > reconcilers; compose file stays source of truth for what runs — no SC-native service format).
@@ -78,12 +92,12 @@
 > Design spec: [doc/idea_backup_secrets.md](doc/idea_backup_secrets.md) (2026-07-25).
 > SC as the abstraction layer above the OS: every stack, every piece of app config, and
 > SC's own state declared in SC and backed up to a central repo, so an OS reinstall is
-> recoverable. Core model — classify by *who writes it*, not by which layer it belongs to.
+> recoverable. Core model — classify by _who writes it_, not by which layer it belongs to.
 > Per-volume classification (`declared` / `captured` / `regenerable` / `external`, with
 > unclassified as a **blocking** state so backups never silently lie), plus a `tracked`
 > class for individual files SC observes but doesn't own (the `postgresql.conf`-inside-PGDATA
 > case). Four destinations: plaintext git repo, an encrypted secret blob with **bounded**
-> retention (deliberately *not* in git — history can't be un-published on GitHub, and
+> retention (deliberately _not_ in git — history can't be un-published on GitHub, and
 > retained ciphertext makes rotation meaningless), an encrypted restic archive store for
 > app-written volumes, and nothing. Compose files never contain secrets, only `${sc:...}`
 > references materialized at deploy. Drift detection is the actual deliverable — being in
@@ -145,21 +159,21 @@ it stays plain RPC):
   `AgentsView` now calls `runTaskAndWait`. Initially landed as "completes on ack" (the run
   resolves the moment the agent acknowledges, before its own WS drops for the binary swap) —
   didn't seem to need §8.5 resume-across-reconnect for that scope. Revised same day: the run
-  now stays `running` until the fleet actually sees the agent reconnect as a *new* connection
+  now stays `running` until the fleet actually sees the agent reconnect as a _new_ connection
   on the target version (`waitForAgentReconnect`, `apps/server/src/tasks/types.ts`), polling
   every 2s up to a 5-minute timeout. Still didn't need §8.5 — the control plane process itself
   never restarts here, only the remote agent's connection drops, so the run's own promise just
-  keeps waiting in place; §8.5 remains relevant for anything where the *control plane* restarts
+  keeps waiting in place; §8.5 remains relevant for anything where the _control plane_ restarts
   mid-run (control-plane self-update, below). Covered by
   `apps/server/test/integration/update-agent-task.test.ts` (real Fleet/HostAgent, no sockets).
-  - Follow-up same day, from a real dev-workflow report: a reconnect on the *wrong* version (the
+  - Follow-up same day, from a real dev-workflow report: a reconnect on the _wrong_ version (the
     control plane's own `AGENT_VERSION` had drifted from what the freshly-built agent binary
     actually reports) made the run hang for the full 5-minute timeout instead of failing clearly.
     Fixed: a new, online connection for the machine is now treated as the definitive answer — if
     its version doesn't match (and not `force`), the run fails immediately with "Agent reconnected
     on X, expected Y" rather than continuing to poll for a version that was never going to change.
-  - Investigating *that* led to a much bigger find: running the test suite while a real `bun run
-    dev` instance is up (developing against your own home lab) could silently corrupt the real
+  - Investigating _that_ led to a much bigger find: running the test suite while a real `bun run
+dev` instance is up (developing against your own home lab) could silently corrupt the real
     instance's `.sc-data/agents.json` — see the "Test suite could silently corrupt..." entry under
     Fixed in changelog.md for the mechanism and fix (`apps/server/test/env-preload.ts` +
     `apps/server/bunfig.toml`). Per explicit instruction, the already-corrupted real
