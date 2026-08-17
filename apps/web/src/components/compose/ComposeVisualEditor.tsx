@@ -1,0 +1,797 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { Document } from "yaml";
+import type { DirEntry, ImageDefaults } from "@central/shared";
+import {
+    type EnvRow,
+    type PortRow,
+    type VolumeRow,
+    addSeqItem,
+    addService as addServiceToDoc,
+    getSeqItems,
+    getServiceField,
+    listServiceNames,
+    looksLikeHostPath,
+    parseCompose,
+    parseEnvironment,
+    parsePortEntry,
+    parseVolumeEntry,
+    removeSeqItem,
+    serializeEnvironment,
+    serializePortRow,
+    serializeVolumeRow,
+    setSeqItem,
+    setServiceField,
+    stringifyCompose,
+} from "../../lib/composeDoc";
+import { validateComposeObject } from "../../lib/composeValidate";
+import { api } from "../../api";
+import { cx } from "../../utils";
+import { DirectoryPicker, fileTypeClass } from "../DirectoryPicker";
+import { EmptyState, ErrorBanner, Modal } from "../ui";
+import shared from "../../styles/shared.module.css";
+
+const SERVICE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
+const RESTART_OPTIONS = ["", "no", "always", "on-failure", "unless-stopped"];
+const PORT_NAME_SUGGESTIONS = ["web", "web-frontend", "web-backend", "api", "admin", "metrics", "other"];
+const EMPTY_IMAGE_DEFAULTS: ImageDefaults = { volumes: [], ports: [], env: [] };
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+        <label className={shared["login-field"]}>
+            <span>{label}</span>
+            {children}
+        </label>
+    );
+}
+
+function Row({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }) {
+    return (
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {children}
+            <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={onRemove}>Remove</button>
+        </div>
+    );
+}
+
+/** Visual editor over a `compose.yaml` string — parses into a CST-preserving `yaml`
+ *  Document, mutates the one node a widget touches, re-stringifies. Comments and
+ *  formatting elsewhere in the file survive edits made here, so this and the raw
+ *  YAML tab are two views of the same content, safe to switch between freely.
+ *  Curated field set (image/restart/environment/ports/volumes/depends_on) — see
+ *  doc/idea_app_system.md and the compose-editor plan for what's deliberately
+ *  deferred to the YAML tab. */
+export function ComposeVisualEditor({ value, onChange, hostId, appDir }: {
+    value: string;
+    onChange: (next: string) => void;
+    hostId: string;
+    /** Absolute path of the App's directory on `hostId` — volume Browse defaults
+     *  into `<appDir>/volumes`, the convention every App directory follows
+     *  (doc/idea_app_system.md §3), rather than the filesystem root. */
+    appDir: string;
+}) {
+    const doc = useMemo(() => parseCompose(value), [value]);
+    const services = listServiceNames(doc);
+    const [selected, setSelected] = useState<string | null>(services[0] ?? null);
+    const [newServiceName, setNewServiceName] = useState("");
+    const [nameError, setNameError] = useState<string | null>(null);
+
+    const activeService = selected && services.includes(selected) ? selected : services[0] ?? null;
+
+    function commit(mutate: (doc: Document) => void) {
+        mutate(doc);
+        onChange(stringifyCompose(doc));
+    }
+
+    function addService() {
+        const name = newServiceName.trim();
+        if (!name) {
+            return;
+        }
+        if (!SERVICE_NAME_RE.test(name)) {
+            setNameError("Use letters, numbers, '.', '_', '-' only");
+            return;
+        }
+        if (services.includes(name)) {
+            setNameError("A service with that name already exists");
+            return;
+        }
+        setNameError(null);
+        commit((d) => addServiceToDoc(d, name));
+        setSelected(name);
+        setNewServiceName("");
+    }
+
+    const errors = useMemo(() => validateComposeObject(doc.toJSON()), [doc]);
+    const serviceErrors = activeService
+        ? errors.filter((e) => e.path.startsWith(`/services/${activeService}`))
+        : [];
+
+    return (
+        <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+            <div style={{ width: 180, borderRight: "1px solid var(--border)", padding: 10, display: "flex", flexDirection: "column", gap: 4, overflowY: "auto" }}>
+                {services.map((s) => (
+                    <button
+                        key={s}
+                        type="button"
+                        className={cx(shared["sub-tab"], activeService === s && shared.active)}
+                        style={{ textAlign: "left", width: "100%" }}
+                        onClick={() => setSelected(s)}
+                    >
+                        {s}
+                    </button>
+                ))}
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                    <input
+                        value={newServiceName}
+                        onChange={(e) => { setNewServiceName(e.target.value); setNameError(null); }}
+                        placeholder="new service name"
+                        style={{ fontSize: 12 }}
+                    />
+                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={addService}>+ Add service</button>
+                    {nameError && <span className={shared.dim} style={{ color: "var(--err)", fontSize: 11 }}>{nameError}</span>}
+                </div>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 16 }}>
+                {!activeService ? (
+                    <EmptyState>No services yet — add one on the left.</EmptyState>
+                ) : (
+                    <ServiceEditor
+                        key={activeService}
+                        doc={doc}
+                        service={activeService}
+                        hostId={hostId}
+                        appDir={appDir}
+                        otherServices={services.filter((s) => s !== activeService)}
+                        errors={serviceErrors}
+                        commit={commit}
+                    />
+                )}
+            </div>
+        </div>
+    );
+}
+
+function ServiceEditor({ doc, service, hostId, appDir, otherServices, errors, commit }: {
+    doc: Document;
+    service: string;
+    hostId: string;
+    appDir: string;
+    otherServices: string[];
+    errors: { path: string; message: string }[];
+    commit: (mutate: (doc: Document) => void) => void;
+}) {
+    const image = getServiceField<string>(doc, service, "image") ?? "";
+    const restart = getServiceField<string>(doc, service, "restart") ?? "";
+
+    // What the image's Dockerfile already declares (VOLUME/EXPOSE/ENV) — one
+    // inspect per image, shared by the three fields below rather than each
+    // fetching it separately.
+    const [defaults, setDefaults] = useState<ImageDefaults>(EMPTY_IMAGE_DEFAULTS);
+    useEffect(() => {
+        if (!image) {
+            setDefaults(EMPTY_IMAGE_DEFAULTS);
+            return;
+        }
+        let alive = true;
+        api("dockerImageDefaults", { serverId: hostId, image })
+            .then((r) => { if (alive) setDefaults(r); })
+            .catch(() => { if (alive) setDefaults(EMPTY_IMAGE_DEFAULTS); });
+        return () => { alive = false; };
+    }, [hostId, image]);
+
+    return (
+        <>
+            {errors.length > 0 && (
+                <div style={{ background: "color-mix(in srgb, var(--err) 12%, transparent)", border: "1px solid color-mix(in srgb, var(--err) 40%, var(--border))", borderRadius: 6, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+                    {errors.map((e, i) => (
+                        <span key={i} className={shared.mono} style={{ fontSize: 12, color: "var(--err)" }}>{e.path}: {e.message}</span>
+                    ))}
+                </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 200px", gap: 12 }}>
+                <Field label="Image">
+                    <input
+                        className={shared.mono}
+                        value={image}
+                        onChange={(e) => commit((d) => setServiceField(d, service, "image", e.target.value))}
+                        placeholder="jellyfin/jellyfin:latest"
+                        spellCheck={false}
+                    />
+                </Field>
+                <Field label="Restart policy">
+                    <select
+                        value={restart}
+                        onChange={(e) => commit((d) => setServiceField(d, service, "restart", e.target.value))}
+                    >
+                        {RESTART_OPTIONS.map((o) => <option key={o} value={o}>{o || "(unset)"}</option>)}
+                    </select>
+                </Field>
+            </div>
+
+            <PortsField doc={doc} service={service} commit={commit} suggestedPorts={defaults.ports} />
+            <VolumesField doc={doc} service={service} hostId={hostId} appDir={appDir} commit={commit} suggestedTargets={defaults.volumes} />
+            <EnvironmentField doc={doc} service={service} commit={commit} suggestedEnv={defaults.env} />
+            <DependsOnField doc={doc} service={service} otherServices={otherServices} commit={commit} />
+        </>
+    );
+}
+
+// ---- ports --------------------------------------------------------------------------
+
+const EMPTY_PORT_ROW: PortRow = { kind: "short", published: "", target: "", protocol: "tcp", name: "" };
+
+function PortsField({ doc, service, commit, suggestedPorts }: {
+    doc: Document; service: string; commit: (mutate: (doc: Document) => void) => void;
+    suggestedPorts: { port: number; protocol: "tcp" | "udp" }[];
+}) {
+    const path = ["services", service, "ports"];
+    const rows = getSeqItems<unknown>(doc, path).map(parsePortEntry);
+    // A row being filled in that isn't valid compose syntax yet (e.g. no
+    // container port typed) — kept out of the document until it graduates,
+    // otherwise "+ Add port" would write an empty/unparseable entry straight
+    // into the file and it'd either vanish or show as unrecognized.
+    const [pending, setPending] = useState<PortRow | null>(null);
+    const [showSuggested, setShowSuggested] = useState(false);
+
+    function update(i: number, patch: Partial<PortRow>) {
+        commit((d) => setSeqItem(d, path, i, serializePortRow({ ...rows[i], ...patch })));
+    }
+
+    function createSuggested(port: number, protocol: "tcp" | "udp") {
+        commit((d) => addSeqItem(d, path, serializePortRow({
+            kind: "short", published: String(port), target: String(port), protocol, name: "",
+        })));
+    }
+
+    function updatePending(patch: Partial<PortRow>) {
+        const next = { ...(pending ?? EMPTY_PORT_ROW), ...patch };
+        if (next.target.trim()) {
+            commit((d) => addSeqItem(d, path, serializePortRow(next)));
+            setPending(null);
+        } else {
+            setPending(next);
+        }
+    }
+
+    function portRowCells(row: PortRow, onEdit: (patch: Partial<PortRow>) => void, onRemove: () => void) {
+        return (
+            <>
+                <td>
+                    <input
+                        className={shared.mono}
+                        style={{ width: "100%" }}
+                        placeholder="(auto)"
+                        value={row.published}
+                        onChange={(e) => onEdit({ published: e.target.value })}
+                    />
+                </td>
+                <td className={shared.dim} style={{ textAlign: "center" }}>→</td>
+                <td>
+                    <input
+                        className={shared.mono}
+                        style={{ width: "100%" }}
+                        placeholder="80"
+                        value={row.target}
+                        onChange={(e) => onEdit({ target: e.target.value })}
+                    />
+                </td>
+                <td>
+                    <select style={{ width: "100%" }} value={row.protocol} onChange={(e) => onEdit({ protocol: e.target.value as "tcp" | "udp" })}>
+                        <option value="tcp">tcp</option>
+                        <option value="udp">udp</option>
+                    </select>
+                </td>
+                <td>
+                    <input
+                        style={{ width: "100%" }}
+                        list="sc-port-name-suggestions"
+                        placeholder="web, admin, …"
+                        value={row.name}
+                        onChange={(e) => onEdit({ name: e.target.value })}
+                    />
+                </td>
+                <td>
+                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={onRemove}>Remove</button>
+                </td>
+            </>
+        );
+    }
+
+    return (
+        <section>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <h3 style={{ fontSize: 13, margin: 0 }}>Ports</h3>
+                {suggestedPorts.length > 0 && (
+                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => setShowSuggested(true)}>
+                        Suggested ports ({suggestedPorts.length})
+                    </button>
+                )}
+            </div>
+            <datalist id="sc-port-name-suggestions">
+                {PORT_NAME_SUGGESTIONS.map((s) => <option key={s} value={s} />)}
+            </datalist>
+            {showSuggested && (
+                <Modal title="Suggested ports" onClose={() => setShowSuggested(false)} width={420}>
+                    <p className={shared.dim} style={{ fontSize: 12, marginTop: 0 }}>
+                        Exposed by this image's Dockerfile. "Create" publishes it at the same host port — adjust afterward if needed.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {suggestedPorts.map(({ port, protocol }) => {
+                            const mapped = rows.some((r) => r.kind !== "raw" && r.target === String(port) && r.protocol === protocol);
+                            return (
+                                <div key={`${port}/${protocol}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span className={shared.mono} style={{ flex: 1, fontSize: 12 }}>{port}/{protocol}</span>
+                                    {mapped ? (
+                                        <span className={cx(shared.badge, shared["badge-ok"])}>mapped</span>
+                                    ) : (
+                                        <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => createSuggested(port, protocol)}>
+                                            + Create
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className={shared["modal-actions"]} style={{ marginTop: 12 }}>
+                        <button type="button" className={shared.btn} onClick={() => setShowSuggested(false)}>Close</button>
+                    </div>
+                </Modal>
+            )}
+            {rows.length === 0 && !pending ? (
+                <EmptyState>No ports published.</EmptyState>
+            ) : (
+                <table className={shared["data-table"]}>
+                    <colgroup>
+                        <col style={{ width: 90 }} />
+                        <col style={{ width: 20 }} />
+                        <col style={{ width: 90 }} />
+                        <col style={{ width: 80 }} />
+                        <col />
+                        <col style={{ width: 1 }} />
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Host port</th>
+                            <th />
+                            <th>Container port</th>
+                            <th>Protocol</th>
+                            <th>Name</th>
+                            <th />
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((row, i) => (
+                            <tr key={i}>
+                                {row.kind === "raw" ? (
+                                    <>
+                                        <td colSpan={5} className={cx(shared.mono, shared.dim)} style={{ fontSize: 12 }}>
+                                            {typeof row.raw === "string" ? row.raw : JSON.stringify(row.raw)} — advanced syntax, edit in YAML tab
+                                        </td>
+                                        <td><button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => commit((d) => removeSeqItem(d, path, i))}>Remove</button></td>
+                                    </>
+                                ) : (
+                                    portRowCells(row, (patch) => update(i, patch), () => commit((d) => removeSeqItem(d, path, i)))
+                                )}
+                            </tr>
+                        ))}
+                        {pending && <tr>{portRowCells(pending, updatePending, () => setPending(null))}</tr>}
+                    </tbody>
+                </table>
+            )}
+            <button
+                type="button"
+                className={cx(shared.btn, shared["btn-sm"])}
+                style={{ marginTop: 8 }}
+                onClick={() => setPending(EMPTY_PORT_ROW)}
+                disabled={pending !== null}
+            >
+                + Add port
+            </button>
+        </section>
+    );
+}
+
+// ---- volumes ------------------------------------------------------------------------
+
+const EMPTY_VOLUME_ROW: VolumeRow = { kind: "short", source: "", target: "", readOnly: false };
+
+/**
+ * Two tabs: "Simple" — a flat list of what's already directly under the App's
+ * `volumes/` folder (the convention every App directory follows), plus a
+ * one-click "new folder" — and "Custom", the full host tree (files included,
+ * for bind-mounting a single existing file, or reaching into a subfolder like
+ * `volumes/<service>/config`) for the escape-hatch case. Defaults to Simple:
+ * most mounts are either something already there or a fresh top-level folder.
+ */
+function VolumeSourcePicker({ serverId, appDir, value, onChange }: {
+    serverId: string;
+    appDir: string;
+    value: string;
+    onChange: (path: string) => void;
+}) {
+    const volumesDir = `${appDir.replace(/\/$/, "")}/volumes`;
+    const [mode, setMode] = useState<"simple" | "custom">("simple");
+    const [entries, setEntries] = useState<DirEntry[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
+    const load = useCallback(() => {
+        setEntries(null);
+        api("listDir", { serverId, path: volumesDir })
+            .then((d) => setEntries(d.entries))
+            .catch(() => setEntries([]));
+    }, [serverId, volumesDir]);
+
+    useEffect(() => {
+        if (mode === "simple") {
+            load();
+        }
+    }, [mode, load]);
+
+    async function createFolder() {
+        const name = prompt("New folder name:");
+        if (!name) {
+            return;
+        }
+        const created = `${volumesDir}/${name}`;
+        try {
+            await api("createDir", { serverId, path: created });
+            onChange(created);
+            load();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        }
+    }
+
+    return (
+        <div>
+            <nav className={shared["sub-tabs"]} style={{ marginBottom: 10 }}>
+                <button className={cx(shared["sub-tab"], mode === "simple" && shared.active)} onClick={() => setMode("simple")}>Simple</button>
+                <button className={cx(shared["sub-tab"], mode === "custom" && shared.active)} onClick={() => setMode("custom")}>Custom</button>
+            </nav>
+
+            {mode === "custom" ? (
+                <DirectoryPicker serverId={serverId} value={looksLikeHostPath(value) ? value : volumesDir} onChange={onChange} selectFiles />
+            ) : (
+                <>
+                    <div className={cx(shared.mono, shared.dim)} style={{ fontSize: 12, marginBottom: 6 }}>{volumesDir}</div>
+                    {error && <ErrorBanner>{error}</ErrorBanner>}
+                    <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid var(--border)", borderRadius: 4 }}>
+                        {entries === null ? (
+                            <div className={shared.dim} style={{ padding: 8, fontSize: 12 }}>Loading…</div>
+                        ) : entries.length === 0 ? (
+                            <div className={shared.dim} style={{ padding: 8, fontSize: 12 }}>Nothing here yet — create one below.</div>
+                        ) : (
+                            entries.map((e) => {
+                                const entryPath = `${volumesDir}/${e.name}`;
+                                return (
+                                    <div
+                                        key={e.name}
+                                        className={cx(shared["file-name"], fileTypeClass[e.type], shared["row-clickable"])}
+                                        style={{ padding: "5px 8px", background: value === entryPath ? "var(--accent-soft)" : undefined }}
+                                        onClick={() => onChange(entryPath)}
+                                    >
+                                        {e.name}{e.type === "symlink" && " →"}
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} style={{ marginTop: 8 }} onClick={() => void createFolder()}>
+                        + New folder
+                    </button>
+                </>
+            )}
+        </div>
+    );
+}
+
+function VolumesField({ doc, service, hostId, appDir, commit, suggestedTargets }: {
+    doc: Document; service: string; hostId: string; appDir: string; commit: (mutate: (doc: Document) => void) => void;
+    suggestedTargets: string[];
+}) {
+    const path = ["services", service, "volumes"];
+    const rows = getSeqItems<unknown>(doc, path).map(parseVolumeEntry);
+    const [browsing, setBrowsing] = useState<"pending" | number | null>(null);
+    // Same reasoning as PortsField's `pending` — don't write a blank/half-typed
+    // mount into the document.
+    const [pending, setPending] = useState<VolumeRow | null>(null);
+    const [showSuggested, setShowSuggested] = useState(false);
+
+    async function createSuggested(containerPath: string) {
+        const folderName = containerPath.split("/").filter(Boolean).pop() || "data";
+        const hostDir = `${appDir.replace(/\/$/, "")}/volumes/${folderName}`;
+        await api("createDir", { serverId: hostId, path: hostDir });
+        commit((d) => addSeqItem(d, path, serializeVolumeRow({ kind: "short", source: hostDir, target: containerPath, readOnly: false })));
+    }
+
+    function update(i: number, patch: Partial<VolumeRow>) {
+        commit((d) => setSeqItem(d, path, i, serializeVolumeRow({ ...rows[i], ...patch })));
+    }
+
+    function updatePending(patch: Partial<VolumeRow>) {
+        const next = { ...(pending ?? EMPTY_VOLUME_ROW), ...patch };
+        if (next.source.trim() && next.target.trim()) {
+            commit((d) => addSeqItem(d, path, serializeVolumeRow(next)));
+            setPending(null);
+        } else {
+            setPending(next);
+        }
+    }
+
+    function volumeRowFields(row: VolumeRow, onEdit: (patch: Partial<VolumeRow>) => void, onRemove: () => void, browseKey: "pending" | number) {
+        return (
+            <Row onRemove={onRemove}>
+                <button
+                    type="button"
+                    className={cx(shared["picker-field"], shared.mono)}
+                    style={{ flex: 1 }}
+                    onClick={() => setBrowsing(browseKey)}
+                >
+                    <span className={shared["picker-field-value"]}>
+                        {row.source || <span className={shared.dim}>Click to choose a source…</span>}
+                    </span>
+                    <span className={shared["picker-field-affordance"]}>{row.source ? "Change" : "Choose"}</span>
+                </button>
+                <span className={shared.dim}>→</span>
+                <input
+                    style={{ flex: 1 }}
+                    className={shared.mono}
+                    list="sc-volume-target-suggestions"
+                    placeholder="/container/path"
+                    value={row.target}
+                    onChange={(e) => onEdit({ target: e.target.value })}
+                />
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+                    <input type="checkbox" checked={row.readOnly} onChange={(e) => onEdit({ readOnly: e.target.checked })} />
+                    ro
+                </label>
+                {browsing === browseKey && (
+                    <Modal title="Choose a volume source" onClose={() => setBrowsing(null)} width={560}>
+                        <VolumeSourcePicker
+                            serverId={hostId}
+                            appDir={appDir}
+                            value={row.source}
+                            onChange={(v) => onEdit({ source: v })}
+                        />
+                        <div className={shared["modal-actions"]} style={{ marginTop: 12 }}>
+                            <button type="button" className={cx(shared.btn, shared["btn-primary"])} onClick={() => setBrowsing(null)}>Done</button>
+                        </div>
+                    </Modal>
+                )}
+            </Row>
+        );
+    }
+
+    return (
+        <section>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <h3 style={{ fontSize: 13, margin: 0 }}>Volumes</h3>
+                {suggestedTargets.length > 0 && (
+                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => setShowSuggested(true)}>
+                        Suggested volumes ({suggestedTargets.length})
+                    </button>
+                )}
+            </div>
+            <datalist id="sc-volume-target-suggestions">
+                {suggestedTargets.map((p) => <option key={p} value={p} />)}
+            </datalist>
+            {showSuggested && (
+                <Modal title="Suggested volumes" onClose={() => setShowSuggested(false)} width={520}>
+                    <p className={shared.dim} style={{ fontSize: 12, marginTop: 0 }}>
+                        Declared by this service's image. "Create" adds a matching folder under
+                        <span className={shared.mono}> volumes/</span> and maps it here.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {suggestedTargets.map((p) => {
+                            const mapped = rows.some((r) => r.kind !== "raw" && r.target === p);
+                            return (
+                                <div key={p} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span className={shared.mono} style={{ flex: 1, fontSize: 12 }}>{p}</span>
+                                    {mapped ? (
+                                        <span className={cx(shared.badge, shared["badge-ok"])}>mapped</span>
+                                    ) : (
+                                        <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => void createSuggested(p)}>
+                                            + Create
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className={shared["modal-actions"]} style={{ marginTop: 12 }}>
+                        <button type="button" className={shared.btn} onClick={() => setShowSuggested(false)}>Close</button>
+                    </div>
+                </Modal>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {rows.map((row, i) => row.kind === "raw" ? (
+                    <Row key={i} onRemove={() => commit((d) => removeSeqItem(d, path, i))}>
+                        <span className={cx(shared.mono, shared.dim)} style={{ fontSize: 12, flex: 1 }}>
+                            {typeof row.raw === "string" ? row.raw : JSON.stringify(row.raw)} — advanced syntax, edit in YAML tab
+                        </span>
+                    </Row>
+                ) : (
+                    <div key={i}>{volumeRowFields(row, (patch) => update(i, patch), () => commit((d) => removeSeqItem(d, path, i)), i)}</div>
+                ))}
+                {pending && volumeRowFields(pending, updatePending, () => { setPending(null); setBrowsing(null); }, "pending")}
+                <button
+                    type="button"
+                    className={cx(shared.btn, shared["btn-sm"])}
+                    style={{ alignSelf: "flex-start" }}
+                    onClick={() => setPending(EMPTY_VOLUME_ROW)}
+                    disabled={pending !== null}
+                >
+                    + Add volume
+                </button>
+            </div>
+        </section>
+    );
+}
+
+// ---- environment --------------------------------------------------------------------
+
+function EnvironmentField({ doc, service, commit, suggestedEnv }: {
+    doc: Document; service: string; commit: (mutate: (doc: Document) => void) => void;
+    suggestedEnv: { key: string; value: string }[];
+}) {
+    const raw = getServiceField<unknown>(doc, service, "environment");
+    const { rows, asObject } = parseEnvironment(raw);
+    // Same reasoning as PortsField's `pending` — a blank key would just be
+    // filtered back out by serializeEnvironment, so "+ Add variable" would
+    // look like it did nothing.
+    const [pending, setPending] = useState<EnvRow | null>(null);
+    const [showSuggested, setShowSuggested] = useState(false);
+
+    function writeRows(next: EnvRow[]) {
+        commit((d) => setServiceField(d, service, "environment", serializeEnvironment(next, asObject)));
+    }
+
+    function updatePending(patch: Partial<EnvRow>) {
+        const next = { ...(pending ?? { key: "", value: "" }), ...patch };
+        if (next.key.trim()) {
+            writeRows([...rows, next]);
+            setPending(null);
+        } else {
+            setPending(next);
+        }
+    }
+
+    return (
+        <section>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <h3 style={{ fontSize: 13, margin: 0 }}>Environment</h3>
+                {suggestedEnv.length > 0 && (
+                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => setShowSuggested(true)}>
+                        Suggested variables ({suggestedEnv.length})
+                    </button>
+                )}
+            </div>
+            {showSuggested && (
+                <Modal title="Suggested environment variables" onClose={() => setShowSuggested(false)} width={560}>
+                    <p className={shared.dim} style={{ fontSize: 12, marginTop: 0 }}>
+                        Defaults already baked into this image — everything it sets via <span className={shared.mono}>ENV</span>,
+                        not just app-specific config. "Create" adds it here, explicit and overridable.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+                        {suggestedEnv.map((s) => {
+                            const mapped = rows.some((r) => r.key === s.key);
+                            return (
+                                <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span className={shared.mono} style={{ flex: 1, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                        {s.key}={s.value}
+                                    </span>
+                                    {mapped ? (
+                                        <span className={cx(shared.badge, shared["badge-ok"])}>mapped</span>
+                                    ) : (
+                                        <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => writeRows([...rows, s])}>
+                                            + Create
+                                        </button>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className={shared["modal-actions"]} style={{ marginTop: 12 }}>
+                        <button type="button" className={shared.btn} onClick={() => setShowSuggested(false)}>Close</button>
+                    </div>
+                </Modal>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {rows.map((row, i) => (
+                    <Row key={i} onRemove={() => writeRows(rows.filter((_, j) => j !== i))}>
+                        <input
+                            style={{ width: 200 }}
+                            className={shared.mono}
+                            placeholder="KEY"
+                            value={row.key}
+                            onChange={(e) => writeRows(rows.map((r, j) => j === i ? { ...r, key: e.target.value } : r))}
+                        />
+                        <span className={shared.dim}>=</span>
+                        <input
+                            style={{ flex: 1 }}
+                            className={shared.mono}
+                            placeholder="value"
+                            value={row.value}
+                            onChange={(e) => writeRows(rows.map((r, j) => j === i ? { ...r, value: e.target.value } : r))}
+                        />
+                    </Row>
+                ))}
+                {pending && (
+                    <Row onRemove={() => setPending(null)}>
+                        <input
+                            style={{ width: 200 }}
+                            className={shared.mono}
+                            placeholder="KEY"
+                            autoFocus
+                            value={pending.key}
+                            onChange={(e) => updatePending({ key: e.target.value })}
+                        />
+                        <span className={shared.dim}>=</span>
+                        <input
+                            style={{ flex: 1 }}
+                            className={shared.mono}
+                            placeholder="value"
+                            value={pending.value}
+                            onChange={(e) => updatePending({ value: e.target.value })}
+                        />
+                    </Row>
+                )}
+                <button
+                    type="button"
+                    className={cx(shared.btn, shared["btn-sm"])}
+                    style={{ alignSelf: "flex-start" }}
+                    onClick={() => setPending({ key: "", value: "" })}
+                    disabled={pending !== null}
+                >
+                    + Add variable
+                </button>
+            </div>
+        </section>
+    );
+}
+
+// ---- depends_on -----------------------------------------------------------------
+
+function DependsOnField({ doc, service, otherServices, commit }: {
+    doc: Document; service: string; otherServices: string[]; commit: (mutate: (doc: Document) => void) => void;
+}) {
+    const raw = getServiceField<unknown>(doc, service, "depends_on");
+    if (raw !== undefined && !Array.isArray(raw)) {
+        return (
+            <section>
+                <h3 style={{ fontSize: 13, marginBottom: 6 }}>Depends on</h3>
+                <span className={cx(shared.mono, shared.dim)} style={{ fontSize: 12 }}>Advanced form in use — edit in YAML tab.</span>
+            </section>
+        );
+    }
+    const selected = new Set((raw as string[] | undefined) ?? []);
+
+    function toggle(name: string) {
+        const next = new Set(selected);
+        if (next.has(name)) {
+            next.delete(name);
+        } else {
+            next.add(name);
+        }
+        commit((d) => setServiceField(d, service, "depends_on", next.size > 0 ? [...next] : undefined));
+    }
+
+    if (otherServices.length === 0) {
+        return null;
+    }
+
+    return (
+        <section>
+            <h3 style={{ fontSize: 13, marginBottom: 6 }}>Depends on</h3>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {otherServices.map((s) => (
+                    <label key={s} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+                        <input type="checkbox" checked={selected.has(s)} onChange={() => toggle(s)} />
+                        {s}
+                    </label>
+                ))}
+            </div>
+        </section>
+    );
+}

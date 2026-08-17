@@ -1,4 +1,7 @@
 import type {
+    AppRunStatus,
+    AppServiceStatus,
+    AppStatus,
     ContainerAction,
     ContainerInfo,
     DockerContainerDetail,
@@ -11,6 +14,7 @@ import type {
     DockerVolumeDetail,
     DockerVolumeInfo,
     ImageAction,
+    ImageDefaults,
     LogQuery,
     StackAction,
 } from "@central/shared";
@@ -229,6 +233,226 @@ export async function dockerStackAction(
     }
 }
 
+/** Single-quote a string for safe inclusion in a shell command, escaping any
+ *  embedded single quotes. Used for App directories/compose paths, which come
+ *  from SC-created or operator-picked (`DirectoryPicker`) locations — real
+ *  filesystem paths, not `SAFE_ID_RE`-shaped identifiers. */
+function shQuote(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export type ComposeAction = "up" | "restart" | "stop" | "down";
+
+/**
+ * Run a compose verb against an App's compose file directly (`cd <dir> &&
+ * docker compose -f <composeFile> -p <project> <verb>`). Unlike
+ * `dockerStackAction`, this works even when the project has zero
+ * containers — a freshly created App, or one that's been `down`, since it
+ * drives from the compose file rather than an existing container-id lookup.
+ *
+ * `service`, when given, scopes the action to one service instead of the
+ * whole project. compose has no native per-service `down` (`down` always
+ * tears down the whole project — network included); a scoped "down" is
+ * approximated as `stop` + `rm -f` on just that service, leaving the network
+ * and every other service's container untouched.
+ */
+export async function composeStackAction(
+    server: HostAgent,
+    dir: string,
+    composeFile: string,
+    project: string,
+    action: ComposeAction,
+    pullFirst?: boolean,
+    onLog?: (text: string) => void,
+    service?: string,
+): Promise<void> {
+    if (!SAFE_ID_RE.test(project)) {
+        throw new Error(`Invalid project name: ${project}`);
+    }
+    if (service !== undefined && !SAFE_ID_RE.test(service)) {
+        throw new Error(`Invalid service name: ${service}`);
+    }
+    const svc = service ? ` ${service}` : "";
+    const base = `cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project}`;
+    if (pullFirst) {
+        const pull = await server.exec(`${base} pull${svc} 2>&1`);
+        onLog?.(pull.stdout);
+        if (pull.code !== 0) {
+            throw new Error(errorText(pull) || "docker compose pull failed");
+        }
+    }
+    if (action === "down" && service) {
+        const stop = await server.exec(`${base} stop${svc} 2>&1`);
+        onLog?.(stop.stdout);
+        if (stop.code !== 0) {
+            throw new Error(errorText(stop) || "docker compose stop failed");
+        }
+        const rm = await server.exec(`${base} rm -f${svc} 2>&1`);
+        onLog?.(rm.stdout);
+        if (rm.code !== 0) {
+            throw new Error(errorText(rm) || "docker compose rm failed");
+        }
+        return;
+    }
+    const verb = action === "up" ? "up -d" : action;
+    const res = await server.exec(`${base} ${verb}${svc} 2>&1`);
+    onLog?.(res.stdout);
+    if (res.code !== 0) {
+        throw new Error(errorText(res) || `docker compose ${action} failed`);
+    }
+}
+
+interface ComposeConfigJson {
+    services?: Record<string, { image?: string; volumes?: { type: string; source?: string; target?: string }[] }>;
+    volumes?: Record<string, unknown>;
+}
+
+/**
+ * Resolved compose config (`docker compose config --format json`) — works even
+ * when the project has never run, since it only parses the compose file on
+ * disk. Returns null if the file is missing, invalid, or docker compose fails
+ * for any other reason (the caller treats that as "nothing usable found" —
+ * see `AppDetection.composeFound`/`getAppStatus`'s `"down"` fallback).
+ */
+export async function composeConfig(
+    server: HostAgent,
+    dir: string,
+    composeFile: string,
+    project: string,
+): Promise<ComposeConfigJson | null> {
+    if (!SAFE_ID_RE.test(project)) {
+        throw new Error(`Invalid project name: ${project}`);
+    }
+    const res = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} config --format json 2>&1`);
+    if (res.code !== 0) {
+        return null;
+    }
+    try {
+        return JSON.parse(res.stdout) as ComposeConfigJson;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Validates in-editor compose content with `docker compose config` before it's
+ * saved — catches things schema validation alone can't (interpolation errors,
+ * semantic rejections). Writes to a sibling temp file (same dir as the real
+ * compose file, so relative bind-mount paths resolve the same way they would for
+ * the real file) rather than `dir`'s actual compose file, so an invalid draft
+ * never touches the file `docker_compose_action` deploys from.
+ */
+export async function validateComposeContent(
+    server: HostAgent,
+    dir: string,
+    project: string,
+    content: string,
+): Promise<{ valid: true } | { valid: false; error: string }> {
+    if (!SAFE_ID_RE.test(project)) {
+        throw new Error(`Invalid project name: ${project}`);
+    }
+    const tempName = `.sc-validate-${crypto.randomUUID()}.yaml`;
+    const tempPath = dir.endsWith("/") ? `${dir}${tempName}` : `${dir}/${tempName}`;
+    await server.writeFile(tempPath, content);
+    try {
+        const res = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(tempName)} -p ${project} config --format json 2>&1`);
+        return res.code === 0 ? { valid: true } : { valid: false, error: errorText(res) || "docker compose config failed" };
+    } finally {
+        await server.deletePath(tempPath).catch(() => { /* best-effort cleanup */ });
+    }
+}
+
+interface ComposePsEntry {
+    Service: string;
+    Image?: string;
+    State?: string;
+    Publishers?: { TargetPort?: number; PublishedPort?: number; Protocol?: string }[];
+}
+
+/** `docker compose ps`'s `Publishers` has one entry per (host IP, port) bind —
+ *  a port published without a specific host IP gets both an IPv4 (`0.0.0.0`)
+ *  and an IPv6 (`::`) entry for the same logical mapping, which duplicated the
+ *  port in the summary string. Dedupe by published/target/protocol, ignoring
+ *  which IP it's bound on. */
+function formatPorts(entry: ComposePsEntry): string | undefined {
+    const pubs = (entry.Publishers ?? []).filter((p) => p.PublishedPort);
+    const seen = new Set<string>();
+    const unique = pubs.filter((p) => {
+        const key = `${p.PublishedPort}/${p.TargetPort}/${p.Protocol ?? "tcp"}`;
+        if (seen.has(key)) {
+            return false;
+        }
+        seen.add(key);
+        return true;
+    });
+    return unique.length === 0 ? undefined : unique.map((p) => `${p.PublishedPort}→${p.TargetPort}`).join(", ");
+}
+
+/**
+ * Merges the compose file's declared services with `docker compose ps`'s view
+ * of what's actually running, for the App system's status badge + services
+ * table — deliberately simpler than a full running/disk/reconcile merge
+ * (doc/idea_stack_registry.md §2): docker's own CLI does the compose-file
+ * parsing, so there's no YAML dependency or predicted-name ambiguity to own.
+ */
+export async function getAppStatus(
+    server: HostAgent,
+    dir: string,
+    composeFile: string,
+    project: string,
+): Promise<AppStatus> {
+    const config = await composeConfig(server, dir, composeFile, project);
+    const declared = config ? Object.keys(config.services ?? {}) : [];
+
+    const psRes = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} ps --format json --all 2>&1`);
+    const present = psRes.code === 0 ? parseJsonLines<ComposePsEntry>(psRes.stdout) : [];
+    const byService = new Map(present.map((e) => [e.Service, e]));
+
+    const services: AppServiceStatus[] = declared.map((name) => {
+        const entry = byService.get(name);
+        return {
+            name,
+            image: entry?.Image ?? config?.services?.[name]?.image,
+            state: entry?.State,
+            ports: entry ? formatPorts(entry) : undefined,
+            up: entry?.State === "running",
+        };
+    });
+
+    const upCount = services.filter((s) => s.up).length;
+    const status: AppRunStatus =
+        declared.length === 0 || present.length === 0 ? "down"
+            : upCount === 0 ? "stopped"
+                : upCount === declared.length ? "running"
+                    : "partial";
+
+    return { status, services };
+}
+
+/** `docker compose logs`, optionally scoped to one service — one-shot, not
+ *  streaming (same 30s exec ceiling noted throughout this file's App-facing
+ *  helpers). Compose's own service-name line prefix does the "which service"
+ *  labeling; `--no-color` keeps the output plain since the frontend renders
+ *  it through the same ANSI-aware LogViewer as everything else, not raw. */
+export async function getAppLogs(
+    server: HostAgent,
+    dir: string,
+    composeFile: string,
+    project: string,
+    service: string | undefined,
+    tail: number,
+): Promise<string> {
+    if (!SAFE_ID_RE.test(project)) {
+        throw new Error(`Invalid project name: ${project}`);
+    }
+    if (service && !SAFE_ID_RE.test(service)) {
+        throw new Error(`Invalid service name: ${service}`);
+    }
+    const svc = service ? ` ${service}` : "";
+    const res = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} logs --no-color --tail ${Math.max(1, Math.floor(tail))}${svc} 2>&1`);
+    return res.stdout;
+}
+
 export async function dockerContainerAction(
     server: HostAgent,
     containerId: string,
@@ -387,4 +611,53 @@ export async function dockerImagePull(
         return { ok: false, message: message.split("\n").filter(Boolean).pop() || "docker pull failed" };
     }
     return { ok: true, message: message.split("\n").filter(Boolean).pop() || `Pulled ${ref}` };
+}
+
+interface ImageConfigJson {
+    Env?: string[];
+    ExposedPorts?: Record<string, unknown>;
+    Volumes?: Record<string, unknown>;
+}
+
+const EMPTY_IMAGE_DEFAULTS: ImageDefaults = { volumes: [], ports: [], env: [] };
+
+/**
+ * What an image's Dockerfile already declared — `VOLUME`, `EXPOSE`, `ENV` —
+ * read from a single `docker image inspect --format '{{json .Config}}'` call
+ * (one exec covers all three, rather than one inspect per field). Cheap: no
+ * pull or run, so it only works if the image is already present locally;
+ * returns all-empty rather than triggering a pull otherwise (pulls belong to
+ * the task system — see `dockerImagePull`'s note on the 30s exec ceiling).
+ */
+export async function imageDefaults(server: HostAgent, image: string): Promise<ImageDefaults> {
+    if (!SAFE_REF_RE.test(image)) {
+        throw new Error(`Invalid image reference: ${image}`);
+    }
+    const res = await server.exec(`docker image inspect ${image} --format '{{json .Config}}' 2>&1`);
+    if (res.code !== 0) {
+        return EMPTY_IMAGE_DEFAULTS;
+    }
+    try {
+        const cfg = JSON.parse(res.stdout.trim()) as ImageConfigJson | null;
+        if (!cfg) {
+            return EMPTY_IMAGE_DEFAULTS;
+        }
+        const volumes = cfg.Volumes ? Object.keys(cfg.Volumes).sort() : [];
+        const ports = cfg.ExposedPorts
+            ? Object.keys(cfg.ExposedPorts)
+                .map((k) => {
+                    const [portStr, proto] = k.split("/");
+                    return { port: Number(portStr), protocol: (proto === "udp" ? "udp" : "tcp") as "tcp" | "udp" };
+                })
+                .filter((p) => Number.isFinite(p.port))
+                .sort((a, b) => a.port - b.port)
+            : [];
+        const env = (cfg.Env ?? []).map((s) => {
+            const i = s.indexOf("=");
+            return i === -1 ? { key: s, value: "" } : { key: s.slice(0, i), value: s.slice(i + 1) };
+        });
+        return { volumes, ports, env };
+    } catch {
+        return EMPTY_IMAGE_DEFAULTS;
+    }
 }

@@ -3,12 +3,26 @@ export type ServerTab = "overview" | "files" | "docker" | "processes" | "network
 export type DockerSection = "overview" | "stacks" | "containers" | "volumes" | "images";
 export type ZfsSection = "pools" | "datasets" | "snapshots";
 
+export type AppTab = "overview" | "compose" | "volumes" | "controls" | "logs";
+
+export const APP_TABS: Array<{ id: AppTab; label: string }> = [
+    { id: "overview", label: "Overview" },
+    { id: "compose", label: "Compose" },
+    { id: "volumes", label: "Volumes" },
+    { id: "controls", label: "Controls" },
+    { id: "logs", label: "Logs" },
+];
+
+const APP_TAB_IDS = new Set<AppTab>(APP_TABS.map((t) => t.id));
+
 export type Route =
     | { view: "dashboard" }
     | { view: "agents" }
     | { view: "proxy" }
     | { view: "tasks" }
     | { view: "settings" }
+    | { view: "apps" }
+    | { view: "app"; appId: string; tab: AppTab }
     | {
           view: "server";
           serverId: string;
@@ -64,6 +78,10 @@ export function routeToHash(route: Route): string {
             return "#/tasks";
         case "settings":
             return "#/settings";
+        case "apps":
+            return "#/apps";
+        case "app":
+            return `#/apps/${encodeURIComponent(route.appId)}/${route.tab}`;
         case "server": {
             let hash = `#/server/${encodeURIComponent(route.serverId)}/${route.tab}`;
             if (route.tab === "files") {
@@ -116,6 +134,15 @@ export function hashToRoute(hash: string): Route {
     }
     if (segs[0] === "settings") {
         return { view: "settings" };
+    }
+    if (segs[0] === "apps") {
+        if (segs[1]) {
+            const appId = decodeURIComponent(segs[1]);
+            const tabSeg = segs[2] as AppTab | undefined;
+            const tab = tabSeg && APP_TAB_IDS.has(tabSeg) ? tabSeg : "overview";
+            return { view: "app", appId, tab };
+        }
+        return { view: "apps" };
     }
 
     if (segs[0] === "server" && segs[1]) {

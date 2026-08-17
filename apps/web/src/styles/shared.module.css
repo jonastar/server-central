@@ -101,6 +101,46 @@
     width: 240px;
 }
 
+/* A field that looks like an input but is actually a button opening a picker
+   (e.g. the volume source field) — same base chrome as a real input, but with
+   its own hover/focus so it reads as clickable rather than as inert text. */
+.picker-field {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    background: var(--panel);
+}
+
+.picker-field:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.picker-field:focus-visible {
+    outline: 2px solid var(--accent-soft);
+    border-color: var(--accent);
+}
+
+.picker-field-value {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.picker-field-affordance {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--accent);
+}
+
 /* ---- Panels ------------------------------------------------------------------- */
 
 .panel {

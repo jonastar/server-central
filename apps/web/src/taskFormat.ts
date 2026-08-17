@@ -76,6 +76,10 @@ export function specSummary(spec: TaskSpec): string {
             return `${spec.action} container ${spec.containerId.slice(0, 12)}`;
         case "docker_image_pull":
             return `docker pull ${spec.ref}`;
+        case "docker_compose_action": {
+            const target = spec.service ? `service ${spec.service}` : "app";
+            return spec.pullFirst ? `pull & ${spec.action} ${target}` : `${spec.action} ${target}`;
+        }
         case "update_agent":
             return spec.force ? "Update agent (forced)" : "Update agent";
         case "zfs_pool_create":
@@ -122,6 +126,7 @@ export function resultSummary(run: TaskRun): string {
         case "service_action":
         case "docker_stack_action":
         case "docker_container_action":
+        case "docker_compose_action":
         case "update_agent":
         case "zfs_pool_create":
         case "zfs_pool_destroy":

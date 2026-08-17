@@ -1,10 +1,10 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
-import type { App, OidcAuthorizeParams } from "@central/shared";
+import type { OidcAuthorizeParams, OidcClient } from "@central/shared";
 import { CONFIG_DIR, writeFileAtomic } from "../config";
 
-interface AppRecord {
+interface OidcClientRecord {
     id: string;
     name: string;
     redirectUris: string[];
@@ -12,7 +12,7 @@ interface AppRecord {
     createdAt: number;
 }
 
-function toPublic(rec: AppRecord): App {
+function toPublic(rec: OidcClientRecord): OidcClient {
     return { id: rec.id, name: rec.name, redirectUris: rec.redirectUris, createdAt: rec.createdAt };
 }
 
@@ -47,7 +47,7 @@ const CODE_TTL_MS = 60 * 1000;
  * exactly like user passwords: shown once at creation, never retrievable again.
  */
 export class OidcStore {
-    private apps: Record<string, AppRecord> = {};
+    private apps: Record<string, OidcClientRecord> = {};
     private signingKey: SigningKey | null = null;
     private codes = new Map<string, AuthCodeRecord>();
     private readonly appsFile: string;
@@ -59,7 +59,7 @@ export class OidcStore {
     }
 
     async init(): Promise<void> {
-        this.apps = await readJson<Record<string, AppRecord>>(this.appsFile, {});
+        this.apps = await readJson<Record<string, OidcClientRecord>>(this.appsFile, {});
         this.signingKey = await readJson<SigningKey | null>(this.keyFile, null) ?? await this.createSigningKey();
     }
 
@@ -83,14 +83,14 @@ export class OidcStore {
         return key;
     }
 
-    listApps(): App[] {
+    listClients(): OidcClient[] {
         return Object.values(this.apps).map(toPublic);
     }
 
-    async createApp(name: string, redirectUris: string[]): Promise<{ app: App; clientSecret: string }> {
+    async createClient(name: string, redirectUris: string[]): Promise<{ client: OidcClient; clientSecret: string }> {
         const trimmedName = name.trim();
         if (!trimmedName) {
-            throw new Error("App name is required");
+            throw new Error("Client name is required");
         }
         const uris = redirectUris.map((u) => u.trim()).filter(Boolean);
         if (uris.length === 0) {
@@ -104,7 +104,7 @@ export class OidcStore {
             }
         }
         const clientSecret = randomBytes(32).toString("base64url");
-        const rec: AppRecord = {
+        const rec: OidcClientRecord = {
             id: randomUUID(),
             name: trimmedName,
             redirectUris: uris,
@@ -113,20 +113,20 @@ export class OidcStore {
         };
         this.apps[rec.id] = rec;
         await this.persistApps();
-        return { app: toPublic(rec), clientSecret };
+        return { client: toPublic(rec), clientSecret };
     }
 
-    async deleteApp(appId: string): Promise<void> {
-        if (this.apps[appId]) {
-            delete this.apps[appId];
+    async deleteClient(clientId: string): Promise<void> {
+        if (this.apps[clientId]) {
+            delete this.apps[clientId];
             await this.persistApps();
         }
     }
 
-    /** Validate an authorization request against the registered app, without
+    /** Validate an authorization request against the registered client, without
      *  minting anything — used both for the confirm-screen lookup and as the
      *  first step of actually issuing a code. */
-    validateRequest(params: OidcAuthorizeParams): App {
+    validateRequest(params: OidcAuthorizeParams): OidcClient {
         const rec = this.apps[params.clientId];
         if (!rec) {
             throw new Error("Unknown client");
@@ -140,8 +140,8 @@ export class OidcStore {
         return toPublic(rec);
     }
 
-    /** Authenticate the app at the token endpoint (client_secret_post/basic). */
-    async verifyClientSecret(clientId: string, secret: string): Promise<App | null> {
+    /** Authenticate the client at the token endpoint (client_secret_post/basic). */
+    async verifyClientSecret(clientId: string, secret: string): Promise<OidcClient | null> {
         const rec = this.apps[clientId];
         if (!rec) {
             return null;

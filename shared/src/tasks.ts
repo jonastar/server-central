@@ -52,6 +52,22 @@ export interface TaskDockerImagePull {
     ref: string;
 }
 
+/** Run a compose verb against an App's compose file (`docker compose -f <path>
+ *  -p <project> <verb>`), driven from the App directory rather than existing
+ *  container ids — unlike `docker_stack_action`, this works on a fully-down
+ *  App (including one that has never had a container at all). `action: "up"`
+ *  with `pullFirst` is the "Pull & up" control. Runs over the plain (30s,
+ *  non-streaming) exec today — see doc/idea_app_system.md §8's streaming-exec
+ *  deferral for the known limitation on slow pulls. */
+export interface TaskDockerComposeAction {
+    kind: "docker_compose_action";
+    appId: string;
+    action: "up" | "restart" | "stop" | "down";
+    pullFirst?: boolean;
+    /** Scope the action to one service instead of the whole project. */
+    service?: string;
+}
+
 /** Update an installed agent to the control plane's current AGENT_VERSION
  *  (resolved server-side, not client-supplied). */
 export interface TaskUpdateAgent {
@@ -161,6 +177,7 @@ export type TaskSpec =
     | TaskDockerStackAction
     | TaskDockerContainerAction
     | TaskDockerImagePull
+    | TaskDockerComposeAction
     | TaskUpdateAgent
     | TaskZfsPoolCreate
     | TaskZfsPoolDestroy
@@ -217,6 +234,10 @@ export interface TaskDockerImagePullResult {
     kind: "docker_image_pull";
     ok: boolean;
     message: string;
+}
+
+export interface TaskDockerComposeActionResult {
+    kind: "docker_compose_action";
 }
 
 /** Confirms the agent acknowledged the update, not that it finished — the
@@ -287,6 +308,7 @@ export type TaskResult =
     | TaskDockerStackActionResult
     | TaskDockerContainerActionResult
     | TaskDockerImagePullResult
+    | TaskDockerComposeActionResult
     | TaskUpdateAgentResult
     | TaskZfsPoolCreateResult
     | TaskZfsPoolDestroyResult

@@ -7,6 +7,8 @@ import { LoginView } from "./components/LoginView";
 import { Sidebar } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { AgentsView } from "./components/AgentsView";
+import { AppsView } from "./components/AppsView";
+import { AppView } from "./components/AppView";
 import { ServerOverview } from "./components/ServerOverview";
 import { FilesView } from "./components/FilesView";
 import { DockerView } from "./components/DockerView";
@@ -65,6 +67,25 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
         }
         if (route.view === "settings") {
             return <SettingsView />;
+        }
+        if (route.view === "apps") {
+            return (
+                <AppsView
+                    servers={conn.servers}
+                    onOpenApp={(appId) => setRoute({ view: "app", appId, tab: "overview" })}
+                />
+            );
+        }
+        if (route.view === "app") {
+            return (
+                <AppView
+                    appId={route.appId}
+                    tab={route.tab}
+                    servers={conn.servers}
+                    onNavigate={(tab) => setRoute({ view: "app", appId: route.appId, tab })}
+                    onBack={() => setRoute({ view: "apps" })}
+                />
+            );
         }
         if (!currentEntry) {
             return (

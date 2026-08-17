@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+body { margin:0; background:#e6e8ec; font:13px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; color:#23272e; }
+* { box-sizing:border-box; }
+a { color:#3b6ef6; text-decoration:none; }
+a:hover { color:#2f5ce0; text-decoration:underline; }
+</style>
+</helmet>
+
+<section style="display:flex;flex-direction:column;gap:28px;padding:40px">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:900px">
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#6b7280">Turn 2 · settled direction</div>
+    <h1 style="margin:0;font-size:24px">Apps list — cards, grouped by server</h1>
+    <p style="margin:0;color:#6b7280;text-wrap:pretty"><a href="#1c">1c</a>'s card with <a href="#1b">1b</a>'s host grouping. Detail stays the tabbed <a href="#1d">1d</a> pattern. Host group headers carry the agent status dot, so an unreachable host explains its own apps rather than each card repeating it.</p>
+  </div>
+
+  <div id="2a" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">2a</span><span style="font-weight:600">Apps — cards grouped by server</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px;overflow:hidden">
+        <header style="display:flex;align-items:center;gap:10px">
+          <h1 style="font-size:18px;margin:0;margin-right:auto;white-space:nowrap">Apps</h1>
+          <div style="display:inline-flex;gap:4px">
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;border:1px solid #3b6ef6;border-radius:999px;background:#e9efff;color:#3b6ef6;font-weight:600">All <span style="font-variant-numeric:tabular-nums">15</span></span>
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;border:1px solid #dfe2e8;border-radius:999px;background:#fff"><span style="width:7px;height:7px;border-radius:50%;background:#d99a0b"></span>Needs attention <span style="color:#6b7280;font-variant-numeric:tabular-nums">6</span></span>
+          </div>
+          <input placeholder="Filter apps…" style="width:220px;padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit">
+          <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font:inherit;cursor:pointer;white-space:nowrap">Import existing…</button>
+          <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer;white-space:nowrap">New App</button>
+        </header>
+
+        <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:18px">
+          <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+            <section style="display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:center;gap:10px;padding-bottom:6px;border-bottom:1px solid #dfe2e8">
+                <sc-if value="{{ g.online }}" hint-placeholder-val="{{ true }}"><span style="width:8px;height:8px;border-radius:50%;background:#22a06b;box-shadow:0 0 0 3px rgba(34,160,107,0.18)"></span></sc-if>
+                <sc-if value="{{ g.offline }}"><span style="width:8px;height:8px;border-radius:50%;background:#9aa1ab"></span></sc-if>
+                <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;font-weight:700">{{ g.host }}</h3>
+                <span style="color:#6b7280;font-size:12px">{{ g.meta }}</span>
+                <span style="margin-left:auto;color:#6b7280;font-size:12px">{{ g.summary }}</span>
+                <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer;white-space:nowrap">New App here</button>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:12px">
+                <sc-for list="{{ g.apps }}" as="a" hint-placeholder-count="4">
+                  <div style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+                    <div style="display:flex;align-items:baseline;gap:8px">
+                      <span style="font-weight:600;font-size:14px;color:#3b6ef6;margin-right:auto">{{ a.name }}</span>
+                      <sc-if value="{{ a.r }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">running</span></sc-if>
+                      <sc-if value="{{ a.p }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(217,154,11,0.16);color:#d99a0b">partial</span></sc-if>
+                      <sc-if value="{{ a.s }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(107,114,128,0.14);color:#6b7280">stopped</span></sc-if>
+                      <sc-if value="{{ a.d }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(107,114,128,0.14);color:#6b7280">down</span></sc-if>
+                      <sc-if value="{{ a.o }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(214,69,69,0.12);color:#d64545">orphaned</span></sc-if>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:3px">
+                      <span style="font-size:12px;color:#6b7280">{{ a.svc }} services up</span>
+                      <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.dir }}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <div style="display:flex;gap:3px;flex:1">
+                        <sc-for list="{{ a.bars }}" as="b" hint-placeholder-count="3">
+                          <sc-if value="{{ b.up }}"><span style="height:6px;flex:1;border-radius:3px;background:#22a06b"></span></sc-if>
+                          <sc-if value="{{ b.off }}"><span style="height:6px;flex:1;border-radius:3px;background:#dfe2e8"></span></sc-if>
+                        </sc-for>
+                      </div>
+                      <span style="font-size:11.5px;color:#6b7280;white-space:nowrap">{{ a.last }}</span>
+                    </div>
+                    <div style="display:flex;gap:4px">
+                      <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Restart</button>
+                      <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Stop</button>
+                      <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer;margin-left:auto">Open</button>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </section>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:28px;padding:40px">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:900px">
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#6b7280">Turn 1 · App system v1</div>
+    <h1 style="margin:0;font-size:24px">Apps — list, detail, create/import</h1>
+    <p style="margin:0;color:#6b7280;text-wrap:pretty">Built on Server Central's existing vocabulary (shared.module.css tokens, data-table, badges, sub-tabs, Modal). Three list layouts (<a href="#1a">1a</a>–<a href="#1c">1c</a>) also carry three status treatments; detail tabs <a href="#1d">1d</a>–<a href="#1h">1h</a>, alternate detail structures <a href="#1i">1i</a>/<a href="#1j">1j</a>, create/import <a href="#1k">1k</a>/<a href="#1l">1l</a>.</p>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:36px">
+
+  <div id="1a" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1a</span><span style="font-weight:600">Apps list — flat table, status badges</span><span style="color:#6b7280">everything everywhere, filterable (TasksView shape)</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px;overflow:hidden">
+        <header style="display:flex;align-items:center;gap:10px">
+          <h1 style="font-size:18px;margin:0;margin-right:auto;white-space:nowrap">Apps</h1>
+          <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font:inherit;cursor:pointer;white-space:nowrap">Import existing…</button>
+          <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer">New App</button>
+        </header>
+
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="display:inline-flex;gap:4px;flex-wrap:wrap">
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;border:1px solid #3b6ef6;border-radius:999px;background:#e9efff;color:#3b6ef6;font-weight:600">All <span style="font-variant-numeric:tabular-nums">15</span></span>
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;border:1px solid #dfe2e8;border-radius:999px;background:#fff"><span style="width:7px;height:7px;border-radius:50%;background:#22a06b"></span>Running <span style="color:#6b7280;font-variant-numeric:tabular-nums">9</span></span>
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;border:1px solid #dfe2e8;border-radius:999px;background:#fff"><span style="width:7px;height:7px;border-radius:50%;background:#d99a0b"></span>Partial <span style="color:#6b7280;font-variant-numeric:tabular-nums">2</span></span>
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;border:1px solid #dfe2e8;border-radius:999px;background:#fff"><span style="width:7px;height:7px;border-radius:50%;background:#9aa1ab"></span>Stopped <span style="color:#6b7280;font-variant-numeric:tabular-nums">2</span></span>
+            <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;border:1px solid #dfe2e8;border-radius:999px;background:#fff"><span style="width:7px;height:7px;border-radius:50%;background:#9aa1ab"></span>Down <span style="color:#6b7280;font-variant-numeric:tabular-nums">2</span></span>
+          </div>
+          <input placeholder="Filter apps…" style="width:240px;margin-left:auto;padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit">
+          <select style="padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit"><option>All hosts</option></select>
+        </div>
+
+        <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px;flex:1;min-height:0;overflow:auto">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <h3 style="margin:0;margin-right:auto;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Apps ({{ total }})</h3>
+            <span style="font-size:12px;color:#6b7280">refreshed 4s ago</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">App</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">Host</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">Status</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">Services</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">Last action</th>
+                <th style="border-bottom:1px solid #dfe2e8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ apps }}" as="a" hint-placeholder-count="12">
+                <tr>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;vertical-align:middle">
+                    <div style="display:flex;flex-direction:column;gap:1px">
+                      <span style="font-weight:600;color:#3b6ef6">{{ a.name }}</span>
+                      <sc-if value="{{ showDir }}" hint-placeholder-val="{{ true }}"><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:#6b7280">{{ a.dir }}</span></sc-if>
+                    </div>
+                  </td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280">{{ a.host }}</td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2">
+                    <sc-if value="{{ a.r }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">running</span></sc-if>
+                    <sc-if value="{{ a.p }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(217,154,11,0.16);color:#d99a0b">partial</span></sc-if>
+                    <sc-if value="{{ a.s }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(107,114,128,0.14);color:#6b7280">stopped</span></sc-if>
+                    <sc-if value="{{ a.d }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(107,114,128,0.14);color:#6b7280">down</span></sc-if>
+                    <sc-if value="{{ a.o }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(214,69,69,0.12);color:#d64545">orphaned</span></sc-if>
+                  </td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280;font-variant-numeric:tabular-nums">{{ a.svc }}</td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280">{{ a.last }}</td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;text-align:right;white-space:nowrap">
+                    <sc-if value="{{ showActions }}" hint-placeholder-val="{{ true }}">
+                      <span style="display:inline-flex;gap:4px;justify-content:flex-end">
+                        <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Start</button>
+                        <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Restart</button>
+                        <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Stop</button>
+                      </span>
+                    </sc-if>
+                  </td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="1b" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1b</span><span style="font-weight:600">Apps list — grouped by host, dot + word status</span><span style="color:#6b7280">host is the frame, not a column</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <header style="display:flex;align-items:center;gap:10px">
+          <h1 style="font-size:18px;margin:0;margin-right:auto">Apps</h1>
+          <input placeholder="Filter apps…" style="width:240px;padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit">
+          <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font:inherit;cursor:pointer;white-space:nowrap">Import existing…</button>
+          <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer">New App</button>
+        </header>
+        <div style="display:flex;flex-direction:column;gap:14px;flex:1;min-height:0;overflow:auto">
+          <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+            <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                <span style="width:8px;height:8px;border-radius:50%;background:#22a06b;box-shadow:0 0 0 3px rgba(34,160,107,0.18)"></span>
+                <h3 style="margin:0;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;font-weight:700">{{ g.host }}</h3>
+                <span style="color:#6b7280;font-size:12px">{{ g.meta }}</span>
+                <span style="margin-left:auto;color:#6b7280;font-size:12px">{{ g.summary }}</span>
+              </div>
+              <div style="display:flex;flex-direction:column">
+                <sc-for list="{{ g.apps }}" as="a" hint-placeholder-count="4">
+                  <div style="display:grid;grid-template-columns:1.4fr 0.9fr 0.6fr 1fr auto;align-items:center;gap:12px;padding:10px 6px;border-bottom:1px solid #eceef2">
+                    <div style="display:flex;flex-direction:column;gap:1px;min-width:0">
+                      <span style="font-weight:600;color:#3b6ef6">{{ a.name }}</span>
+                      <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.dir }}</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:7px">
+                      <sc-if value="{{ a.r }}"><span style="width:8px;height:8px;border-radius:50%;background:#22a06b;box-shadow:0 0 0 3px rgba(34,160,107,0.18)"></span></sc-if>
+                      <sc-if value="{{ a.p }}"><span style="width:8px;height:8px;border-radius:50%;background:#d99a0b"></span></sc-if>
+                      <sc-if value="{{ a.s }}"><span style="width:8px;height:8px;border-radius:50%;background:#9aa1ab"></span></sc-if>
+                      <sc-if value="{{ a.d }}"><span style="width:8px;height:8px;border-radius:50%;background:#9aa1ab"></span></sc-if>
+                      <sc-if value="{{ a.o }}"><span style="width:8px;height:8px;border-radius:50%;background:#d64545"></span></sc-if>
+                      <span>{{ a.status }}</span>
+                    </div>
+                    <div style="color:#6b7280;font-variant-numeric:tabular-nums">{{ a.svc }}</div>
+                    <div style="color:#6b7280">{{ a.last }}</div>
+                    <div style="display:flex;gap:4px;justify-content:flex-end">
+                      <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Restart</button>
+                      <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Stop</button>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </section>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1c" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1c</span><span style="font-weight:600">Apps list — cards, status as service bar</span><span style="color:#6b7280">Dashboard-ish; scales worst past ~20 apps</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <header style="display:flex;align-items:center;gap:10px">
+          <h1 style="font-size:18px;margin:0;margin-right:auto">Apps</h1>
+          <input placeholder="Filter apps…" style="width:240px;padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit">
+          <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font:inherit;cursor:pointer;white-space:nowrap">Import existing…</button>
+          <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer">New App</button>
+        </header>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(276px,1fr));gap:14px;align-content:start;flex:1;min-height:0;overflow:auto">
+          <sc-for list="{{ apps }}" as="a" hint-placeholder-count="12">
+            <div style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <span style="font-weight:600;font-size:14px;color:#3b6ef6;margin-right:auto">{{ a.name }}</span>
+                <sc-if value="{{ a.r }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">running</span></sc-if>
+                <sc-if value="{{ a.p }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(217,154,11,0.16);color:#d99a0b">partial</span></sc-if>
+                <sc-if value="{{ a.s }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(107,114,128,0.14);color:#6b7280">stopped</span></sc-if>
+                <sc-if value="{{ a.d }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(107,114,128,0.14);color:#6b7280">down</span></sc-if>
+                <sc-if value="{{ a.o }}"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(214,69,69,0.12);color:#d64545">orphaned</span></sc-if>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:3px">
+                <span style="font-size:12px;color:#6b7280">{{ a.host }} · {{ a.svc }} services up</span>
+                <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.dir }}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="display:flex;gap:3px;flex:1">
+                  <sc-for list="{{ a.bars }}" as="b" hint-placeholder-count="3">
+                    <sc-if value="{{ b.up }}"><span style="height:6px;flex:1;border-radius:3px;background:#22a06b"></span></sc-if>
+                    <sc-if value="{{ b.off }}"><span style="height:6px;flex:1;border-radius:3px;background:#dfe2e8"></span></sc-if>
+                  </sc-for>
+                </div>
+                <span style="font-size:11.5px;color:#6b7280">{{ a.last }}</span>
+              </div>
+              <div style="display:flex;gap:4px">
+                <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Restart</button>
+                <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer">Stop</button>
+                <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;color:#23272e;font-family:inherit;cursor:pointer;margin-left:auto">Open</button>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1d" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1d</span><span style="font-weight:600">App detail — Overview</span><span style="color:#6b7280">tabbed, ServerOverview + sub-tabs pattern</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <header style="display:flex;align-items:center;gap:10px">
+          <span style="color:#6b7280">Apps /</span>
+          <h1 style="font-size:18px;margin:0">jellyfin</h1>
+          <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b;margin-right:auto">running</span>
+          <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Restart</button>
+          <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Stop</button>
+          <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Pull</button>
+        </header>
+        <div style="display:flex;gap:4px;border-bottom:1px solid #dfe2e8">
+          <span style="padding:6px 12px;font-size:13px;color:#3b6ef6;border-bottom:2px solid #3b6ef6;margin-bottom:-1px;font-weight:600">Overview</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Compose</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Volumes</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Controls</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Logs</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <div style="background:#fff;border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column;gap:1px"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Host</span><span style="font-size:12.5px;font-weight:600">homelab</span></div>
+          <div style="background:#fff;border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column;gap:1px"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Directory</span><span style="font-size:12.5px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">/opt/sc-apps/jellyfin</span></div>
+          <div style="background:#fff;border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column;gap:1px"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Compose file</span><span style="font-size:12.5px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">compose.yaml</span></div>
+          <div style="background:#fff;border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column;gap:1px"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Project</span><span style="font-size:12.5px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">jellyfin</span></div>
+          <div style="background:#fff;border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column;gap:1px"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Created</span><span style="font-size:12.5px;font-weight:600">14 Jun 2026</span></div>
+          <div style="background:#fff;border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column;gap:1px"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Manifest</span><span style="font-size:12.5px;font-weight:600">sc-app.json present</span></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:minmax(340px,1.6fr) minmax(320px,1fr);gap:14px;align-items:start">
+          <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px">
+            <h3 style="margin:0 0 10px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Services (3)</h3>
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">Service</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">Image</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">State</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 10px;border-bottom:1px solid #dfe2e8">Ports</th>
+              </tr></thead>
+              <tbody>
+                <tr>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;font-weight:600">jellyfin</td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">jellyfin/jellyfin:10.9.11</td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">up 6d</span></td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">8096→8096</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;font-weight:600">postgres</td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">postgres:16-alpine</td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">up 6d</span></td>
+                  <td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280">—</td>
+                </tr>
+                <tr>
+                  <td style="padding:9px 10px;font-weight:600">redis</td>
+                  <td style="padding:9px 10px;color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">redis:7-alpine</td>
+                  <td style="padding:9px 10px"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">up 6d</span></td>
+                  <td style="padding:9px 10px;color:#6b7280">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px">
+              <h3 style="margin:0 0 10px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Recent task runs</h3>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">succeeded</span><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">docker_compose_action · pull</span><span style="margin-left:auto;color:#6b7280;font-size:12px">2d ago · 41s</span></div>
+                <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">succeeded</span><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">docker_stack_action · restart</span><span style="margin-left:auto;color:#6b7280;font-size:12px">2d ago · 3.2s</span></div>
+                <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(214,69,69,0.12);color:#d64545">failed</span><span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">docker_compose_action · up</span><span style="margin-left:auto;color:#6b7280;font-size:12px">9d ago · timeout</span></div>
+              </div>
+            </section>
+            <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px">
+              <h3 style="margin:0 0 10px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Volumes</h3>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:grid;grid-template-columns:120px 1fr;gap:12px"><span style="color:#6b7280;font-size:12px">jellyfin/</span><span>config, cache — 4.2 GB</span></div>
+                <div style="display:grid;grid-template-columns:120px 1fr;gap:12px"><span style="color:#6b7280;font-size:12px">postgres/</span><span>data — 318 MB</span></div>
+                <div style="display:grid;grid-template-columns:120px 1fr;gap:12px"><span style="color:#6b7280;font-size:12px">external</span><span style="color:#6b7280">/mnt/lone/media (bind, outside app dir)</span></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1e" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1e</span><span style="font-weight:600">App detail — Compose</span><span style="color:#6b7280">CodeEditor/MonacoPane in the FilesView editor shell</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <header style="display:flex;align-items:center;gap:10px">
+          <span style="color:#6b7280">Apps /</span>
+          <h1 style="font-size:18px;margin:0">jellyfin</h1>
+          <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b;margin-right:auto">running</span>
+        </header>
+        <div style="display:flex;gap:4px;border-bottom:1px solid #dfe2e8">
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Overview</span>
+          <span style="padding:6px 12px;font-size:13px;color:#3b6ef6;border-bottom:2px solid #3b6ef6;margin-bottom:-1px;font-weight:600">Compose</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Volumes</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Controls</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Logs</span>
+        </div>
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;border:1px solid #dfe2e8;border-radius:8px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #dfe2e8;background:#f7f8fa">
+            <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">/opt/sc-apps/jellyfin/compose.yaml</span>
+            <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(217,154,11,0.16);color:#d99a0b">unsaved changes</span>
+            <span style="margin-left:auto;color:#6b7280;font-size:12px">yaml · 34 lines</span>
+            <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer">Revert</button>
+            <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer">Save</button>
+            <button style="padding:2px 8px;font-size:12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font-family:inherit;cursor:pointer">Save &amp; up</button>
+          </div>
+          <div style="flex:1;min-height:0;display:flex;overflow:hidden">
+            <pre style="margin:0;padding:12px 8px;text-align:right;color:#b6bcc6;background:#fbfbfc;border-right:1px solid #eceef2;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.7">1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25</pre>
+            <pre style="margin:0;padding:12px 14px;flex:1;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.7;color:#23272e">services:
+  jellyfin:
+    image: jellyfin/jellyfin:10.9.11
+    container_name: jellyfin
+    restart: unless-stopped
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./volumes/jellyfin/config:/config
+      - ./volumes/jellyfin/cache:/cache
+      - /mnt/lone/media:/media:ro
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg
+    volumes:
+      - ./volumes/postgres/data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped</pre>
+          </div>
+          <div style="padding:8px 12px;border-top:1px solid #dfe2e8;background:#f7f8fa;color:#6b7280;font-size:12px">Saving writes the file on <b>homelab</b> only — it does not restart anything. Use <b>Save &amp; up</b> to apply.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1f" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1f</span><span style="font-weight:600">App detail — Volumes</span><span style="color:#6b7280">FilesView rooted at &lt;app-root&gt;/volumes</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <header style="display:flex;align-items:center;gap:10px">
+          <span style="color:#6b7280">Apps /</span>
+          <h1 style="font-size:18px;margin:0">jellyfin</h1>
+          <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b;margin-right:auto">running</span>
+        </header>
+        <div style="display:flex;gap:4px;border-bottom:1px solid #dfe2e8">
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Overview</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Compose</span>
+          <span style="padding:6px 12px;font-size:13px;color:#3b6ef6;border-bottom:2px solid #3b6ef6;margin-bottom:-1px;font-weight:600">Volumes</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Controls</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Logs</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span style="color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">/opt/sc-apps/jellyfin/</span>
+          <span style="color:#3b6ef6;cursor:pointer">volumes</span><span style="color:#6b7280">/</span>
+          <span style="color:#3b6ef6;cursor:pointer">jellyfin</span><span style="color:#6b7280">/</span>
+          <span>config</span>
+          <span style="margin-left:auto;color:#6b7280;font-size:12px">bind mounts only — named volumes aren't browsable</span>
+          <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer">Upload</button>
+          <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer">New folder</button>
+        </div>
+        <div style="flex:1;min-height:0;display:flex;gap:14px">
+          <div style="flex:0 0 38%;background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:6px 10px;overflow:auto">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 8px;border-bottom:1px solid #dfe2e8">Name</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 8px;border-bottom:1px solid #dfe2e8">Size</th>
+                <th style="text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.04em;color:#6b7280;padding:6px 8px;border-bottom:1px solid #dfe2e8">Modified</th>
+              </tr></thead>
+              <tbody>
+                <tr><td style="padding:8px;border-bottom:1px solid #eceef2;color:#3b6ef6;font-weight:600">..</td><td style="padding:8px;border-bottom:1px solid #eceef2"></td><td style="padding:8px;border-bottom:1px solid #eceef2"></td></tr>
+                <tr><td style="padding:8px;border-bottom:1px solid #eceef2;color:#3b6ef6;font-weight:600">data/</td><td style="padding:8px;border-bottom:1px solid #eceef2;color:#6b7280">—</td><td style="padding:8px;border-bottom:1px solid #eceef2;color:#6b7280">6d ago</td></tr>
+                <tr><td style="padding:8px;border-bottom:1px solid #eceef2;color:#3b6ef6;font-weight:600">plugins/</td><td style="padding:8px;border-bottom:1px solid #eceef2;color:#6b7280">—</td><td style="padding:8px;border-bottom:1px solid #eceef2;color:#6b7280">6d ago</td></tr>
+                <tr><td style="padding:8px;border-bottom:1px solid #eceef2;background:#e9efff;font-weight:500">system.xml</td><td style="padding:8px;border-bottom:1px solid #eceef2;background:#e9efff;color:#6b7280">4.1 KB</td><td style="padding:8px;border-bottom:1px solid #eceef2;background:#e9efff;color:#6b7280">2d ago</td></tr>
+                <tr><td style="padding:8px;border-bottom:1px solid #eceef2">encoding.xml</td><td style="padding:8px;border-bottom:1px solid #eceef2;color:#6b7280">1.8 KB</td><td style="padding:8px;border-bottom:1px solid #eceef2;color:#6b7280">14 Jun</td></tr>
+                <tr><td style="padding:8px;border-bottom:1px solid #eceef2">network.xml</td><td style="padding:8px;border-bottom:1px solid #eceef2;color:#6b7280">912 B</td><td style="padding:8px;border-bottom:1px solid #eceef2;color:#6b7280">14 Jun</td></tr>
+                <tr><td style="padding:8px">jellyfin.db</td><td style="padding:8px;color:#6b7280">96 MB</td><td style="padding:8px;color:#6b7280">3m ago</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;background:#fff;border:1px solid #dfe2e8;border-radius:8px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #dfe2e8;background:#f7f8fa">
+              <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">volumes/jellyfin/config/system.xml</span>
+              <button style="margin-left:auto;padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer">Download</button>
+              <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer">Save</button>
+            </div>
+            <pre style="margin:0;padding:12px 14px;flex:1;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.7">&lt;ServerConfiguration&gt;
+  &lt;LogFileRetentionDays&gt;3&lt;/LogFileRetentionDays&gt;
+  &lt;IsStartupWizardCompleted&gt;true&lt;/IsStartupWizardCompleted&gt;
+  &lt;CachePath&gt;/cache&lt;/CachePath&gt;
+  &lt;EnableMetrics&gt;false&lt;/EnableMetrics&gt;
+  &lt;QuickConnectAvailable&gt;true&lt;/QuickConnectAvailable&gt;
+&lt;/ServerConfiguration&gt;</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1g" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1g</span><span style="font-weight:600">App detail — Controls</span><span style="color:#6b7280">each action names its task kind; streaming pull called out</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <header style="display:flex;align-items:center;gap:10px">
+          <span style="color:#6b7280">Apps /</span>
+          <h1 style="font-size:18px;margin:0">jellyfin</h1>
+          <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b;margin-right:auto">running</span>
+        </header>
+        <div style="display:flex;gap:4px;border-bottom:1px solid #dfe2e8">
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Overview</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Compose</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Volumes</span>
+          <span style="padding:6px 12px;font-size:13px;color:#3b6ef6;border-bottom:2px solid #3b6ef6;margin-bottom:-1px;font-weight:600">Controls</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Logs</span>
+        </div>
+        <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px">
+          <h3 style="margin:0 0 10px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Stack actions</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px">
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid #dfe2e8;border-radius:6px;padding:10px 12px">
+              <div style="display:flex;flex-direction:column;gap:2px;margin-right:auto"><span style="font-weight:600">Start</span><span style="color:#6b7280;font-size:12px">docker_stack_action · start</span></div>
+              <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Run</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid #dfe2e8;border-radius:6px;padding:10px 12px">
+              <div style="display:flex;flex-direction:column;gap:2px;margin-right:auto"><span style="font-weight:600">Restart</span><span style="color:#6b7280;font-size:12px">docker_stack_action · restart</span></div>
+              <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Run</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid #dfe2e8;border-radius:6px;padding:10px 12px">
+              <div style="display:flex;flex-direction:column;gap:2px;margin-right:auto"><span style="font-weight:600">Stop</span><span style="color:#6b7280;font-size:12px">containers stay defined</span></div>
+              <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Run</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid #dfe2e8;border-radius:6px;padding:10px 12px">
+              <div style="display:flex;flex-direction:column;gap:2px;margin-right:auto"><span style="font-weight:600">Pull &amp; up</span><span style="color:#6b7280;font-size:12px">docker_compose_action · streams live</span></div>
+              <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer">Run</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid rgba(214,69,69,0.4);border-radius:6px;padding:10px 12px">
+              <div style="display:flex;flex-direction:column;gap:2px;margin-right:auto"><span style="font-weight:600;color:#d64545">Down</span><span style="color:#6b7280;font-size:12px">removes containers · volumes/ untouched</span></div>
+              <button style="padding:5px 12px;border:1px solid rgba(214,69,69,0.4);border-radius:6px;background:#fff;color:#d64545;font:inherit;cursor:pointer">Run</button>
+            </div>
+          </div>
+        </section>
+        <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px;flex:1;min-height:0;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <h3 style="margin:0;margin-right:auto;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Run in progress</h3>
+            <span style="display:inline-flex;align-items:center;gap:8px;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(59,110,246,0.12);color:#3b6ef6">running · 0:12</span>
+          </div>
+          <pre style="margin:0;flex:1;min-height:0;overflow:auto;background:#1d2026;color:#d6d9de;padding:12px;border-radius:6px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap">$ docker compose -f /opt/sc-apps/jellyfin/compose.yaml -p jellyfin pull
+postgres Pulling
+redis Pulling
+jellyfin Pulling
+ a4f2c9e1b0d3 Pull complete
+ 7c1e93f0aa21 Downloading [=============>            ]  118MB/214MB
+ 3bb2a41f7c88 Extracting  [========>                 ]   41MB/96MB
+redis Pulled</pre>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div id="1h" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1h</span><span style="font-weight:600">App detail — Logs</span><span style="color:#6b7280">LogViewer.tsx + ansi.ts, per-service select</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <header style="display:flex;align-items:center;gap:10px">
+          <span style="color:#6b7280">Apps /</span>
+          <h1 style="font-size:18px;margin:0">jellyfin</h1>
+          <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b;margin-right:auto">running</span>
+        </header>
+        <div style="display:flex;gap:4px;border-bottom:1px solid #dfe2e8">
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Overview</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Compose</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Volumes</span>
+          <span style="padding:6px 12px;font-size:13px;color:#6b7280">Controls</span>
+          <span style="padding:6px 12px;font-size:13px;color:#3b6ef6;border-bottom:2px solid #3b6ef6;margin-bottom:-1px;font-weight:600">Logs</span>
+        </div>
+        <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <select style="font-size:12px;padding:3px 6px;border:1px solid #dfe2e8;border-radius:5px;background:#fff"><option>All services</option></select>
+            <select style="font-size:12px;padding:3px 6px;border:1px solid #dfe2e8;border-radius:5px;background:#fff"><option>Last 500 lines</option></select>
+            <input placeholder="Search…" style="width:200px;padding:3px 8px;border:1px solid #dfe2e8;border-radius:5px;background:#fff;font:inherit;font-size:12px">
+            <span style="color:#6b7280;font-size:12px;min-width:44px;text-align:center">3/17</span>
+            <label style="display:flex;align-items:center;gap:4px;color:#6b7280;font-size:13px"><input type="checkbox" checked>Wrap</label>
+            <label style="display:flex;align-items:center;gap:4px;color:#6b7280;font-size:13px"><input type="checkbox" checked>Follow</label>
+            <span style="margin-left:auto;color:#6b7280;font-size:12px">500 lines</span>
+          </div>
+          <pre style="margin:0;flex:1;min-height:0;overflow:auto;background:#1d2026;color:#d6d9de;padding:12px;border-radius:6px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap">jellyfin  | [12:04:18] [INF] [8] Emby.Server: Starting entry point Jellyfin.Api.WebSocketListener
+postgres  | 2026-08-12 12:04:18.114 UTC [1] LOG:  database system is ready to accept connections
+redis     | 1:M 12 Aug 2026 12:04:18.220 * Ready to accept connections tcp
+jellyfin  | [12:04:19] [INF] [8] Main: Jellyfin version: 10.9.11
+jellyfin  | [12:04:19] [INF] [8] Main: Operating system: Debian GNU/Linux 13
+jellyfin  | [12:04:21] [INF] [14] LibraryMonitor: Watching directory /media/tv
+jellyfin  | [12:04:21] [INF] [14] LibraryMonitor: Watching directory /media/movies
+jellyfin  | [12:07:02] [INF] [21] SessionManager: Playback start: jonas · Andor S01E04
+jellyfin  | [12:07:02] [INF] [21] Transcoding: Beginning direct stream, 1080p HEVC
+postgres  | 2026-08-12 12:11:40.902 UTC [412] LOG:  checkpoint starting: time
+jellyfin  | [12:14:55] [WRN] [21] SessionManager: Session ended abruptly (client timeout)
+jellyfin  | [12:19:00] [INF] [8] ScheduledTasks: Scheduled task Scan Media Library completed after 41s</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1i" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1i</span><span style="font-weight:600">App detail — one scrolling page (no tabs)</span><span style="color:#6b7280">everything visible; compose/logs get less room</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px;overflow:hidden">
+        <header style="display:flex;align-items:center;gap:10px">
+          <span style="color:#6b7280">Apps /</span>
+          <h1 style="font-size:18px;margin:0">gitea</h1>
+          <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(217,154,11,0.16);color:#d99a0b;margin-right:auto">partial · 2/3 up</span>
+          <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer">Up</button>
+          <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Restart</button>
+        </header>
+        <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:14px">
+          <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px">
+            <h3 style="margin:0 0 10px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Overview</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <div style="border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Host</span><span style="font-size:12.5px;font-weight:600">homelab</span></div>
+              <div style="border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Directory</span><span style="font-size:12.5px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">/opt/sc-apps/gitea</span></div>
+              <div style="border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Services</span><span style="font-size:12.5px;font-weight:600">3 (1 exited)</span></div>
+              <div style="border:1px solid #dfe2e8;border-radius:6px;padding:5px 10px;display:flex;flex-direction:column"><span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Last action</span><span style="font-size:12.5px;font-weight:600">up · failed 9m ago</span></div>
+            </div>
+          </section>
+          <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+              <h3 style="margin:0;margin-right:auto;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Compose</h3>
+              <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:#6b7280">compose.yaml</span>
+              <button style="padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer">Edit</button>
+            </div>
+            <pre style="margin:0;max-height:150px;overflow:hidden;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.7;color:#23272e">services:
+  gitea:
+    image: gitea/gitea:1.22
+    ports: ["3000:3000", "222:22"]
+    volumes:
+      - ./volumes/gitea/data:/data
+  runner:
+    image: gitea/act_runner:0.2.11</pre>
+          </section>
+          <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px;flex:1;min-height:0;display:flex;flex-direction:column">
+            <h3 style="margin:0 0 10px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Logs</h3>
+            <pre style="margin:0;flex:1;min-height:0;overflow:auto;background:#1d2026;color:#d6d9de;padding:12px;border-radius:6px;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">runner | level=error msg="failed to register runner: dial tcp 172.19.0.3:3000: connect: connection refused"
+gitea  | 2026/08/12 12:03:58 ...src/net/http/server.go:3210:ListenAndServe() [I] Starting server on :3000
+runner | level=info msg="runner exited with code 1"</pre>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1j" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1j</span><span style="font-weight:600">App detail — split pane (list stays put)</span><span style="color:#6b7280">fastest for hopping between 15 apps</span></div>
+    <div style="width:1440px;height:840px;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;display:flex;min-height:0">
+        <div style="flex:0 0 280px;background:#fff;border-right:1px solid #dfe2e8;display:flex;flex-direction:column;min-height:0">
+          <div style="padding:12px 14px;border-bottom:1px solid #dfe2e8;display:flex;align-items:center;gap:8px">
+            <span style="font-weight:600">Apps</span><span style="color:#6b7280;font-size:12px">15</span>
+            <button style="margin-left:auto;padding:2px 8px;font-size:12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font-family:inherit;cursor:pointer">New</button>
+          </div>
+          <div style="flex:1;min-height:0;overflow:auto;padding:6px">
+            <sc-for list="{{ apps }}" as="a" hint-placeholder-count="12">
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px">
+                <sc-if value="{{ a.r }}"><span style="width:8px;height:8px;border-radius:50%;background:#22a06b;flex-shrink:0"></span></sc-if>
+                <sc-if value="{{ a.p }}"><span style="width:8px;height:8px;border-radius:50%;background:#d99a0b;flex-shrink:0"></span></sc-if>
+                <sc-if value="{{ a.s }}"><span style="width:8px;height:8px;border-radius:50%;background:#9aa1ab;flex-shrink:0"></span></sc-if>
+                <sc-if value="{{ a.d }}"><span style="width:8px;height:8px;border-radius:50%;background:#9aa1ab;flex-shrink:0"></span></sc-if>
+                <sc-if value="{{ a.o }}"><span style="width:8px;height:8px;border-radius:50%;background:#d64545;flex-shrink:0"></span></sc-if>
+                <span style="display:flex;flex-direction:column;min-width:0"><span style="font-weight:600">{{ a.name }}</span><span style="font-size:11px;color:#6b7280">{{ a.host }}</span></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+          <header style="display:flex;align-items:center;gap:10px">
+            <h1 style="font-size:18px;margin:0">immich</h1>
+            <span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b;margin-right:auto">running</span>
+            <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Restart</button>
+            <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Pull</button>
+          </header>
+          <div style="display:flex;gap:4px;border-bottom:1px solid #dfe2e8">
+            <span style="padding:6px 12px;font-size:13px;color:#3b6ef6;border-bottom:2px solid #3b6ef6;margin-bottom:-1px;font-weight:600">Overview</span>
+            <span style="padding:6px 12px;font-size:13px;color:#6b7280">Compose</span>
+            <span style="padding:6px 12px;font-size:13px;color:#6b7280">Volumes</span>
+            <span style="padding:6px 12px;font-size:13px;color:#6b7280">Logs</span>
+          </div>
+          <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px">
+            <h3 style="margin:0 0 10px;font-size:13px;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;font-weight:600">Services (5)</h3>
+            <table style="width:100%;border-collapse:collapse">
+              <tbody>
+                <tr><td style="padding:9px 10px;border-bottom:1px solid #eceef2;font-weight:600">immich-server</td><td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">ghcr.io/immich-app/immich-server:v1.118</td><td style="padding:9px 10px;border-bottom:1px solid #eceef2"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">up 3d</span></td></tr>
+                <tr><td style="padding:9px 10px;border-bottom:1px solid #eceef2;font-weight:600">immich-machine-learning</td><td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">…/immich-machine-learning:v1.118</td><td style="padding:9px 10px;border-bottom:1px solid #eceef2"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">up 3d</span></td></tr>
+                <tr><td style="padding:9px 10px;border-bottom:1px solid #eceef2;font-weight:600">postgres</td><td style="padding:9px 10px;border-bottom:1px solid #eceef2;color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">tensorchord/pgvecto-rs:pg16</td><td style="padding:9px 10px;border-bottom:1px solid #eceef2"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">up 3d</span></td></tr>
+                <tr><td style="padding:9px 10px;font-weight:600">redis</td><td style="padding:9px 10px;color:#6b7280;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px">redis:7-alpine</td><td style="padding:9px 10px"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">up 3d</span></td></tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1k" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1k</span><span style="font-weight:600">New App — single modal</span><span style="color:#6b7280">AddNodeModal shape, path preview as you type</span></div>
+    <div style="width:1440px;height:840px;position:relative;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px;filter:blur(0.4px)">
+        <header style="display:flex;align-items:center;gap:10px"><h1 style="font-size:18px;margin:0;margin-right:auto">Apps</h1></header>
+        <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px;height:220px"></section>
+      </div>
+      <div style="position:absolute;inset:0;background:rgba(25,30,40,0.45);display:flex;align-items:center;justify-content:center">
+        <div style="width:560px;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(20,30,60,0.25);display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #dfe2e8">
+            <h2 style="margin:0;font-size:15px">New App</h2><span style="color:#6b7280">✕</span>
+          </div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:10px">
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7280;font-weight:600">Name
+              <input value="paperless-ngx" style="padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;font-weight:400;color:#23272e">
+            </label>
+            <div style="display:flex;gap:10px">
+              <label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7280;font-weight:600">Host
+                <select style="padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;font-weight:400;color:#23272e"><option>homelab (192.168.1.42)</option></select>
+              </label>
+              <label style="flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7280;font-weight:600">Base directory
+                <div style="display:flex;gap:6px">
+                  <input value="/opt/sc-apps" style="flex:1;min-width:0;padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;font-weight:400;color:#23272e">
+                  <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Browse…</button>
+                </div>
+              </label>
+            </div>
+            <div style="background:#eef0f3;border:1px solid #dfe2e8;border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:4px">
+              <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Will create</span>
+              <pre style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.6">/opt/sc-apps/paperless-ngx/
+  sc-app.json
+  compose.yaml
+  volumes/</pre>
+            </div>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7280;font-weight:600">Compose file
+              <div style="display:flex;gap:6px">
+                <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer">Empty</button>
+                <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">From template…</button>
+                <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Paste YAML</button>
+              </div>
+            </label>
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Cancel</button>
+              <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer">Create App</button>
+              <span style="margin-left:auto;align-self:center;color:#6b7280;font-size:12px">Nothing is started until you run <b>Up</b>.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="1l" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:10px"><span style="background:#23272e;color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:700">1l</span><span style="font-weight:600">Import existing — stepped (step 2 of 3)</span><span style="color:#6b7280">detection result is the thing worth a step of its own</span></div>
+    <div style="width:1440px;height:840px;position:relative;display:flex;background:#eef0f3;border:1px solid #dfe2e8;border-radius:10px;overflow:hidden;box-shadow:0 8px 30px rgba(20,30,60,0.10)">
+      <dc-import name="ScSidebar" active="apps" hint-size="248px,100%"></dc-import>
+      <div style="flex:1;min-width:0;padding:18px 22px;display:flex;flex-direction:column;gap:14px">
+        <header style="display:flex;align-items:center;gap:10px"><h1 style="font-size:18px;margin:0;margin-right:auto">Apps</h1></header>
+        <section style="background:#fff;border:1px solid #dfe2e8;border-radius:8px;padding:12px 14px;height:220px"></section>
+      </div>
+      <div style="position:absolute;inset:0;background:rgba(25,30,40,0.45);display:flex;align-items:center;justify-content:center">
+        <div style="width:620px;background:#fff;border-radius:10px;box-shadow:0 12px 40px rgba(20,30,60,0.25);display:flex;flex-direction:column">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #dfe2e8">
+            <h2 style="margin:0;font-size:15px">Import existing App</h2><span style="color:#6b7280">✕</span>
+          </div>
+          <div style="display:flex;gap:8px;padding:12px 16px;border-bottom:1px solid #dfe2e8;background:#f7f8fa;align-items:center">
+            <span style="display:flex;align-items:center;gap:7px;color:#6b7280"><span style="width:18px;height:18px;border-radius:50%;background:rgba(34,160,107,0.14);color:#22a06b;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">✓</span>Location</span>
+            <span style="color:#dfe2e8">—</span>
+            <span style="display:flex;align-items:center;gap:7px;color:#3b6ef6;font-weight:600"><span style="width:18px;height:18px;border-radius:50%;background:#3b6ef6;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">2</span>Detected</span>
+            <span style="color:#dfe2e8">—</span>
+            <span style="display:flex;align-items:center;gap:7px;color:#6b7280"><span style="width:18px;height:18px;border-radius:50%;background:#eef0f3;color:#6b7280;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">3</span>Confirm</span>
+          </div>
+          <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:8px;color:#6b7280;font-size:12px">
+              <span style="font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">nas-02 : /srv/stacks/nextcloud</span>
+              <button style="margin-left:auto;padding:2px 8px;font-size:12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font-family:inherit;cursor:pointer">Change</button>
+            </div>
+            <div style="border:1px solid rgba(34,160,107,0.35);background:rgba(34,160,107,0.07);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+              <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(34,160,107,0.14);color:#22a06b">compose.yaml found</span><span style="color:#6b7280;font-size:12px">4 services · 3 bind mounts · 1 named volume</span></div>
+              <pre style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.6;color:#23272e">nextcloud · postgres · redis · cron</pre>
+            </div>
+            <div style="border:1px solid rgba(217,154,11,0.4);background:rgba(217,154,11,0.08);border-radius:6px;padding:10px 12px;color:#23272e;display:flex;flex-direction:column;gap:4px">
+              <b style="color:#d99a0b">No sc-app.json in this directory</b>
+              <span style="color:#6b7280">A fresh one will be written with a new id. Project name predicted from the directory — confirm below.</span>
+            </div>
+            <div style="border:1px solid #dfe2e8;border-radius:6px;padding:10px 12px;color:#6b7280;display:flex;flex-direction:column;gap:4px">
+              <b style="color:#23272e">2 bind mounts point outside this directory</b>
+              <pre style="margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.6">/mnt/tank/nextcloud-data → /var/www/html/data
+/etc/localtime → /etc/localtime</pre>
+              <span>They stay where they are — the Volumes tab only browses <b>volumes/</b>.</span>
+            </div>
+            <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7280;font-weight:600">App name
+              <input value="nextcloud" style="padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;font-weight:400;color:#23272e">
+            </label>
+            <div style="display:flex;gap:8px;margin-top:4px">
+              <button style="padding:5px 12px;border:1px solid #dfe2e8;border-radius:6px;background:#fff;font:inherit;cursor:pointer">Back</button>
+              <button style="padding:5px 12px;border:1px solid #3b6ef6;border-radius:6px;background:#3b6ef6;color:#fff;font:inherit;cursor:pointer">Continue</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showOrphaned&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Apps list&quot;},&quot;showDir&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Apps list&quot;},&quot;showRowActions&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Apps list&quot;}}">
+const HOSTS = {
+  homelab: { meta: "192.168.1.42 · Debian 13", root: "/opt/sc-apps" },
+  "media-01": { meta: "192.168.1.51 · Debian 13", root: "/opt/sc-apps" },
+  "nas-02": { meta: "192.168.1.60 · unreachable 4m", root: "/srv/stacks" },
+};
+
+const RAW = [
+  ["jellyfin", "homelab", "running", 3, 3, "restart · 2d ago"],
+  ["immich", "homelab", "running", 5, 5, "pull · 3d ago"],
+  ["paperless-ngx", "homelab", "running", 3, 3, "up · 6d ago"],
+  ["vaultwarden", "homelab", "running", 1, 1, "up · 11d ago"],
+  ["gitea", "homelab", "partial", 2, 3, "up · failed 9m ago"],
+  ["grafana", "homelab", "running", 2, 2, "restart · 5h ago"],
+  ["uptime-kuma", "homelab", "stopped", 0, 1, "stop · 1d ago"],
+  ["sonarr", "media-01", "running", 1, 1, "up · 8d ago"],
+  ["radarr", "media-01", "running", 1, 1, "up · 8d ago"],
+  ["prowlarr", "media-01", "partial", 1, 2, "restart · 40m ago"],
+  ["qbittorrent", "media-01", "running", 1, 1, "up · 8d ago"],
+  ["plex-tuner", "media-01", "down", 0, 2, "down · 21d ago"],
+  ["nextcloud", "nas-02", "running", 4, 4, "pull · 12d ago"],
+  ["minio", "nas-02", "stopped", 0, 1, "stop · 3d ago"],
+  ["duplicati", "nas-02", "down", 0, 1, "down · 30d ago"],
+  ["watchtower", "homelab", "orphaned", 1, 1, "no compose source"],
+];
+
+class Component extends DCLogic {
+  renderVals() {
+    const showOrphaned = this.props.showOrphaned ?? false;
+    const apps = RAW
+      .filter((r) => showOrphaned || r[2] !== "orphaned")
+      .map(([name, host, status, up, total, last]) => ({
+        name, host, status, last,
+        svc: `${up}/${total}`,
+        dir: `${HOSTS[host].root}/${name}`,
+        bars: Array.from({ length: total }, (_, i) => ({ up: i < up, off: i >= up })),
+        r: status === "running", p: status === "partial", s: status === "stopped",
+        d: status === "down", o: status === "orphaned",
+      }));
+
+    const groups = Object.keys(HOSTS).map((host) => {
+      const list = apps.filter((a) => a.host === host);
+      const running = list.filter((a) => a.r).length;
+      return {
+        host, meta: HOSTS[host].meta, apps: list,
+        summary: `${list.length} apps · ${running} running`,
+        online: host !== "nas-02", offline: host === "nas-02",
+      };
+    });
+
+    return {
+      apps,
+      groups,
+      total: apps.length,
+      showDir: this.props.showDir ?? true,
+      showActions: this.props.showRowActions ?? true,
+    };
+  }
+}
+</script>
+</body>
+</html>

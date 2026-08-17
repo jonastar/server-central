@@ -1,6 +1,8 @@
 import type {
     ApiHandlerPrefixed,
     App,
+    AppDetection,
+    AppStatus,
     AssignableRole,
     CentralApiOperations,
     DirEntry,
@@ -11,11 +13,13 @@ import type {
     DockerVolumeDetail,
     FileContent,
     ImageAction,
+    ImageDefaults,
     InstallMechanism,
     InstallProbeResult,
     MetricsSnapshot,
     NetworkInfo,
     OidcAuthorizeParams,
+    OidcClient,
     ProcessInfo,
     ProxyApplyResult,
     ProxyConfig,
@@ -46,12 +50,17 @@ import {
     dockerStacks,
     dockerVolumeInspect,
     dockerVolumeRemove,
+    getAppLogs,
+    getAppStatus,
+    imageDefaults,
+    validateComposeContent,
 } from "./docker";
 import { getMounts } from "./host-mounts";
 import { getNetworkInfo } from "./network";
 import { systemdList, systemdServiceLogs, systemdUnitFile } from "./systemd";
 import { systemUserCreate, systemUserLookup, systemUserSetGroups, systemUsersList } from "./system-users";
 import { setDatasetProperty, zfsGetBlockDevices, zfsGetDatasets, zfsGetSnapshots, zfsGetState } from "./zfs";
+import type { AppStore } from "./apps";
 import type { AuthContext, AuthStore } from "./auth";
 import type { Fleet } from "./fleet";
 import type { NodeServer } from "./node-server";
@@ -94,6 +103,7 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         private readonly taskStore: TaskStore,
         private readonly oidc: OidcStore,
         private readonly proxy: ProxyManager,
+        private readonly apps: AppStore,
     ) { }
 
     // ---- Auth -----------------------------------------------------------------
@@ -163,29 +173,70 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         await this.auth.setSystemUser(data.userId, data.systemUser);
     }
 
-    // ---- Apps (owner-only admin) ------------------------------------------------
+    // ---- OIDC clients (owner-only admin) -----------------------------------------
     //
-    // Today an "app" is just an OIDC relying-party registration (id/secret +
-    // redirect URIs). See the `App` doc comment in @central/shared — this is a
-    // first cut ahead of the broader App system (compose stacks, routes, roles).
+    // An OIDC client is a relying-party registration (id/secret + redirect URIs)
+    // for Central's built-in OIDC provider — unrelated to the App entity (compose
+    // stacks on a host) below the reverse-proxy block.
 
-    async handleListApps(_data: void, ctx?: AuthContext): Promise<App[]> {
+    async handleListOidcClients(_data: void, ctx?: AuthContext): Promise<OidcClient[]> {
         requireOwner(ctx);
-        return this.oidc.listApps();
+        return this.oidc.listClients();
     }
 
-    async handleCreateApp(data: { name: string; redirectUris: string[] }, ctx?: AuthContext): Promise<{ app: App; clientSecret: string }> {
+    async handleCreateOidcClient(data: { name: string; redirectUris: string[] }, ctx?: AuthContext): Promise<{ client: OidcClient; clientSecret: string }> {
         requireOwner(ctx);
         const config = await readConfig();
         if (!config.issuerUrl) {
-            throw new Error("Set an Issuer URL in Settings before registering apps");
+            throw new Error("Set an Issuer URL in Settings before registering OIDC clients");
         }
-        return this.oidc.createApp(data.name, data.redirectUris);
+        return this.oidc.createClient(data.name, data.redirectUris);
     }
 
-    async handleDeleteApp(data: { appId: string }, ctx?: AuthContext): Promise<void> {
+    async handleDeleteOidcClient(data: { clientId: string }, ctx?: AuthContext): Promise<void> {
         requireOwner(ctx);
-        await this.oidc.deleteApp(data.appId);
+        await this.oidc.deleteClient(data.clientId);
+    }
+
+    // ---- Apps (directory + compose stack on a host) ------------------------------
+    //
+    // See doc/idea_app_system.md. Not role-gated beyond "any authenticated user",
+    // same as every other non-owner-gated endpoint (requireOwner's comment above).
+
+    async handleListApps(): Promise<App[]> {
+        return this.apps.list();
+    }
+
+    async handleCreateApp(data: { name: string; hostId: string; dir: string }): Promise<App> {
+        return this.apps.create(data.name, data.hostId, data.dir);
+    }
+
+    async handleDetectApp(data: { hostId: string; dir: string }): Promise<AppDetection> {
+        return this.apps.detect(data.hostId, data.dir);
+    }
+
+    async handleImportApp(data: { hostId: string; dir: string; name: string }): Promise<App> {
+        return this.apps.import(data.hostId, data.dir, data.name);
+    }
+
+    async handleDeleteApp(data: { appId: string; deleteDir: boolean }): Promise<void> {
+        await this.apps.delete(data.appId, data.deleteDir);
+    }
+
+    async handleGetAppStatus(data: { appId: string }): Promise<AppStatus> {
+        const app = this.apps.get(data.appId);
+        return getAppStatus(this.fleet.get(app.hostId), app.dir, app.composeFile, app.project);
+    }
+
+    async handleGetAppLogs(data: { appId: string; service?: string; tail?: number }): Promise<{ logs: string }> {
+        const app = this.apps.get(data.appId);
+        const logs = await getAppLogs(this.fleet.get(app.hostId), app.dir, app.composeFile, app.project, data.service, data.tail ?? 500);
+        return { logs };
+    }
+
+    async handleValidateComposeContent(data: { appId: string; content: string }): Promise<{ valid: true } | { valid: false; error: string }> {
+        const app = this.apps.get(data.appId);
+        return validateComposeContent(this.fleet.get(app.hostId), app.dir, app.project, data.content);
     }
 
     // ---- Reverse proxy (owner-only) ----------------------------------------------
@@ -343,6 +394,10 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
 
     async handleDockerImageAction(data: { serverId: string; imageId: string; action: ImageAction }): Promise<void> {
         await dockerImageAction(this.fleet.get(data.serverId), data.imageId, data.action);
+    }
+
+    async handleDockerImageDefaults(data: { serverId: string; image: string }): Promise<ImageDefaults> {
+        return imageDefaults(this.fleet.get(data.serverId), data.image);
     }
 
     // ---- Node enrollment ---------------------------------------------------------------

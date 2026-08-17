@@ -3,6 +3,7 @@ import type { ServerWebSocket } from "bun";
 import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
 import { MAX_UPLOAD_BYTES } from "@central/shared";
 import type { ShellSession } from "./host-agent";
+import { AppStore } from "./apps";
 import { CONFIG_DIR, readConfig } from "./config";
 import { sweepTempFilesIn } from "./fs-atomic";
 import { AuthStore, type AuthContext } from "./auth";
@@ -82,6 +83,9 @@ await auth.init();
 const oidcStore = new OidcStore();
 await oidcStore.init();
 
+const appStore = new AppStore(fleet);
+await appStore.init();
+
 const wanIp = await discoverWanIp();
 if (wanIp) {
     console.log(`Discovered WAN IP: ${wanIp}`);
@@ -106,6 +110,7 @@ await taskStore.init();
 const taskRunner = new TaskRunner(
     taskStore,
     fleet,
+    appStore,
     (run) => broadcast({ kind: "taskUpdate", data: run }),
     (taskId, line) => broadcast({ kind: "taskLog", data: { taskId, lines: [line] } }),
 );
@@ -114,7 +119,7 @@ const proxyStore = new ProxyStore();
 await proxyStore.init();
 const proxyManager = new ProxyManager(fleet, proxyStore);
 
-const handler = new CentralHandler(fleet, auth, nodeServer, taskRunner, taskStore, oidcStore, proxyManager);
+const handler = new CentralHandler(fleet, auth, nodeServer, taskRunner, taskStore, oidcStore, proxyManager, appStore);
 
 /** Commands callable without a session (first-run setup + login). */
 const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]);

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import { UsersTab } from "./settings/UsersTab";
-import { AppsTab } from "./settings/AppsTab";
+import { OidcClientsTab } from "./settings/OidcClientsTab";
 import { cx } from "../utils";
 import shared from "../styles/shared.module.css";
 import uiStyles from "./ui.module.css";
@@ -15,12 +15,12 @@ interface ControlPlaneStatus {
     updateAvailable: boolean;
 }
 
-type SettingsTab = "general" | "users" | "apps";
+type SettingsTab = "general" | "users" | "oidc";
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
     { id: "general", label: "General" },
     { id: "users", label: "Users" },
-    { id: "apps", label: "Apps" },
+    { id: "oidc", label: "SSO Clients" },
 ];
 
 function GeneralSettings() {
@@ -273,7 +273,7 @@ export function SettingsView() {
 
             {tab === "general" && <GeneralSettings />}
             {tab === "users" && <UsersTab />}
-            {tab === "apps" && <AppsTab />}
+            {tab === "oidc" && <OidcClientsTab />}
         </div>
     );
 }

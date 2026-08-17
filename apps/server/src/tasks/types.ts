@@ -1,6 +1,8 @@
 import type {
     TaskCmd,
     TaskCmdResult,
+    TaskDockerComposeAction,
+    TaskDockerComposeActionResult,
     TaskDockerContainerAction,
     TaskDockerContainerActionResult,
     TaskDockerImagePull,
@@ -43,10 +45,11 @@ import type {
     TaskZfsVdevAddResult,
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
+import type { AppStore } from "../apps";
 import type { Fleet } from "../fleet";
 import type { HostAgent } from "../host-agent";
 import { discoverWanIp } from "../stun";
-import { dockerContainerAction, dockerImagePull, dockerStackAction } from "../docker";
+import { composeStackAction, dockerContainerAction, dockerImagePull, dockerStackAction } from "../docker";
 import { systemdServiceAction } from "../systemd";
 import {
     zfsDatasetCreate,
@@ -88,6 +91,7 @@ export interface TaskCtx {
     agent: HostAgent | null;
     target: string | null;
     fleet: Fleet;
+    apps: AppStore;
 }
 
 /** Cooperative sleep — resolves early (without throwing) if the run is aborted,
@@ -151,6 +155,7 @@ export interface TaskHandlers {
     docker_stack_action(spec: TaskDockerStackAction, ctx: TaskCtx): Promise<TaskDockerStackActionResult>;
     docker_container_action(spec: TaskDockerContainerAction, ctx: TaskCtx): Promise<TaskDockerContainerActionResult>;
     docker_image_pull(spec: TaskDockerImagePull, ctx: TaskCtx): Promise<TaskDockerImagePullResult>;
+    docker_compose_action(spec: TaskDockerComposeAction, ctx: TaskCtx): Promise<TaskDockerComposeActionResult>;
     update_agent(spec: TaskUpdateAgent, ctx: TaskCtx): Promise<TaskUpdateAgentResult>;
     zfs_pool_create(spec: TaskZfsPoolCreate, ctx: TaskCtx): Promise<TaskZfsPoolCreateResult>;
     zfs_pool_destroy(spec: TaskZfsPoolDestroy, ctx: TaskCtx): Promise<TaskZfsPoolDestroyResult>;
@@ -221,6 +226,21 @@ export const taskHandlers: TaskHandlers = {
     async docker_image_pull(spec, ctx) {
         const { ok, message } = await dockerImagePull(requireAgent(ctx, "docker_image_pull"), spec.ref, ctx.log);
         return { kind: "docker_image_pull", ok, message };
+    },
+
+    async docker_compose_action(spec, ctx) {
+        const app = ctx.apps.get(spec.appId);
+        await composeStackAction(
+            requireAgent(ctx, "docker_compose_action"),
+            app.dir,
+            app.composeFile,
+            app.project,
+            spec.action,
+            spec.pullFirst,
+            ctx.log,
+            spec.service,
+        );
+        return { kind: "docker_compose_action" };
     },
 
     async update_agent(spec, ctx) {

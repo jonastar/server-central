@@ -107,3 +107,22 @@ export function fmtDateTime(msEpoch: number): string {
         month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
     });
 }
+
+/** Compact relative time ("3h ago", "2d ago") for card/row timestamps. Falls
+ *  back to a full date past a week, where "Nd ago" stops being legible. */
+export function fmtRelative(msEpoch: number): string {
+    const secs = Math.max(0, Math.round((Date.now() - msEpoch) / 1000));
+    if (secs < 60) {
+        return "just now";
+    }
+    if (secs < 3600) {
+        return `${Math.floor(secs / 60)}m ago`;
+    }
+    if (secs < 86400) {
+        return `${Math.floor(secs / 3600)}h ago`;
+    }
+    if (secs < 7 * 86400) {
+        return `${Math.floor(secs / 86400)}d ago`;
+    }
+    return fmtDateTime(msEpoch);
+}

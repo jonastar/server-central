@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="width:248px;height:100%;min-height:100%;flex-shrink:0;background:#ffffff;border-right:1px solid #dfe2e8;display:flex;flex-direction:column;padding:10px 8px;gap:1px;font:13px/1.45 system-ui,-apple-system,'Segoe UI',sans-serif;color:#23272e">
+  <div style="font-size:15px;font-weight:700;padding:6px 10px 12px"><span style="color:#3b6ef6">⬡</span> Server Central</div>
+
+  <sc-if value="{{ isDashboard }}" hint-placeholder-val="{{ true }}"><div style="padding:6px 10px;border-radius:6px;background:#e9efff;color:#3b6ef6;font-weight:600">Dashboard</div></sc-if>
+  <sc-if value="{{ notDashboard }}"><div style="padding:6px 10px;border-radius:6px">Dashboard</div></sc-if>
+  <div style="padding:6px 10px;border-radius:6px">Agents</div>
+  <sc-if value="{{ isApps }}" hint-placeholder-val="{{ true }}"><div style="padding:6px 10px;border-radius:6px;background:#e9efff;color:#3b6ef6;font-weight:600">Apps</div></sc-if>
+  <sc-if value="{{ notApps }}"><div style="padding:6px 10px;border-radius:6px">Apps</div></sc-if>
+  <div style="padding:6px 10px;border-radius:6px">Proxy</div>
+  <div style="padding:6px 10px;border-radius:6px">Tasks</div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 10px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280"><span>Servers</span><span style="color:#6b7280;font-size:16px;line-height:1">+</span></div>
+
+  <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px">
+    <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#22a06b;box-shadow:0 0 0 3px rgba(34,160,107,0.18)"></span>
+    <span style="display:flex;flex-direction:column;min-width:0"><span style="font-weight:600">homelab</span><span style="font-size:11px;color:#6b7280">192.168.1.42</span></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px">
+    <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#22a06b;box-shadow:0 0 0 3px rgba(34,160,107,0.18)"></span>
+    <span style="display:flex;flex-direction:column;min-width:0"><span style="font-weight:600">media-01</span><span style="font-size:11px;color:#6b7280">192.168.1.51</span></span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px">
+    <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#9aa1ab"></span>
+    <span style="display:flex;flex-direction:column;min-width:0"><span style="font-weight:600">nas-02</span><span style="font-size:11px;color:#6b7280">192.168.1.60</span></span>
+  </div>
+
+  <div style="margin-top:auto;padding-top:6px;border-top:1px solid #dfe2e8;display:flex;flex-direction:column;gap:1px">
+    <div style="padding:6px 10px;border-radius:6px">Settings</div>
+    <div style="padding:6px 10px;border-radius:6px">Sign out</div>
+    <div style="display:flex;align-items:center;gap:7px;padding:8px 10px 2px;color:#6b7280;font-size:12px">
+      <span style="width:8px;height:8px;border-radius:50%;background:#22a06b;box-shadow:0 0 0 3px rgba(34,160,107,0.18)"></span>Backend connected
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:248,&quot;height&quot;:700},&quot;active&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;apps&quot;,&quot;dashboard&quot;],&quot;default&quot;:&quot;apps&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const active = this.props.active ?? "apps";
+    return {
+      isApps: active === "apps",
+      notApps: active !== "apps",
+      isDashboard: active === "dashboard",
+      notDashboard: active !== "dashboard",
+    };
+  }
+}
+</script>
+</body>
+</html>

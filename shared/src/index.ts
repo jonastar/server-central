@@ -257,6 +257,16 @@ export interface DockerImageInfo {
     createdSince: string;
 }
 
+/** What an image's Dockerfile already declares (`VOLUME`/`EXPOSE`/`ENV`) — a
+ *  cheap `docker image inspect` away, no pull/run needed. Powers the Compose
+ *  visual editor's "suggested volumes/ports/environment" pickers. Only
+ *  populated if the image is already present locally; all empty otherwise. */
+export interface ImageDefaults {
+    volumes: string[];
+    ports: { port: number; protocol: "tcp" | "udp" }[];
+    env: { key: string; value: string }[];
+}
+
 export interface DockerState {
     available: boolean;
     error?: string;
@@ -499,17 +509,18 @@ export interface UserDetail extends UserInfo {
     lastActiveAt: number | null;
 }
 
-// ---- Apps ------------------------------------------------------------------------
+// ---- OIDC provider -----------------------------------------------------------------
 //
-// An "app" is a relying party registered by the owner to sign in via Server
-// Central's built-in OpenID Connect provider (no dynamic client registration).
-// This is a first cut — App registration today is just OIDC credentials
-// (id/secret + redirect URIs); a broader App system (compose stacks, reverse-proxy
-// routes, app-provided auth roles) is designed separately, see next.md. Roles are
-// exposed as a `groups` claim on the ID token. See apps/server/src/oidc/ for the
-// provider implementation.
+// A client is a relying party registered by the owner to sign in via Server
+// Central's built-in OpenID Connect provider (no dynamic client registration) —
+// just OIDC credentials (id/secret + redirect URIs). Unrelated to the App entity
+// below (compose stacks on a host), despite the similar name history: this was
+// briefly called `App` as a placeholder ahead of the real App system design,
+// renamed back to `OidcClient` once that system landed. Roles are exposed as a
+// `groups` claim on the ID token. See apps/server/src/oidc/ for the provider
+// implementation.
 
-export interface App {
+export interface OidcClient {
     id: string;
     name: string;
     redirectUris: string[];
@@ -526,6 +537,58 @@ export interface OidcAuthorizeParams {
     codeChallenge: string;
     codeChallengeMethod: "S256";
     nonce?: string;
+}
+
+// ---- Apps ----------------------------------------------------------------------
+//
+// An App is a directory on a host containing `sc-app.json` (SC's own metadata),
+// a compose file (source of truth for what runs — no SC-native service format),
+// and a `volumes/` subdirectory holding every bind mount. One compose stack per
+// App. Design: doc/idea_app_system.md. `project` is the `docker compose -p`
+// value, fixed at create/import time so actions always target the same compose
+// project regardless of what the compose file's own `name:`/directory-basename
+// prediction would produce.
+
+export interface App {
+    id: string;
+    name: string;
+    hostId: string;
+    /** Absolute path on hostId. */
+    dir: string;
+    /** Relative to dir, default "compose.yaml". */
+    composeFile: string;
+    project: string;
+    createdAt: number;
+}
+
+export interface AppServiceStatus {
+    name: string;
+    image?: string;
+    /** Raw state string from `docker compose ps` (e.g. "running", "exited (0)"), absent when the service has no container yet. */
+    state?: string;
+    ports?: string;
+    up: boolean;
+}
+
+export type AppRunStatus = "running" | "partial" | "stopped" | "down";
+
+export interface AppStatus {
+    status: AppRunStatus;
+    services: AppServiceStatus[];
+}
+
+/** Result of probing a candidate host directory before import — step 2 of the
+ *  import flow ("Detected"). */
+export interface AppDetection {
+    composeFound: boolean;
+    manifestFound: boolean;
+    /** From the directory's basename — compose's own default project-name rule. */
+    predictedName: string;
+    services: string[];
+    /** Bind mounts whose source resolves outside `dir` — these stay where they
+     *  are on import; the Volumes tab only ever browses `dir/volumes`. */
+    externalBindMounts: { source: string; target: string }[];
+    namedVolumeCount: number;
 }
 
 // ---- Reverse proxy ---------------------------------------------------------------
@@ -783,17 +846,40 @@ export type CentralApiOperations = {
     // Map a user to an OS account (null clears the mapping). See UserInfo.systemUser.
     setUserSystemUser: { data: { userId: string; systemUser: string | null }; response: void };
 
-    // Apps (owner-only admin)
-    listApps: { data: void; response: App[] };
+    // OIDC clients (owner-only admin)
+    listOidcClients: { data: void; response: OidcClient[] };
     // clientSecret is returned once, at creation, and never again.
-    createApp: { data: { name: string; redirectUris: string[] }; response: { app: App; clientSecret: string } };
-    deleteApp: { data: { appId: string }; response: void };
+    createOidcClient: { data: { name: string; redirectUris: string[] }; response: { client: OidcClient; clientSecret: string } };
+    deleteOidcClient: { data: { clientId: string }; response: void };
 
     // OIDC front-channel (authenticated user, driven by the /oidc/authorize SPA route).
     // The actual code-for-token exchange happens over raw HTTP at POST /oidc/token
     // (form-encoded, per spec), not through this RPC layer.
     getOidcAuthorizeRequest: { data: OidcAuthorizeParams; response: { appName: string; redirectUri: string } };
     completeOidcAuthorize: { data: OidcAuthorizeParams; response: { redirectUrl: string } };
+
+    // Apps — directory + compose stack on a host. See doc/idea_app_system.md.
+    listApps: { data: void; response: App[] };
+    // Always scaffolds an empty compose.yaml + volumes/ under dir.
+    createApp: { data: { name: string; hostId: string; dir: string }; response: App };
+    // Probes a candidate directory before import (step 2 of the import flow).
+    detectApp: { data: { hostId: string; dir: string }; response: AppDetection };
+    // Always mints a fresh id, even when dir already has an sc-app.json.
+    importApp: { data: { hostId: string; dir: string; name: string }; response: App };
+    // Unregisters the app. `deleteDir: true` also removes its directory (compose
+    // file, manifest, and volumes/) from the host; otherwise it's left on disk.
+    deleteApp: { data: { appId: string; deleteDir: boolean }; response: void };
+    getAppStatus: { data: { appId: string }; response: AppStatus };
+    // `docker compose logs`, optionally scoped to one service — one-shot (not
+    // streaming), same 30s exec ceiling as everything else pre-streaming-exec.
+    getAppLogs: { data: { appId: string; service?: string; tail?: number }; response: { logs: string } };
+    // Validates in-editor compose content via `docker compose config`, against a
+    // temp file — never touches the app's real compose.yaml. Used by the Compose
+    // tab's visual/YAML editor before Save, on top of client-side schema validation.
+    validateComposeContent: {
+        data: { appId: string; content: string };
+        response: { valid: true } | { valid: false; error: string };
+    };
 
     // Servers
     getServers: { data: void; response: ServerEntry[] };
@@ -826,6 +912,9 @@ export type CentralApiOperations = {
     dockerVolumeInspect: { data: { serverId: string; name: string }; response: DockerVolumeDetail };
     dockerVolumeRemove: { data: { serverId: string; name: string }; response: void };
     dockerImageAction: { data: { serverId: string; imageId: string; action: ImageAction }; response: void };
+    // Volume/port/env suggestions from what the image's Dockerfile already
+    // declares — empty fields if the image isn't pulled locally yet.
+    dockerImageDefaults: { data: { serverId: string; image: string }; response: ImageDefaults };
 
     // Processes
     getProcesses: { data: { serverId: string }; response: ProcessInfo[] };

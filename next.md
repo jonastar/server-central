@@ -26,6 +26,30 @@
     terminal.
 - Shortcut to sc logs
 
+- [DONE] Delete-app modal, folder picker "empty" row, post-create navigation, Overview
+  port links (2026-08-16) — `DeleteAppModal` now shows `HostName (id)` instead of a raw
+  uuid and requires typing the app name before "Delete folder & remove app" enables (the
+  "keep the folder" path stays a single click, since it's reversible via re-import).
+  `DirectoryPicker`'s empty-directory row now reads "(empty directory)", italicized, so it
+  doesn't look like a phantom file entry. `NewAppModal`/`ImportAppModal` already returned
+  the new app's id — `AppsView` now opens it via `onOpenApp` instead of just reloading the
+  list. Overview's services table now links published host ports (`http://<host-ip>:<port>`,
+  parsed from `formatPorts()`'s `8080→80` shape) — falls back to plain text if the host's IP
+  isn't known yet. The "port protocol" note otherwise looked already covered by the compose
+  editor's existing tcp/udp host/container fields — flag a concrete example if something else
+  was meant.
+
+- Deploy reverse proxy, creates a temporary error thing? weird
+- reverse proxy: add route path perfix, maybe have a checkbox to enable stripping the path prefix?
+- reverse proxy: test routes, show a mark if they're valid or not (i.e if there's anything behind them), add this to the list of recurring things
+- reverse proxy, more introspection to what lets encrypt certificates have been fetched, what has attempted to be fetched but failed, routes configured and on
+- We can get this from the log but it's not ideal.
+
+Figure out the linkage between reverse proxy and apps, should you create the link in the reverse proxy? in the app? should we use some new port descriptor to help this? how should it work?
+
+- Additionally, do we need to expose the port on the local network?
+  - I guess for multi node setups it would need a cluster wide overlay network, using wireguard or something like that, out of scope for now.
+
 ## Big tasks pending design, do not automatically implement these unless prompted specifically
 
 ### Module based system
@@ -49,34 +73,46 @@ The module keyword is probably reserved in js, typescript or whatever languages 
 
 ### App system
 
-> v1 scope written up 2026-08-12: [doc/idea_app_system.md](doc/idea_app_system.md) —
-> deliberately descoped from the full sketch below to skip the Role-set-redesign
-> dependency: directory + one compose stack + start/stop/restart/pull controls + a volumes
-> file browser, nothing route/role/reconciler-shaped yet. Also absorbs the registry half of
-> [doc/idea_stack_registry.md](doc/idea_stack_registry.md) (an App directory *is* a stack
-> root) and flags that `up`/`pull` need the streaming-exec prerequisite that doc already
-> called out — `docker_image_pull` already silently eats this limitation today (single
-> end-of-command log line, no true streaming, capped by `exec`'s 30s timeout).
+> [DONE] v1 implemented (2026-08-13), per [doc/idea_app_system.md](doc/idea_app_system.md) and the
+> design handoff in `doc/apps feature design/` (Apps list = cards-grouped-by-server, App detail =
+> tabbed Overview/Compose/Volumes/Controls/Logs matching the `ServerOverview` + sub-tabs pattern,
+> create = single modal, import = stepped modal). An App is `{ id, name, hostId, dir, composeFile,
+project, createdAt }` (`shared/src/index.ts`), backed by `AppStore` (`apps/server/src/apps.ts`,
+> `.sc-data/app-registry.json`) and a new `docker_compose_action` task kind
+> (`up`/`restart`/`stop`/`down`, optional `pullFirst`) that drives `docker compose -f <path> -p
+<project> <verb>` directly off the App's directory — works even on a fully-down App, unlike the
+> existing container-id-based `docker_stack_action`. Status/services come from `docker compose ps`
+>
+> - `config --format json` (`getAppStatus`/`composeConfig` in `apps/server/src/docker.ts`) rather
+>   than a hand-rolled YAML parser or the fuller running/disk/reconcile merge
+>   `doc/idea_stack_registry.md` §2 describes — good enough for the status badge + services table,
+>   that fuller merge stays a future refinement. **Not yet built:** the streaming-exec primitive —
+>   `up`/`pull` run over the plain 30s `exec()`, same known limitation `docker_image_pull` already
+>   lives with (single end-of-command log line, fails outright past 30s on a slow pull). Swapping the
+>   transport later needs no UI or task-kind rework, only the internals of `composeStackAction`.
+>
+> Naming note: this reclaimed the `App` type/name. It had briefly been the OIDC relying-party
+> registration (`listApps`/`createApp`/`deleteApp`, Settings → Apps tab) as a placeholder ahead of
+> this design, per the 2026-07-02 entry below — that's been renamed back to `OidcClient`
+> (`listOidcClients`/`createOidcClient`/`deleteOidcClient`, Settings → "SSO Clients" tab) so the two
+> unrelated entities don't collide.
+>
+> Deliberately still out of scope, per the v1 doc: reverse-proxy routes, app-provided OIDC/auth
+> roles, per-section reconcilers, and the stack registry's discovery scan for compose files SC
+> didn't create. Those depend on the Role-set redesign noted below and aren't blocking anything now.
 >
 > Concept from a 2026-07-02 discussion; architecture sketched 2026-07-13 (App = binding record in
 > SC store referencing a compose stack + routes + provided roles + oidc section, per-section
 > reconcilers; compose file stays source of truth for what runs — no SC-native service format).
-> Depends on: reverse proxy (above), stack registry (doc/idea_stack_registry.md), Role-set redesign.
-> Unify app-scoped configuration (compose stacks, networking/reverse-proxy routes, auth roles, etc.)
-> behind a single "App" entity instead of scattering it across separate admin screens. Example:
-> Jellyfin would be an App with (a) a compose stack (maybe templated), (b) a routes object (TBD —
-> reverse-proxy config), (c) auth roles the app provides (e.g. `jellyfin.user.adult`,
-> `jellyfin.user.kid`, `jellyfin.admin`) that get assigned to Server Central users to grant
-> app-scoped access — actual permission mapping still has to be configured inside the app itself,
-> SC only hands it identity + role claims.
-> Prerequisite noted alongside this: `Role` is currently a single enum value per user
-> (`shared/src/index.ts`) — needs redesigning as a set of roles per user so app-provided roles (and
-> things like a standalone "terminal access" role) can be assigned independently and additively,
-> not just swapped for one value.
-> First concrete step taken now (2026-07-02): renamed the SSO-clients concept to "Apps" end to end
-> (`App` type replacing `OidcClient`, `listApps`/`createApp`/`deleteApp` ops, Settings → Apps tab) as
-> a placeholder ahead of the real design — today an App is still just an OIDC relying-party
-> registration (id/secret/redirect URIs), nothing else from the concept above is implemented.
+> Full unification (routes + app-provided roles + reconcilers) still depends on the Role-set
+> redesign below — `Role` is currently a single enum value per user (`shared/src/index.ts`), needs
+> redesigning as a set of roles per user so app-provided roles (and things like a standalone
+> "terminal access" role) can be assigned independently and additively, not just swapped for one
+> value. Example of the eventual shape: Jellyfin would be an App with (a) a compose stack (maybe
+> templated), (b) a routes object (TBD — reverse-proxy config), (c) auth roles the app provides
+> (e.g. `jellyfin.user.adult`, `jellyfin.user.kid`, `jellyfin.admin`) assigned to Server Central
+> users to grant app-scoped access — actual permission mapping still has to be configured inside
+> the app itself, SC only hands it identity + role claims.
 
 ### Manual-install supervisor script
 
