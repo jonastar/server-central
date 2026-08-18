@@ -686,12 +686,12 @@ function vdevArgs(vdevs: { type: ZfsVdevType; devices: string[] }[]): string {
         .join(" ");
 }
 
-export async function zfsPoolCreate(server: HostAgent, name: string, vdevs: { type: ZfsVdevType; devices: string[] }[], onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
+export async function zfsPoolCreate(server: HostAgent, name: string, vdevs: { type: ZfsVdevType; devices: string[] }[], force?: boolean, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(name, "pool name");
     if (vdevs.length === 0) {
         throw new Error("Pick at least one vdev");
     }
-    await runOrThrow(server, `zpool create ${q(name)} ${vdevArgs(vdevs)} 2>&1`, onLog);
+    await runOrThrow(server, `zpool create ${force ? "-f " : ""}${q(name)} ${vdevArgs(vdevs)} 2>&1`, onLog);
 }
 
 export async function zfsPoolDestroy(server: HostAgent, name: string, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
@@ -709,9 +709,9 @@ export async function zfsPoolExport(server: HostAgent, name: string, onLog?: (t:
     await runOrThrow(server, `zpool export ${q(name)} 2>&1`, onLog);
 }
 
-export async function zfsVdevAdd(server: HostAgent, pool: string, vdev: { type: ZfsVdevType; devices: string[] }, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
+export async function zfsVdevAdd(server: HostAgent, pool: string, vdev: { type: ZfsVdevType; devices: string[] }, force?: boolean, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(pool, "pool name");
-    await runOrThrow(server, `zpool add ${q(pool)} ${vdevArgs([vdev])} 2>&1`, onLog);
+    await runOrThrow(server, `zpool add ${force ? "-f " : ""}${q(pool)} ${vdevArgs([vdev])} 2>&1`, onLog);
 }
 
 export async function zfsDeviceReplace(server: HostAgent, pool: string, oldDevice: string, newDevice: string, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {

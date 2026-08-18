@@ -267,7 +267,7 @@ export const taskHandlers: TaskHandlers = {
     },
 
     async zfs_pool_create(spec, ctx) {
-        await zfsPoolCreate(requireAgent(ctx, "zfs_pool_create"), spec.name, spec.vdevs, ctx.log);
+        await zfsPoolCreate(requireAgent(ctx, "zfs_pool_create"), spec.name, spec.vdevs, spec.force, ctx.log);
         return { kind: "zfs_pool_create" };
     },
 
@@ -287,7 +287,7 @@ export const taskHandlers: TaskHandlers = {
     },
 
     async zfs_vdev_add(spec, ctx) {
-        await zfsVdevAdd(requireAgent(ctx, "zfs_vdev_add"), spec.pool, spec.vdev, ctx.log);
+        await zfsVdevAdd(requireAgent(ctx, "zfs_vdev_add"), spec.pool, spec.vdev, spec.force, ctx.log);
         return { kind: "zfs_vdev_add" };
     },
 

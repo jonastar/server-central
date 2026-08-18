@@ -5,6 +5,7 @@ import type {
     ContainerAction,
     ContainerInfo,
     DockerContainerDetail,
+    DockerExecResult,
     DockerImageInfo,
     DockerMount,
     DockerOverview,
@@ -307,30 +308,43 @@ interface ComposeConfigJson {
     volumes?: Record<string, unknown>;
 }
 
+export interface ComposeConfigResult {
+    config: ComposeConfigJson | null;
+    /** Set when docker compose config failed or returned unparsable output —
+     *  lets callers tell "genuinely no services declared" apart from "couldn't
+     *  ask docker compose" (e.g. `getAppStatus`'s services list vs `AppDetection.composeError`). */
+    error?: string;
+}
+
 /**
  * Resolved compose config (`docker compose config --format json`) — works even
  * when the project has never run, since it only parses the compose file on
- * disk. Returns null if the file is missing, invalid, or docker compose fails
- * for any other reason (the caller treats that as "nothing usable found" —
- * see `AppDetection.composeFound`/`getAppStatus`'s `"down"` fallback).
+ * disk. `config` is null if the file is missing, invalid, or docker compose
+ * fails for any other reason (the caller treats that as "nothing usable found" —
+ * see `AppDetection.composeFound`/`getAppStatus`'s `"down"` fallback); `error`
+ * carries why. Deliberately doesn't merge stderr into stdout (unlike most other
+ * commands in this file) — compose v2 writes deprecation warnings (e.g. the
+ * legacy top-level `version:` key) to stderr even on success, and merging them
+ * in front of the JSON broke `JSON.parse` for any real-world compose file that
+ * still had one.
  */
 export async function composeConfig(
     server: HostAgent,
     dir: string,
     composeFile: string,
     project: string,
-): Promise<ComposeConfigJson | null> {
+): Promise<ComposeConfigResult> {
     if (!SAFE_ID_RE.test(project)) {
         throw new Error(`Invalid project name: ${project}`);
     }
-    const res = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} config --format json 2>&1`);
+    const res = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} config --format json`);
     if (res.code !== 0) {
-        return null;
+        return { config: null, error: errorText(res) || "docker compose config failed" };
     }
     try {
-        return JSON.parse(res.stdout) as ComposeConfigJson;
+        return { config: JSON.parse(res.stdout) as ComposeConfigJson };
     } catch {
-        return null;
+        return { config: null, error: errorText(res) || "docker compose config returned unparsable output" };
     }
 }
 
@@ -401,7 +415,7 @@ export async function getAppStatus(
     composeFile: string,
     project: string,
 ): Promise<AppStatus> {
-    const config = await composeConfig(server, dir, composeFile, project);
+    const { config } = await composeConfig(server, dir, composeFile, project);
     const declared = config ? Object.keys(config.services ?? {}) : [];
 
     const psRes = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} ps --format json --all 2>&1`);
@@ -525,6 +539,61 @@ export async function dockerContainerInspect(server: HostAgent, containerId: str
         labels,
         raw: JSON.stringify(c, null, 2),
     };
+}
+
+/**
+ * Run a one-shot, non-interactive command inside a container (`docker exec`,
+ * wrapped in `sh -c` so pipes/redirects in the typed command work). Doesn't
+ * throw on a non-zero exit — the caller typed an arbitrary command and wants
+ * to see exactly what it printed, success or not, same as a real terminal.
+ */
+export async function dockerContainerExec(server: HostAgent, containerId: string, command: string): Promise<DockerExecResult> {
+    if (!SAFE_ID_RE.test(containerId)) {
+        throw new Error(`Invalid container id: ${containerId}`);
+    }
+    return server.exec(`docker exec ${containerId} sh -c ${shQuote(command)}`);
+}
+
+/**
+ * Shell command for an interactive `docker exec` terminal session (used by
+ * the `openShell` bridge for the container Terminal tab) — same id validation
+ * as {@link dockerContainerExec}, but returns the command string instead of
+ * running it, since this path spawns a real PTY rather than a one-shot exec.
+ * Tries bash first, falling back to sh for minimal images that lack it.
+ *
+ * `command -v bash && exec bash; exec sh` — not `exec bash || exec sh`: POSIX
+ * mandates that when `exec` fails to find its target in a *non-interactive*
+ * shell (which `sh -c '...'` always is), the shell exits immediately instead
+ * of continuing on to evaluate `||` — so the "fallback" branch would never
+ * run, and every bash-less image (alpine included) would 127 with no output.
+ * Checking existence first, without invoking `exec`, sidesteps that entirely.
+ */
+export function dockerContainerShellCommand(containerId: string): string {
+    if (!SAFE_ID_RE.test(containerId)) {
+        throw new Error(`Invalid container id: ${containerId}`);
+    }
+    return `docker exec -it ${containerId} sh -c "command -v bash >/dev/null 2>&1 && exec bash -l; exec sh"`;
+}
+
+/** Same as {@link dockerContainerExec} but targets a compose service by name
+ *  (`docker compose exec -T`) instead of a resolved container id — for the
+ *  App page, which only knows services, not container ids. `-T` disables PTY
+ *  allocation since this isn't an attached interactive session. */
+export async function composeServiceExec(
+    server: HostAgent,
+    dir: string,
+    composeFile: string,
+    project: string,
+    service: string,
+    command: string,
+): Promise<DockerExecResult> {
+    if (!SAFE_ID_RE.test(project)) {
+        throw new Error(`Invalid project name: ${project}`);
+    }
+    if (!SAFE_ID_RE.test(service)) {
+        throw new Error(`Invalid service name: ${service}`);
+    }
+    return server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} exec -T ${service} sh -c ${shQuote(command)}`);
 }
 
 export async function dockerContainerLogs(

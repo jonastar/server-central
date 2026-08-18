@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ServerEntry } from "@central/shared";
 import { cx, isAgentOutdated } from "../utils";
 import { SERVER_TABS, type Route } from "../routes";
-import { StatusDot } from "./ui";
+import { ExperimentalBadge, StatusDot } from "./ui";
 import { AddNodeModal } from "./AddNodeModal";
 import styles from "./Sidebar.module.css";
 import shared from "../styles/shared.module.css";
@@ -45,14 +45,14 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                 className={cx(styles["nav-item"], (route.view === "apps" || route.view === "app") && styles.active)}
                 onClick={() => onNavigate({ view: "apps" })}
             >
-                Apps
+                Apps <ExperimentalBadge compact />
             </button>
 
             <button
                 className={cx(styles["nav-item"], route.view === "proxy" && styles.active)}
                 onClick={() => onNavigate({ view: "proxy" })}
             >
-                Proxy
+                Proxy <ExperimentalBadge compact />
             </button>
 
             <button
@@ -101,7 +101,7 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                                         className={cx(styles["nav-item"], styles.sub, route.view === "server" && route.tab === tab.id && styles.active)}
                                         onClick={() => onNavigate({ view: "server", serverId: entry.id, tab: tab.id })}
                                     >
-                                        {tab.label}
+                                        {tab.label} {tab.id === "zfs" && <ExperimentalBadge compact />}
                                     </button>
                                 ))}
                             </div>

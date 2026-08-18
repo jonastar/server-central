@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useConnection } from "./hooks/useConnection";
 import { useHashRoute } from "./hooks/useHashRoute";
+import { leavesTerminalSession, type Route } from "./routes";
+import { terminalNeedsLeaveConfirm } from "./terminalSession";
 import { useAuth } from "./hooks/useAuth";
 import { connectionManager } from "./connection";
 import { LoginView } from "./components/LoginView";
@@ -27,9 +29,16 @@ import { SettingsView } from "./components/SettingsView";
 import { EmptyState } from "./components/ui";
 import styles from "./App.module.css";
 
+function guardRouteChange(from: Route, to: Route): boolean {
+    if (!leavesTerminalSession(from, to) || !terminalNeedsLeaveConfirm()) {
+        return true;
+    }
+    return confirm("Leave the terminal? The current session will be closed.");
+}
+
 function AuthedApp({ onLogout }: { onLogout: () => void }) {
     const conn = useConnection();
-    const [route, setRoute] = useHashRoute();
+    const [route, setRoute] = useHashRoute(guardRouteChange);
 
     // The events socket only runs while a user is signed in.
     useEffect(() => {

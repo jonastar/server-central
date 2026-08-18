@@ -60,6 +60,14 @@ export const SERVER_TABS: Array<{ id: ServerTab; label: string }> = [
 
 const TAB_IDS = new Set<ServerTab>(SERVER_TABS.map((t) => t.id));
 
+/** True when navigating from `from` to `to` would tear down an active
+ *  terminal session (leaving the terminal tab, or switching servers while on
+ *  it) — used to prompt before the connection is silently dropped. */
+export function leavesTerminalSession(from: Route, to: Route): boolean {
+    return from.view === "server" && from.tab === "terminal"
+        && !(to.view === "server" && to.tab === "terminal" && to.serverId === from.serverId);
+}
+
 /** Encode a path's segments, preserving the leading slash. */
 function encodePath(p: string): string {
     return p.split("/").filter(Boolean).map(encodeURIComponent).join("/");

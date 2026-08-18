@@ -7,6 +7,103 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+### Added
+
+- **App system v1** (design: [doc/idea_app_system.md](doc/idea_app_system.md)): a new **Apps**
+  section (sidebar + `#/apps`) for managing docker-compose stacks directly, alongside the
+  existing container-id-based Docker tab. An App is `{ id, name, hostId, dir, composeFile,
+  project, createdAt }` (`AppStore`, `.sc-data/app-registry.json`); Apps list = cards grouped by
+  server, App detail = tabbed Overview/Compose/Volumes/Controls/Logs matching the server-overview
+  sub-tab pattern. Create (single modal, writes a fresh compose file) and Import (stepped modal,
+  detects an existing compose project on disk) both go through `DirectoryPicker`. A new
+  `docker_compose_action` task kind (`up`/`restart`/`stop`/`down`, optional `pullFirst`, optional
+  per-service scoping) drives `docker compose -f <path> -p <project> <verb>` off the App's own
+  directory — works even on a fully-down App with zero containers, unlike the existing
+  container-id-based `docker_stack_action`. Status/services come from `docker compose ps`/
+  `config --format json`, good enough for the status badge + services table (a fuller
+  running/disk/reconcile merge is future work, `doc/idea_stack_registry.md` §2).
+  - **Visual compose editor**: the Compose tab can edit `docker-compose.yml` as a form (image,
+    command, ports, env, volumes mapped under the app's `volumes/` directory) instead of raw YAML,
+    validated live against the official Compose Specification JSON schema (`ajv`, vendored schema
+    in `apps/web/src/lib/`) plus a server-side `docker compose config` semantic check
+    (`validateComposeContent`). Anything the visual form doesn't model falls back to a YAML tab —
+    the compose file is always the source of truth, there's no SC-native service format.
+  - Reclaimed the `App` name: the old OIDC relying-party admin screen (`listApps`/`createApp`/
+    `deleteApp`) is renamed to `OidcClient`/Settings → "SSO Clients" so the two don't collide.
+  - Not yet built: the streaming-exec primitive for `up`/`pull` (they run over the existing 30s
+    `exec()`, so a single end-of-command log line and a hard 30s ceiling — same known limitation
+    `docker_image_pull` already has); reverse-proxy routes, app-provided OIDC/auth roles, and
+    per-section reconcilers stay deliberately out of scope for v1.
+  - Follow-up same day: `DeleteAppModal` now shows `HostName (id)` instead of a raw uuid and
+    requires typing the app name before "Delete folder & remove app" enables; `DirectoryPicker`'s
+    empty-directory row now reads "(empty directory)" instead of looking like a phantom file;
+    creating/importing an app now navigates straight to it instead of just reloading the list;
+    the Overview services table links published host ports directly (`http://<host-ip>:<port>`).
+
+- **ZFS integration** (design: [doc/idea_zfs.md](doc/idea_zfs.md)): a new per-server **ZFS** tab
+  (Pools/Datasets/Snapshots sections) for full lifecycle management, not just a capacity readout —
+  grayed out on hosts without the `zpool`/`zfs` binaries. Pools: health/vdev/device tree, scrub
+  start/stop, import/export, a guided create-pool wizard and add-vdev/replace-device wizards that
+  only ever offer `/dev/disk/by-id/*` paths (never unstable `/dev/sdX`) and cross-check every
+  candidate disk against every host's `zpool status` plus the mount table — in-use disks are
+  visibly disabled with a reason, not just discouraged after the fact. Datasets: create/destroy
+  (filesystem or zvol), common property editing (compression, quota, recordsize, atime, readonly,
+  mountpoint, canmount). Snapshots: create (recursive optional), destroy, rollback (shows the count
+  of newer snapshots it would also destroy before confirming), clone. A new **Mounts** tab
+  (`host-mounts.ts`/`MountsView.tsx`) complements it — cross-references `findmnt` against
+  `/etc/fstab` and ZFS `canmount` so it can flag a mount as auto vs. manual.
+  - **Safety rails, not a v2 concern**: no silent `-f` anywhere in generated commands — a refused
+    op surfaces the refusal for the operator to resolve, never a force-flag checkbox. Every
+    genuinely destructive action (pool/dataset destroy, snapshot rollback) goes through a new
+    type-to-confirm `ConfirmDangerModal` (`ui.tsx`) requiring the exact pool/dataset/snapshot name,
+    not a generic "Are you sure?". Pool/vdev topology changes (create, destroy, add vdev, replace
+    device, import/export) are owner-only; dataset/snapshot CRUD is owner+admin; operator/viewer
+    get read-only views. Every mutation — even ones that complete in milliseconds — runs through
+    the task system as one of 13 new `zfs_*` task kinds, purely for the audit trail.
+
+- **Terminal into a container**: the container details modal's new "Terminal" tab opens a real
+  interactive shell inside the container (`docker exec -it`), reusing the same `TerminalView`/xterm
+  plumbing as the host terminal — copy-on-select and the leave confirmation below both apply here
+  too. Threaded through the existing `openShell` protocol bridge rather than a new one: `openShell`
+  gained an optional `command`, built and validated by the control plane exactly like `execRequest`'s
+  (same container-id check as the one-shot exec below); when set, the agent spawns it in the PTY
+  instead of a login/runuser shell, and it overrides `asUser` — exec'ing into a container is its own
+  identity boundary, not a host OS user. Tries bash first, falling back to `sh` for minimal images —
+  written as `command -v bash && exec bash; exec sh` rather than the more obvious `exec bash || exec
+  sh`, since POSIX has `exec` failing to find its target abort a *non-interactive* shell outright
+  instead of continuing on to `||`, which silently 127'd on every bash-less image (alpine included)
+  during testing.
+
+- **Docker exec quick-command box**: a small "run one command, see the output" input (new `ExecBox`
+  component, `ui.tsx`) — a one-shot, non-interactive wrapper around `docker exec`/`docker compose
+  exec`, for scripty one-liners that don't need a full shell. Lives in an "Exec" tab on the container
+  details modal (`dockerContainerExec`, by container id) and a "Run command" section on the App
+  page's Controls tab (`appServiceExec`, by compose service name, so the App page never needs to
+  know container ids). Shows stdout, stderr, and the exit code; doesn't throw on a non-zero exit
+  since the typed command is arbitrary and the point is seeing exactly what it printed either way.
+
+- **Terminal: copy-on-select and a leave confirmation**. Highlighting text in the terminal now
+  copies it to the clipboard automatically (mirrors the "copy on select" convention most desktop
+  terminals use), so Ctrl+C can stay reserved for SIGINT instead of being overloaded as a copy
+  shortcut. Separately, navigating away from an open terminal (in-app navigation, browser back/
+  forward, closing the tab, or refreshing) now asks for confirmation first instead of silently
+  killing the session — gated on the session having been open for at least 5 seconds
+  (`terminalSession.ts`) so a fast accidental open-then-navigate doesn't nag.
+
+- **Reusable copy button** (`CopyButton`/`CodeBlock`, `ui.tsx`): a small icon button with a
+  checkmark confirmation, and a wrapper that pins one to the corner of any monospaced text block.
+  Applied to the container details modal's raw JSON tab, the systemd unit-file detail modal, and
+  the ZFS pool wizard's generated command preview.
+
+### Fixed
+
+- **Copy buttons silently did nothing when the control plane was reached over plain HTTP**:
+  `navigator.clipboard` is only defined in a secure context (HTTPS or localhost), so every hand-rolled
+  `navigator.clipboard.writeText(...)` call was a silent no-op on a plain-HTTP LAN deployment — no
+  error, the button just didn't work. A new shared `copyToClipboard()` (`apps/web/src/utils.ts`)
+  falls back to the `document.execCommand("copy")` trick when the async API isn't available; every
+  copy button in the app now goes through it.
+
 ## [0.9.0] - 2026-08-11
 
 ### Added

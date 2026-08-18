@@ -3,6 +3,7 @@ import { cx } from "../utils";
 import { ZfsPools } from "./zfs/ZfsPools";
 import { ZfsDatasets } from "./zfs/ZfsDatasets";
 import { ZfsSnapshots } from "./zfs/ZfsSnapshots";
+import { ExperimentalBadge, ExperimentalBanner } from "./ui";
 import shared from "../styles/shared.module.css";
 
 export interface ZfsNav {
@@ -24,7 +25,15 @@ export function ZfsView({ serverId, section, onNavigate }: {
         <div className={shared.view}>
             <header className={shared["view-header"]}>
                 <h1>ZFS</h1>
+                <ExperimentalBadge />
             </header>
+
+            <ExperimentalBanner>
+                ZFS pool/dataset management is experimental — pool creation and disk selection can
+                behave unexpectedly with some drive configurations. Double-check before making
+                changes on drives holding data you care about.
+            </ExperimentalBanner>
+
             <nav className={shared["sub-tabs"]}>
                 {SECTIONS.map((s) => (
                     <button

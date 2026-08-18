@@ -4,11 +4,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalClientMessage, TerminalServerMessage } from "@central/shared";
 import { API_HOST, getToken } from "../api";
-import { cx } from "../utils";
+import { copyToClipboard, cx } from "../utils";
+import { markTerminalClosed, markTerminalOpened, terminalNeedsLeaveConfirm } from "../terminalSession";
 import styles from "./TerminalView.module.css";
 import shared from "../styles/shared.module.css";
 
-export function TerminalView({ serverId }: { serverId: string }) {
+export function TerminalView({ serverId, containerId }: { serverId: string; containerId?: string }) {
     const hostRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -16,6 +17,8 @@ export function TerminalView({ serverId }: { serverId: string }) {
         if (!host) {
             return;
         }
+
+        markTerminalOpened();
 
         const term = new Terminal({
             fontSize: 13,
@@ -32,8 +35,9 @@ export function TerminalView({ serverId }: { serverId: string }) {
         // clipped once the real font swaps in — refit once it's ready.
         void document.fonts?.ready?.then(() => fit.fit());
 
+        const containerParam = containerId ? `&containerId=${encodeURIComponent(containerId)}` : "";
         const ws = new WebSocket(
-            `ws://${API_HOST}/terminal?serverId=${encodeURIComponent(serverId)}&token=${encodeURIComponent(getToken() ?? "")}`,
+            `ws://${API_HOST}/terminal?serverId=${encodeURIComponent(serverId)}&token=${encodeURIComponent(getToken() ?? "")}${containerParam}`,
         );
         const send = (msg: TerminalClientMessage) => {
             if (ws.readyState === WebSocket.OPEN) {
@@ -80,13 +84,38 @@ export function TerminalView({ serverId }: { serverId: string }) {
         observer.observe(host);
         term.focus();
 
+        // Mirrors the "copy on select" convention of most desktop terminals so
+        // Ctrl+C can stay reserved for SIGINT — highlighting text is enough to
+        // put it on the clipboard, no separate copy shortcut needed.
+        const onMouseUp = () => {
+            if (term.hasSelection()) {
+                void copyToClipboard(term.getSelection()).catch(() => {});
+            }
+        };
+        host.addEventListener("mouseup", onMouseUp);
+
+        // A closed tab/refresh has no in-app confirmation to hook into, so guard
+        // it here: the session (and any unsaved terminal state) is lost the
+        // instant this component unmounts. Skipped for the first few seconds
+        // (see terminalSession.ts) so a quick accidental open+close doesn't nag.
+        const onBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (terminalNeedsLeaveConfirm()) {
+                e.preventDefault();
+                e.returnValue = "";
+            }
+        };
+        window.addEventListener("beforeunload", onBeforeUnload);
+
         return () => {
+            markTerminalClosed();
+            window.removeEventListener("beforeunload", onBeforeUnload);
+            host.removeEventListener("mouseup", onMouseUp);
             observer.disconnect();
             dataSub.dispose();
             ws.close();
             term.dispose();
         };
-    }, [serverId]);
+    }, [serverId, containerId]);
 
     return (
         <div className={cx(shared.view, styles["terminal-view"])}>

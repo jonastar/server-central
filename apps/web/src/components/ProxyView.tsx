@@ -3,7 +3,7 @@ import type { ProxyConfig, ProxyRoute, ProxyState, ServerEntry } from "@central/
 import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import type { Route } from "../routes";
-import { EmptyState, ErrorBanner, Modal, StatusDot } from "./ui";
+import { EmptyState, ErrorBanner, ExperimentalBadge, ExperimentalBanner, Modal, StatusDot } from "./ui";
 import { cx } from "../utils";
 import shared from "../styles/shared.module.css";
 import { colorVars } from "../styles/colorVars";
@@ -249,7 +249,13 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
         <div className={shared.view}>
             <header className={shared["view-header"]}>
                 <h1>Reverse proxy</h1>
+                <ExperimentalBadge />
             </header>
+
+            <ExperimentalBanner>
+                The reverse proxy is early-stage — routing, cert automation, and its linkage to Apps
+                are still being built out, and it hasn't been runtime-verified against a real Docker host yet.
+            </ExperimentalBanner>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
 

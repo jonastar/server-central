@@ -100,10 +100,11 @@ export class AppStore {
         const composeFile = COMPOSE_CANDIDATES.find((c) => names.has(c)) ?? null;
 
         let services: string[] = [];
+        let composeError: string | undefined;
         const externalBindMounts: { source: string; target: string }[] = [];
         let namedVolumeCount = 0;
         if (composeFile) {
-            const config = await composeConfig(agent, dir, composeFile, predictedName);
+            const { config, error } = await composeConfig(agent, dir, composeFile, predictedName);
             if (config) {
                 services = Object.keys(config.services ?? {});
                 const prefix = dir.endsWith("/") ? dir : `${dir}/`;
@@ -115,10 +116,12 @@ export class AppStore {
                     }
                 }
                 namedVolumeCount = Object.keys(config.volumes ?? {}).length;
+            } else {
+                composeError = error;
             }
         }
 
-        return { composeFound: composeFile !== null, manifestFound, predictedName, services, externalBindMounts, namedVolumeCount };
+        return { composeFound: composeFile !== null, manifestFound, predictedName, services, composeError, externalBindMounts, namedVolumeCount };
     }
 
     /** Adopts an existing on-disk compose project. Always mints a fresh id and

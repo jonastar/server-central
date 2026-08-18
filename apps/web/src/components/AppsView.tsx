@@ -3,7 +3,7 @@ import type { App, AppStatus, ServerEntry } from "@central/shared";
 import { api, runTaskAndWait } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import { cx, fmtRelative } from "../utils";
-import { EmptyState, ErrorBanner, StatusDot } from "./ui";
+import { EmptyState, ErrorBanner, ExperimentalBadge, ExperimentalBanner, StatusDot } from "./ui";
 import { StatusFilter, type StatusToken } from "./StatusFilter";
 import { NewAppModal } from "./NewAppModal";
 import { ImportAppModal } from "./ImportAppModal";
@@ -102,6 +102,7 @@ export function AppsView({ servers, onOpenApp }: {
         <div className={shared.view}>
             <header className={shared["view-header"]}>
                 <h1>Apps</h1>
+                <ExperimentalBadge />
                 {apps.length > 0 && (
                     <StatusFilter
                         value={statusFilter}
@@ -122,6 +123,11 @@ export function AppsView({ servers, onOpenApp }: {
                 <button className={shared.btn} onClick={() => setImporting(true)}>Import existing…</button>
                 <button className={cx(shared.btn, shared["btn-primary"])} onClick={() => setCreating({})}>New App</button>
             </header>
+
+            <ExperimentalBanner>
+                Apps management is new and still settling — service detection, imports, and status
+                reporting can have rough edges. Double-check before relying on it for anything critical.
+            </ExperimentalBanner>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
 

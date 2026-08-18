@@ -10,7 +10,7 @@ import { ComposeVisualEditor } from "./compose/ComposeVisualEditor";
 import { DeleteAppModal } from "./DeleteAppModal";
 import { FilesView } from "./FilesView";
 import { LogViewer } from "./LogViewer";
-import { EmptyState, ErrorBanner } from "./ui";
+import { EmptyState, ErrorBanner, ExecBox } from "./ui";
 import shared from "../styles/shared.module.css";
 
 const REFRESH_MS = 10_000;
@@ -428,6 +428,8 @@ function ControlsTab({ app, host, status, busy, run, onDeleted }: {
     onDeleted: () => void;
 }) {
     const [deleting, setDeleting] = useState(false);
+    const [execService, setExecService] = useState("");
+    const runningServices = (status?.services ?? []).filter((s) => s.up);
     const actions: Array<{ id: string; title: string; subtitle: string; danger?: boolean; primary?: boolean; onRun: () => void }> = [
         { id: "up", title: "Start", subtitle: "docker_compose_action · up", onRun: () => run("up") },
         { id: "restart", title: "Restart", subtitle: "docker_compose_action · restart", onRun: () => run("restart") },
@@ -518,6 +520,29 @@ function ControlsTab({ app, host, status, busy, run, onDeleted }: {
                     </table>
                 </section>
             )}
+            {runningServices.length > 0 && (
+                <section className={shared.panel} style={{ marginTop: 14 }}>
+                    <h3>Run command</h3>
+                    <p className={shared.dim} style={{ fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+                        One-shot <span className={shared.mono}>docker compose exec</span>, not an attached shell — no cwd/env carries between runs.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <select
+                            value={execService || runningServices[0]?.name}
+                            onChange={(e) => setExecService(e.target.value)}
+                            style={{ alignSelf: "flex-start" }}
+                        >
+                            {runningServices.map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
+                        </select>
+                        <ExecBox
+                            key={execService || runningServices[0]?.name}
+                            placeholder="e.g. ls /app, env…"
+                            onRun={(command) => api("appServiceExec", { appId: app.id, service: execService || runningServices[0]?.name, command })}
+                        />
+                    </div>
+                </section>
+            )}
+
             <section className={shared.panel} style={{ marginTop: 14, border: "1px solid color-mix(in srgb, var(--err) 40%, var(--border))" }}>
                 <h3>Danger zone</h3>
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

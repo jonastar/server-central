@@ -7,6 +7,7 @@ import type {
     CentralApiOperations,
     DirEntry,
     DockerContainerDetail,
+    DockerExecResult,
     DockerOverview,
     DockerStacksState,
     DockerState,
@@ -42,6 +43,8 @@ import type {
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
 import {
+    composeServiceExec,
+    dockerContainerExec,
     dockerContainerInspect,
     dockerContainerLogs,
     dockerImageAction,
@@ -234,6 +237,11 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
         return { logs };
     }
 
+    async handleAppServiceExec(data: { appId: string; service: string; command: string }): Promise<DockerExecResult> {
+        const app = this.apps.get(data.appId);
+        return composeServiceExec(this.fleet.get(app.hostId), app.dir, app.composeFile, app.project, data.service, data.command);
+    }
+
     async handleValidateComposeContent(data: { appId: string; content: string }): Promise<{ valid: true } | { valid: false; error: string }> {
         const app = this.apps.get(data.appId);
         return validateComposeContent(this.fleet.get(app.hostId), app.dir, app.project, data.content);
@@ -382,6 +390,10 @@ export class CentralHandler implements ApiHandlerPrefixed<CentralApiOperations> 
 
     async handleDockerContainerInspect(data: { serverId: string; containerId: string }): Promise<DockerContainerDetail> {
         return dockerContainerInspect(this.fleet.get(data.serverId), data.containerId);
+    }
+
+    async handleDockerContainerExec(data: { serverId: string; containerId: string; command: string }): Promise<DockerExecResult> {
+        return dockerContainerExec(this.fleet.get(data.serverId), data.containerId, data.command);
     }
 
     async handleDockerVolumeInspect(data: { serverId: string; name: string }): Promise<DockerVolumeDetail> {

@@ -56,7 +56,13 @@ export type ControlMessage =
     | { type: "renamePathRequest"; requestId: string; from: string; to: string }
     // asUser: OS account to run the shell as (via runuser/su; the agent runs as
     // root). Null/absent means the agent's own user — the pre-mapping behavior.
-    | { type: "openShell"; sessionId: string; cols: number; rows: number; asUser?: string | null }
+    // command: run this shell command in the PTY instead of a login/runuser
+    // shell — used for "terminal into a container" (`docker exec -it …`).
+    // Built and validated by the control plane exactly like execRequest's
+    // command; the agent just runs it (via `sh -c`, no further parsing).
+    // Ignores asUser when set — exec'ing into a container is its own identity
+    // boundary, not a host OS user.
+    | { type: "openShell"; sessionId: string; cols: number; rows: number; asUser?: string | null; command?: string }
     | { type: "shellInput"; sessionId: string; data: string }
     | { type: "shellResize"; sessionId: string; cols: number; rows: number }
     | { type: "closeShell"; sessionId: string }

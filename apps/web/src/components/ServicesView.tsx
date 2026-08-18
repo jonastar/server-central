@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ServiceAction, ServiceInfo, SystemdState } from "@central/shared";
 import { api, runTaskAndWait } from "../api";
 import { cx } from "../utils";
-import { DetailPair, EmptyState, ErrorBanner, Modal } from "./ui";
+import { CodeBlock, DetailPair, EmptyState, ErrorBanner, Modal } from "./ui";
 import { LogViewerModal } from "./LogViewerModal";
 import { LogPreview } from "./LogPreview";
 import { StatusFilter, type StatusToken } from "./StatusFilter";
@@ -187,7 +187,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
 
             {detail && (
                 <Modal title={detail.title} onClose={() => setDetail(null)} width={820}>
-                    <pre className={shared["logs-pre"]}>{detail.text}</pre>
+                    <CodeBlock text={detail.text} />
                 </Modal>
             )}
 

@@ -90,6 +90,10 @@ export interface TaskZfsPoolCreate {
     kind: "zfs_pool_create";
     name: string;
     vdevs: { type: ZfsVdevType; devices: string[] }[];
+    /** `zpool create -f` — overrides zfs's refusal to use a device that still
+     *  carries a stale partition table or filesystem/RAID/ZFS signature from a
+     *  previous life (not currently mounted or part of an active pool/array). */
+    force?: boolean;
 }
 
 export interface TaskZfsPoolDestroy {
@@ -111,6 +115,8 @@ export interface TaskZfsVdevAdd {
     kind: "zfs_vdev_add";
     pool: string;
     vdev: { type: ZfsVdevType; devices: string[] };
+    /** `zpool add -f` — see {@link TaskZfsPoolCreate.force}. */
+    force?: boolean;
 }
 
 export interface TaskZfsDeviceReplace {

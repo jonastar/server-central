@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import type { DockerContainerDetail } from "@central/shared";
 import { api } from "../../api";
 import { cx } from "../../utils";
-import { DetailPair, EmptyState, ErrorBanner, Modal } from "../ui";
+import { CodeBlock, DetailPair, EmptyState, ErrorBanner, ExecBox, Modal } from "../ui";
+import { TerminalView } from "../TerminalView";
 import shared from "../../styles/shared.module.css";
 
 export function ContainerDetail({ serverId, containerId, name, onClose, onShowLogs }: {
@@ -14,7 +15,7 @@ export function ContainerDetail({ serverId, containerId, name, onClose, onShowLo
 }) {
     const [detail, setDetail] = useState<DockerContainerDetail | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [tab, setTab] = useState<"details" | "raw">("details");
+    const [tab, setTab] = useState<"details" | "raw" | "exec" | "terminal">("details");
 
     useEffect(() => {
         let alive = true;
@@ -25,10 +26,12 @@ export function ContainerDetail({ serverId, containerId, name, onClose, onShowLo
     }, [serverId, containerId]);
 
     return (
-        <Modal title={`Container — ${name}`} onClose={onClose} width={820}>
+        <Modal title={`Container — ${name}`} onClose={onClose} width={820} large={tab === "terminal"}>
             <div className={shared["sub-tabs"]} style={{ marginBottom: 12 }}>
                 <button className={cx(shared["sub-tab"], tab === "details" && shared.active)} onClick={() => setTab("details")}>Details</button>
                 <button className={cx(shared["sub-tab"], tab === "raw" && shared.active)} onClick={() => setTab("raw")}>Raw</button>
+                <button className={cx(shared["sub-tab"], tab === "exec" && shared.active)} onClick={() => setTab("exec")}>Exec</button>
+                <button className={cx(shared["sub-tab"], tab === "terminal" && shared.active)} onClick={() => setTab("terminal")}>Terminal</button>
                 <button className={cx(shared.btn, shared["btn-sm"])} style={{ marginLeft: "auto" }} onClick={onShowLogs}>Logs</button>
             </div>
 
@@ -69,7 +72,18 @@ export function ContainerDetail({ serverId, containerId, name, onClose, onShowLo
                 </div>
             )}
 
-            {detail && tab === "raw" && <pre className={shared["logs-pre"]}>{detail.raw}</pre>}
+            {detail && tab === "raw" && <CodeBlock text={detail.raw} />}
+
+            {detail && tab === "exec" && (
+                <ExecBox
+                    placeholder="e.g. ls /app, cat /etc/hosts…"
+                    onRun={(command) => api("dockerContainerExec", { serverId, containerId, command })}
+                />
+            )}
+
+            {detail && tab === "terminal" && (
+                <TerminalView serverId={serverId} containerId={containerId} />
+            )}
         </Modal>
     );
 }

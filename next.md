@@ -1,5 +1,61 @@
 # Next items to implement
 
+## Planned for next release
+
+- [DONE] Mark zfs, apps, reverse proxy as experimental (2026-08-18) — an `ExperimentalBadge`
+  component (`components/ui.tsx`, reusing the existing `shared.badge`/`badge-warn` pill style)
+  sits next to the `<h1>` in `AppsView`, `ProxyView`, and `ZfsView`, plus a compact "EXP"
+  variant next to the "Apps"/"Proxy" sidebar nav items and the per-server "ZFS" sub-tab
+  (`Sidebar.tsx`). Follow-up same day: badges alone were too easy to miss, so each of the
+  three pages also gets an `ExperimentalBanner` (new `.warn-banner` style in `ui.module.css`)
+  right under the header with a page-specific caveat — Apps flags rough edges in service
+  detection/imports/status, Proxy flags it's unverified against a real dockerd and still
+  building out cert automation + app linkage, ZFS flags pool/disk operations needing care.
+
+- [DONE] Fix: leave terminal comes up twice — `navigate()` (`useHashRoute.ts`) already asked the
+  guard before writing `location.hash`, but that write fires its own `hashchange` event, and the
+  handler for that event asked the guard again since it couldn't tell an already-approved change
+  apart from an external one (back/forward, manual hash edit). Fixed with a `pendingHashRef`:
+  `navigate()` records the hash it's about to write, and `onHashChange` skips the guard entirely
+  when the incoming hash matches it.
+
+- [DONE] Four release-blocker bugs fixed (2026-08-18):
+
+  - **DirectoryPicker mislabeled "(empty directory)"** — `ensureLoaded` (`DirectoryPicker.tsx`)
+    was filtering out file entries before storing them, so a dir with files but no subdirs had
+    an empty `children` array and got the same "(empty directory)" label as a truly empty one.
+    Now stores the raw unfiltered `listDir` result; the label only shows for genuinely empty
+    dirs, a dir with files-but-no-subfolders shows "N files, no subfolders" instead, and every
+    loaded dir row gets an inline file count badge (only for dirs already fetched — still lazy,
+    no eager per-row `listDir` calls).
+
+  - **Apps "no services declared" / import preview "0 services found"** — both traced to the
+    same root cause: `composeConfig()` (`docker.ts`) ran `docker compose config --format json
+    2>&1`, merging stderr into stdout before a single `JSON.parse`. Compose v2 writes
+    deprecation warnings (most commonly the legacy top-level `version:` key) to stderr even on
+    a *successful* run, so any real-world compose file carrying one made the merged blob
+    unparsable and `composeConfig` silently returned null — collapsing to "no services" both in
+    `getAppStatus` (Apps list/Overview) and `AppStore.detect()` (import preview). Reproduced
+    live against a real `docker compose` invocation before fixing. Fix: dropped the `2>&1`
+    (stdout/stderr were already separate fields on `ExecResult` — the merge was not needed) and
+    `composeConfig` now returns `{ config, error }` instead of a bare nullable, so a real
+    failure is distinguishable from "genuinely zero services." `AppDetection` gained a
+    `composeError?: string` field, surfaced in `ImportAppModal` as a warning explaining the
+    preview's service count may be wrong even though import itself will still work.
+
+  - **ZFS pool creation rejected drives with stale RAID/ZFS signatures** — `zfsGetBlockDevices`
+    (`zfs.ts`) classified any disk with a non-empty `lsblk` `FSTYPE` (partition or whole-disk)
+    as `inUse: "partitioned"`, and the picker (`PoolWizards.tsx`) disabled selection for *any*
+    non-null `inUse` — but `FSTYPE` reflects an on-disk signature, not whether it's actually
+    live (a disk that once belonged to a `mdadm` array or another zpool keeps
+    `linux_raid_member`/`zfs_member` in `blkid` output indefinitely, regardless of whether
+    that array/pool is currently assembled/imported). Only `"zfs"` (a live `zpool status`
+    device match) and `"mounted"` are genuine hard-blocks now; `"partitioned"` disks are
+    selectable but surface a `ForceConfirmBanner` requiring an explicit "erase existing
+    signatures and use them anyway" checkbox before the Create/Add-vdev button enables. Checking
+    it threads a new `force?: boolean` through `TaskZfsPoolCreate`/`TaskZfsVdevAdd` down to
+    `zpool create -f`/`zpool add -f`, matching what you'd have to pass by hand at the CLI.
+
 ## Smaller items
 
 - View agent config in the agents section
@@ -113,6 +169,40 @@ project, createdAt }` (`shared/src/index.ts`), backed by `AppStore` (`apps/serve
 > (e.g. `jellyfin.user.adult`, `jellyfin.user.kid`, `jellyfin.admin`) assigned to Server Central
 > users to grant app-scoped access — actual permission mapping still has to be configured inside
 > the app itself, SC only hands it identity + role claims.
+
+### Terminal session persistence / tmux session manager
+
+> Prompted by real usage feedback (2026-08-17, relayed from a friend testing the app): the
+> web terminal (`TerminalView.tsx`) is a bare host-shell PTY, ephemeral and tied 1:1 to the
+> WebSocket connection (`AgentConnection.openShell()`, `host-agent.ts`) — navigating away or
+> losing the tab kills it instantly, with no persistence underneath to reattach to. A same-day
+> smaller fix shipped for the "lost my session" complaint: a confirm-before-leaving guard
+> (in-app nav + `beforeunload`), see changelog/this doc's smaller items. That's a band-aid, not
+> a fix — the actual ask is persistent, named sessions you can walk away from and come back to.
+> Follow-up same day: the confirm was firing even on a fast switch straight through the terminal
+> tab, so it's now gated on the session having been open ≥5s (`terminalSession.ts`'s
+> `terminalNeedsLeaveConfirm()`, a module-level timestamp both the in-app nav guard in `App.tsx`
+> and `TerminalView`'s `beforeunload` handler read) — only nags once you've actually been sitting
+> in the session.
+>
+> Real fix: back the terminal with **tmux sessions on the host** instead of a raw shell:
+>
+> - New agent-side primitives: list tmux sessions (name, created time, attached clients), create
+>   a named session, kill a session, capture recent pane output (`tmux capture-pane`) for a
+>   preview without attaching.
+> - `openShell` (or a new `openTmuxSession`) attaches to a chosen session (`tmux attach -t
+<name>`) instead of spawning a bare shell — the PTY dies with the WS same as today, but the
+>   tmux session underneath survives, so reattaching later resumes exactly where you left off.
+> - New UI: a session-card list (name, recent-output preview, "attach"/"kill"/rename) ahead of
+>   the terminal view itself, replacing the current "Terminal" tab's straight-into-a-shell
+>   behavior. Card list becomes the new tab landing; clicking a card opens the existing
+>   `TerminalView` attached to that session.
+> - Naming/lifecycle: who creates the first session for a host (auto-create "main" on first
+>   visit vs. explicit create-only)? Do idle sessions ever get reaped, or live until manually
+>   killed? Needs a decision before implementing.
+> - Depends on tmux being present on the target host — same "not present" fallback question as
+>   other host-tool-dependent features (`ip -j`, compose plugin, …); probably fall back to the
+>   current bare-shell behavior with a note if `tmux` isn't found.
 
 ### Manual-install supervisor script
 

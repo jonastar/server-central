@@ -69,6 +69,9 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
         setExpanded(new Set());
     }, [serverId]);
 
+    // Unfiltered — keeps file entries around even when `selectFiles` is off, so
+    // "does this dir have anything in it" and "how many files" can still be
+    // answered for dirs that hold files but no subdirectories to browse into.
     const ensureLoaded = useCallback((path: string) => {
         if (requested.current.has(path)) {
             return;
@@ -77,15 +80,12 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
         void (async () => {
             try {
                 const list = await api("listDir", { serverId, path });
-                const wanted = selectFiles
-                    ? (e: DirEntry) => e.type === "dir" || e.type === "symlink" || e.type === "file"
-                    : (e: DirEntry) => e.type === "dir" || e.type === "symlink";
-                setChildren((m) => new Map(m).set(path, list.entries.filter(wanted)));
+                setChildren((m) => new Map(m).set(path, list.entries));
             } catch {
                 setChildren((m) => new Map(m).set(path, "error"));
             }
         })();
-    }, [serverId, selectFiles]);
+    }, [serverId]);
 
     useEffect(() => {
         const chain = ancestorChain(value);
@@ -140,9 +140,16 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
         const expandable = type === "dir" || type === "symlink";
         const isExpanded = expandable && expanded.has(path);
         const kids = expandable ? children.get(path) : undefined;
+        const rawKids = Array.isArray(kids) ? kids : undefined;
+        // What actually gets its own row below this one — subdirectories always,
+        // files only when `selectFiles` is on. A dir full of plain files has
+        // `rawKids.length > 0` but `browsableKids.length === 0`: nothing to
+        // descend into, but not "empty" either.
+        const browsableKids = rawKids?.filter((e) => e.type === "dir" || e.type === "symlink" || (selectFiles && e.type === "file"));
+        const fileCount = rawKids?.filter((e) => e.type === "file").length ?? 0;
         const isSelected = path === value;
         const label = path === "/" ? "/" : (path.split("/").pop() ?? path);
-        const hasChildren = expandable && (Array.isArray(kids) ? kids.length > 0 : kids === undefined);
+        const hasChildren = expandable && (browsableKids ? browsableKids.length > 0 : kids === undefined);
 
         return (
             <div key={path}>
@@ -166,14 +173,22 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
                     >
                         {label}
                     </span>
+                    {!selectFiles && fileCount > 0 && (
+                        <span className={shared.dim} style={{ fontSize: 11 }}>{fileCount} file{fileCount === 1 ? "" : "s"}</span>
+                    )}
                 </div>
                 {isExpanded && kids === "error" && (
                     <div className={shared.dim} style={{ paddingLeft: 26 + depth * 16, fontSize: 12 }}>Can't read this directory</div>
                 )}
-                {isExpanded && Array.isArray(kids) && kids.length === 0 && (
+                {isExpanded && rawKids && rawKids.length === 0 && (
                     <div className={shared.dim} style={{ paddingLeft: 26 + depth * 16, fontSize: 12, fontStyle: "italic" }}>(empty directory)</div>
                 )}
-                {isExpanded && Array.isArray(kids) && kids.map((entry) => renderNode(joinPath(path, entry.name), depth + 1, entry.type))}
+                {isExpanded && rawKids && rawKids.length > 0 && browsableKids?.length === 0 && (
+                    <div className={shared.dim} style={{ paddingLeft: 26 + depth * 16, fontSize: 12, fontStyle: "italic" }}>
+                        {fileCount} file{fileCount === 1 ? "" : "s"}, no subfolders
+                    </div>
+                )}
+                {isExpanded && browsableKids?.map((entry) => renderNode(joinPath(path, entry.name), depth + 1, entry.type))}
             </div>
         );
     }

@@ -137,6 +137,14 @@ export function ImportAppModal({ servers, onClose, onImported }: {
                             <ErrorBanner>No compose file found in this directory.</ErrorBanner>
                         )}
 
+                        {detection.composeError && (
+                            <div style={{ border: "1px solid color-mix(in srgb, var(--warn) 40%, var(--border))", background: "color-mix(in srgb, var(--warn) 8%, var(--panel))", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
+                                <b style={{ color: "var(--warn)" }}>Couldn't read services from the compose file</b>
+                                <span className={shared.dim}>{detection.composeError}</span>
+                                <span className={shared.dim}>The service count above may show 0 even though the file declares some — you can still import, and the correct count will show once the app is added.</span>
+                            </div>
+                        )}
+
                         {!detection.manifestFound && detection.composeFound && (
                             <div style={{ border: "1px solid color-mix(in srgb, var(--warn) 40%, var(--border))", background: "color-mix(in srgb, var(--warn) 8%, var(--panel))", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
                                 <b style={{ color: "var(--warn)" }}>No sc-app.json in this directory</b>

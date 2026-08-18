@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ZfsBlockDevice, ZfsVdevType } from "@central/shared";
 import { api, runTaskAndWait } from "../../api";
 import { cx, fmtBytes } from "../../utils";
-import { EmptyState, ErrorBanner, Modal } from "../ui";
+import { CodeBlock, EmptyState, ErrorBanner, Modal } from "../ui";
 import shared from "../../styles/shared.module.css";
 
 const VDEV_TYPES: Array<{ id: ZfsVdevType; label: string; minDevices: number }> = [
@@ -30,6 +30,14 @@ function deviceLabel(d: ZfsBlockDevice): string {
     return `${d.name} — ${d.model || "unknown model"} (${fmtBytes(d.sizeBytes)}${d.rotational ? ", HDD" : ", SSD"})`;
 }
 
+/** Only a live pool membership or an active mount is a real reason to refuse a
+ *  disk outright. "partitioned" covers stale signatures too (an old RAID/ZFS
+ *  member that isn't actually assembled/imported anymore) — those are still
+ *  selectable, just need `-f` (see the force-confirm UI in the modals below). */
+function isHardBlocked(d: ZfsBlockDevice): boolean {
+    return d.inUse === "zfs" || d.inUse === "mounted";
+}
+
 /** Picks devices for one vdev — disables anything already in use elsewhere in
  *  the pool tree, or already picked for another group in this wizard. Always
  *  submits the /dev/disk/by-id path (never bare /dev/sdX — see doc/idea_zfs.md's
@@ -44,7 +52,7 @@ function DeviceMultiSelect({ devices, selected, disabledElsewhere, onToggle }: {
         <div className={shared["detail-list"]} style={{ maxHeight: 220, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: 8 }}>
             {devices.map((d) => {
                 const byId = d.byIdPaths[0];
-                const disabled = !!d.inUse || !byId || (!!byId && disabledElsewhere.has(byId));
+                const disabled = isHardBlocked(d) || !byId || (!!byId && disabledElsewhere.has(byId));
                 return (
                     <label key={d.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", opacity: disabled ? 0.5 : 1 }}>
                         <input
@@ -59,6 +67,30 @@ function DeviceMultiSelect({ devices, selected, disabledElsewhere, onToggle }: {
                     </label>
                 );
             })}
+        </div>
+    );
+}
+
+/** Shown when the current selection includes a disk `zpool` will refuse without
+ *  `-f` (a stale partition table or RAID/ZFS/filesystem signature left over
+ *  from a previous life, per {@link isHardBlocked}'s "partitioned" case). */
+function ForceConfirmBanner({ devices, confirmed, onChange }: {
+    devices: ZfsBlockDevice[];
+    confirmed: boolean;
+    onChange: (v: boolean) => void;
+}) {
+    return (
+        <div style={{ border: "1px solid color-mix(in srgb, var(--warn) 40%, var(--border))", background: "color-mix(in srgb, var(--warn) 8%, var(--panel))", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+            <b style={{ color: "var(--warn)" }}>Selected disk{devices.length === 1 ? "" : "s"} carr{devices.length === 1 ? "ies" : "y"} a leftover signature</b>
+            <span className={shared.dim} style={{ fontSize: 12 }}>
+                {devices.map((d) => `${d.name} (${d.inUseDetail ?? "existing signature"})`).join(", ")} — not currently mounted or
+                part of an active pool, but zpool needs <span className={shared.mono}>-f</span> to reuse a disk that still carries
+                one. This overwrites whatever's left on it.
+            </span>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+                <input type="checkbox" checked={confirmed} onChange={(e) => onChange(e.target.checked)} />
+                Erase existing signatures on these disks and use them anyway
+            </label>
         </div>
     );
 }
@@ -117,12 +149,16 @@ export function CreatePoolModal({ serverId, onClose, onCreated }: {
     const [nextId, setNextId] = useState(1);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [forceConfirmed, setForceConfirmed] = useState(false);
 
     const allSelected = new Set(groups.flatMap((g) => g.devices));
     const nonRedundant = groups.some((g) => g.type === "stripe");
     const invalid = groups.some((g) => g.devices.length < (VDEV_TYPES.find((v) => v.id === g.type)?.minDevices ?? 1));
+    const partitionedSelected = (devices ?? [])
+        .filter((d) => d.inUse === "partitioned" && d.byIdPaths[0] && allSelected.has(d.byIdPaths[0]));
+    const needsForce = partitionedSelected.length > 0;
     const command = name && groups.some((g) => g.devices.length > 0)
-        ? `zpool create ${JSON.stringify(name)} ${groups.filter((g) => g.devices.length).map((g) => `${g.type === "stripe" ? "" : `${g.type} `}${g.devices.join(" ")}`).join(" ")}`
+        ? `zpool create ${needsForce ? "-f " : ""}${JSON.stringify(name)} ${groups.filter((g) => g.devices.length).map((g) => `${g.type === "stripe" ? "" : `${g.type} `}${g.devices.join(" ")}`).join(" ")}`
         : "";
 
     async function submit() {
@@ -130,7 +166,12 @@ export function CreatePoolModal({ serverId, onClose, onCreated }: {
         setError(null);
         try {
             await runTaskAndWait(
-                { kind: "zfs_pool_create", name, vdevs: groups.filter((g) => g.devices.length > 0).map((g) => ({ type: g.type, devices: g.devices })) },
+                {
+                    kind: "zfs_pool_create",
+                    name,
+                    vdevs: groups.filter((g) => g.devices.length > 0).map((g) => ({ type: g.type, devices: g.devices })),
+                    force: needsForce && forceConfirmed,
+                },
                 serverId,
                 { autoOpenModal: true },
             );
@@ -177,8 +218,11 @@ export function CreatePoolModal({ serverId, onClose, onCreated }: {
                             A stripe vdev has no redundancy — any disk failure loses the whole pool.
                         </p>
                     )}
+                    {needsForce && (
+                        <ForceConfirmBanner devices={partitionedSelected} confirmed={forceConfirmed} onChange={setForceConfirmed} />
+                    )}
                     {command && (
-                        <pre className={cx(shared.mono, shared["logs-pre"])} style={{ marginTop: 12 }}>{command}</pre>
+                        <CodeBlock text={command} className={shared.mono} style={{ marginTop: 12 }} />
                     )}
                 </>
             ) : null}
@@ -188,7 +232,7 @@ export function CreatePoolModal({ serverId, onClose, onCreated }: {
                 <button
                     className={cx(shared.btn, shared["btn-primary"])}
                     type="button"
-                    disabled={busy || !name || groups.length === 0 || invalid}
+                    disabled={busy || !name || groups.length === 0 || invalid || (needsForce && !forceConfirmed)}
                     onClick={submit}
                 >
                     {busy ? "Creating…" : "Create pool"}
@@ -208,14 +252,23 @@ export function AddVdevModal({ serverId, pool, onClose, onAdded }: {
     const [group, setGroup] = useState<VdevGroup>({ id: 0, type: "mirror", devices: [] });
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [forceConfirmed, setForceConfirmed] = useState(false);
     const spec = VDEV_TYPES.find((v) => v.id === group.type)!;
     const invalid = group.devices.length < spec.minDevices;
+    const selected = new Set(group.devices);
+    const partitionedSelected = (devices ?? [])
+        .filter((d) => d.inUse === "partitioned" && d.byIdPaths[0] && selected.has(d.byIdPaths[0]));
+    const needsForce = partitionedSelected.length > 0;
 
     async function submit() {
         setBusy(true);
         setError(null);
         try {
-            await runTaskAndWait({ kind: "zfs_vdev_add", pool, vdev: { type: group.type, devices: group.devices } }, serverId, { autoOpenModal: true });
+            await runTaskAndWait(
+                { kind: "zfs_vdev_add", pool, vdev: { type: group.type, devices: group.devices }, force: needsForce && forceConfirmed },
+                serverId,
+                { autoOpenModal: true },
+            );
             onAdded();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -242,9 +295,17 @@ export function AddVdevModal({ serverId, pool, onClose, onAdded }: {
                     onRemove={() => setGroup({ ...group, devices: [] })}
                 />
             ) : null}
+            {needsForce && (
+                <ForceConfirmBanner devices={partitionedSelected} confirmed={forceConfirmed} onChange={setForceConfirmed} />
+            )}
             <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
                 <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
-                <button className={cx(shared.btn, shared["btn-primary"])} type="button" disabled={busy || invalid} onClick={submit}>
+                <button
+                    className={cx(shared.btn, shared["btn-primary"])}
+                    type="button"
+                    disabled={busy || invalid || (needsForce && !forceConfirmed)}
+                    onClick={submit}
+                >
                     {busy ? "Adding…" : "Add vdev"}
                 </button>
             </div>

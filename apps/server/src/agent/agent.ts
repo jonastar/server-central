@@ -239,7 +239,7 @@ export class Agent {
 
             case "openShell": {
                 try {
-                    const shell = await this.runOpenShell(msg.sessionId, msg.cols, msg.rows, msg.asUser ?? null);
+                    const shell = await this.runOpenShell(msg.sessionId, msg.cols, msg.rows, msg.asUser ?? null, msg.command);
                     this.shells.set(msg.sessionId, shell);
                 } catch (e) {
                     this.transport.send({ type: "error", message: String(e) });
@@ -467,10 +467,11 @@ export class Agent {
         return runuser ? [runuser, "-l", asUser] : ["su", "-", asUser];
     }
 
-    private async runOpenShell(sessionId: string, cols: number, rows: number, asUser: string | null): Promise<ActiveShell> {
+    private async runOpenShell(sessionId: string, cols: number, rows: number, asUser: string | null, command?: string): Promise<ActiveShell> {
         const decoder = new TextDecoder();
+        const argv = command ? ["sh", "-c", command] : this.shellArgv(asUser);
 
-        const proc = Bun.spawn(this.shellArgv(asUser), {
+        const proc = Bun.spawn(argv, {
             cwd: os.homedir(),
             env: { ...process.env, TERM: "xterm-256color" },
             terminal: {

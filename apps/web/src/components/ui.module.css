@@ -134,6 +134,23 @@
     padding: 8px 12px;
 }
 
+.warn-banner {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    background: color-mix(in srgb, var(--warn) 9%, var(--panel));
+    border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--border));
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+.warn-banner strong {
+    color: var(--warn);
+    flex-shrink: 0;
+}
+
 .detail-row {
     display: grid;
     grid-template-columns: 120px 1fr;
@@ -149,6 +166,49 @@
 .detail-value {
     min-width: 0;
     word-break: break-word;
+}
+
+/* ---- Copy button / code block ------------------------------------------------------------- */
+
+.copy-btn.copied {
+    color: var(--ok);
+}
+
+.code-block {
+    position: relative;
+}
+
+.code-block-copy {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    color: #9aa1ab;
+    background: rgba(30, 34, 42, 0.6);
+}
+
+.code-block-copy:hover {
+    color: #fff;
+    background: rgba(30, 34, 42, 0.9);
+}
+
+/* ---- Exec box ------------------------------------------------------------------------------ */
+
+.exec-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.exec-input-row {
+    display: flex;
+    gap: 8px;
+}
+
+.exec-result {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
 }
 
 /* Reusable spinner ring: sized/colored by whatever wraps it via `color`. */

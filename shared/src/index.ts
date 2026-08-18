@@ -352,6 +352,15 @@ export interface DockerOverview {
 export type StackAction = "start" | "stop" | "restart" | "down";
 export type ImageAction = "remove";
 
+/** Result of a one-shot `docker exec`/`docker compose exec` command (the quick
+ *  exec box on the container/app pages) — same shape as the agent's internal
+ *  `ExecResult`, not a full interactive session. */
+export interface DockerExecResult {
+    stdout: string;
+    stderr: string;
+    code: number;
+}
+
 // ---- Processes ---------------------------------------------------------------
 
 export interface ProcessInfo {
@@ -585,6 +594,10 @@ export interface AppDetection {
     /** From the directory's basename — compose's own default project-name rule. */
     predictedName: string;
     services: string[];
+    /** Set when a compose file was found but `docker compose config` failed or
+     *  returned unparsable output — `services` stays `[]` in that case too, but
+     *  this distinguishes "couldn't ask" from "genuinely no services declared". */
+    composeError?: string;
     /** Bind mounts whose source resolves outside `dir` — these stay where they
      *  are on import; the Volumes tab only ever browses `dir/volumes`. */
     externalBindMounts: { source: string; target: string }[];
@@ -909,6 +922,10 @@ export type CentralApiOperations = {
     dockerOverview: { data: { serverId: string }; response: DockerOverview };
     dockerStacks: { data: { serverId: string }; response: DockerStacksState };
     dockerContainerInspect: { data: { serverId: string; containerId: string }; response: DockerContainerDetail };
+    // One-shot, non-interactive command run inside a running container/service —
+    // `docker exec`/`docker compose exec` under the hood, not an attached shell.
+    dockerContainerExec: { data: { serverId: string; containerId: string; command: string }; response: DockerExecResult };
+    appServiceExec: { data: { appId: string; service: string; command: string }; response: DockerExecResult };
     dockerVolumeInspect: { data: { serverId: string; name: string }; response: DockerVolumeDetail };
     dockerVolumeRemove: { data: { serverId: string; name: string }; response: void };
     dockerImageAction: { data: { serverId: string; imageId: string; action: ImageAction }; response: void };

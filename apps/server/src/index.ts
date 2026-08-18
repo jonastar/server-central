@@ -4,6 +4,7 @@ import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalSer
 import { MAX_UPLOAD_BYTES } from "@central/shared";
 import type { ShellSession } from "./host-agent";
 import { AppStore } from "./apps";
+import { dockerContainerShellCommand } from "./docker";
 import { CONFIG_DIR, readConfig } from "./config";
 import { sweepTempFilesIn } from "./fs-atomic";
 import { AuthStore, type AuthContext } from "./auth";
@@ -48,7 +49,9 @@ type Command = keyof CentralApiOperations;
 
 type WsData =
     | { channel: "events" }
-    | { channel: "terminal"; serverId: string; user: UserInfo; shell: ShellSession | null };
+    // containerId, when set, opens a terminal into that container (`docker exec
+    // -it`) instead of a host shell — see openTerminal().
+    | { channel: "terminal"; serverId: string; containerId: string | null; user: UserInfo; shell: ShellSession | null };
 
 const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
@@ -211,11 +214,15 @@ async function openTerminal(ws: ServerWebSocket<WsData>): Promise<void> {
         return;
     }
     try {
-        // Terminals run as the caller's mapped OS account; unmapped operator/
-        // viewer accounts are refused here (null = the agent's own user, root).
-        const asUser = resolveShellUser(ws.data.user);
         const agent = fleet.get(ws.data.serverId);
-        const shell = await agent.openShell(80, 24, asUser);
+        const shell = ws.data.containerId
+            // Container terminals run whatever `docker exec` resolves to inside
+            // the container — a separate identity boundary from the host OS
+            // user mapping below, same as the existing one-shot docker exec.
+            ? await agent.openShell(80, 24, null, dockerContainerShellCommand(ws.data.containerId))
+            // Host terminals run as the caller's mapped OS account; unmapped
+            // operator/viewer accounts are refused here (null = agent's own user, root).
+            : await agent.openShell(80, 24, resolveShellUser(ws.data.user));
         ws.data.shell = shell;
         shell.onData((data) => sendTerminal(ws, { type: "data", data }));
         shell.onExit((code) => {
@@ -291,7 +298,8 @@ const server = Bun.serve<WsData>({
             if (!serverId) {
                 return Response.json({ error: "serverId required" }, { status: 400, headers: corsHeaders });
             }
-            const data: WsData = { channel: "terminal", serverId, user, shell: null };
+            const containerId = url.searchParams.get("containerId");
+            const data: WsData = { channel: "terminal", serverId, containerId, user, shell: null };
             if (serverCtx.upgrade(req, { data })) {
                 return undefined as unknown as Response;
             }
