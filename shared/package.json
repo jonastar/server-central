@@ -1,6 +1,6 @@
 {
   "name": "@central/shared",
-  "version": "0.10.0-dev",
+  "version": "0.10.0",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",

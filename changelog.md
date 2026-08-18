@@ -7,6 +7,8 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+## [0.10.0] - 2026-08-18
+
 ### Added
 
 - **App system v1** (design: [doc/idea_app_system.md](doc/idea_app_system.md)): a new **Apps**
