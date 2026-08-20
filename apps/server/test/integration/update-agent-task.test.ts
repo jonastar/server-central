@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ControlMessage, SystemInfo } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
-import { AppStore } from "../../src/apps";
+import { AppStore } from "../../src/features/apps/apps";
 import { Fleet } from "../../src/fleet";
 import { HostAgent } from "../../src/host-agent";
 import { taskHandlers, type TaskCtx } from "../../src/tasks/types";

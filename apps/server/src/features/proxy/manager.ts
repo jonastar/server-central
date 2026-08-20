@@ -1,5 +1,5 @@
 import type { ProxyApplyResult, ProxyConfig, ProxyContainerStatus, ProxyRoute, ProxyState } from "@central/shared";
-import type { Fleet } from "../fleet";
+import type { Fleet } from "../../fleet";
 import { PROXY_ADMIN_URL, PROXY_CONTAINER, PROXY_DEPLOY_LOG, PROXY_LABEL, proxyDeployCommand, renderCaddyConfig } from "./caddy";
 import type { ProxyStore } from "./store";
 

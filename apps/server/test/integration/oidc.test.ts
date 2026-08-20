@@ -4,9 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { AuthStore } from "../../src/auth";
-import { OidcStore } from "../../src/oidc/store";
-import { buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "../../src/oidc/tokens";
-import { discoveryDocument } from "../../src/oidc/discovery";
+import { OidcStore } from "../../src/features/oidc/store";
+import { buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "../../src/features/oidc/tokens";
+import { discoveryDocument } from "../../src/features/oidc/discovery";
 
 const ISSUER = "https://central.example.com";
 

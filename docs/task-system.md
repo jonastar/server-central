@@ -11,7 +11,8 @@ implemented, with six kinds live: `find_wan_ip` (control-plane + per-node), `cmd
 ## 1. Motivation
 
 Most control-plane actions are plain request/response RPC: the handler calls the
-agent, awaits, and returns a value (see `apps/server/src/handler.ts`). That's the
+agent, awaits, and returns a value (see the per-feature `api.ts` slices under
+`apps/server/src/features/`). That's the
 right shape for reads and quick mutations and it stays that way.
 
 A task is for work that benefits from a **uniform envelope** rather than for work
@@ -356,9 +357,9 @@ disconnect implement it.
 | `apps/server/src/tasks/runner.ts` | `TaskRunner` — lifecycle, broadcast, bounded in-memory log ring |
 | `apps/server/src/tasks/store.ts` | `TaskStore` — in-memory + `.sc-data/tasks.json`, capped |
 | `apps/server/src/config.ts` | `readTaskState` / `writeTaskState` |
-| `apps/server/src/handler.ts` | `handleRunTask` / `handleListTasks` / `handleGetTask` / `handleGetTaskLogs` |
-| `apps/server/src/systemd.ts` | `systemdServiceAction` — command + validation for `service_action`, optional `onLog` |
-| `apps/server/src/docker.ts` | `dockerStackAction`/`dockerContainerAction`/`dockerImagePull` — same pattern |
+| `apps/server/src/features/tasks/feature.ts` | `handleRunTask` / `handleListTasks` / `handleGetTask` / `handleGetTaskLogs` |
+| `apps/server/src/features/systemd/systemd.ts` | `systemdServiceAction` — command + validation for `service_action`, optional `onLog` |
+| `apps/server/src/features/docker/docker.ts` | `dockerStackAction`/`dockerContainerAction`/`dockerImagePull` — same pattern |
 | `apps/web/src/api.ts` | `runTaskAndWait()` — poll-to-terminal helper for call sites that want synchronous-await ergonomics |
 | `apps/web/src/connection.ts` | Client task state (`tasks` seed + upsert, `taskLogs` seed + live append) |
 | `apps/web/src/components/TasksView.tsx` | General run-history browser (list, filter, per-run detail + logs) |

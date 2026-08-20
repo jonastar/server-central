@@ -338,8 +338,8 @@ Current contents of `CONFIG_DIR`:
 | `tasks.json`                                                       | repo (or drop — run history, not config)               |
 | `users.json` ([auth.ts](../apps/server/src/auth.ts))               | split: identities/roles → repo, password hashes → blob |
 | `sessions.json`                                                    | **neither** — let them expire                          |
-| `proxy.json` ([proxy/store.ts](../apps/server/src/proxy/store.ts)) | repo                                                   |
-| `apps.json` ([oidc/store.ts](../apps/server/src/oidc/store.ts))    | split: id/redirect URIs → repo, `secretHash` → blob    |
+| `proxy.json` ([proxy/store.ts](../apps/server/src/features/proxy/store.ts)) | repo                                                   |
+| `apps.json` ([oidc/store.ts](../apps/server/src/features/oidc/store.ts))    | split: id/redirect URIs → repo, `secretHash` → blob    |
 | `oidc-signing-key.json`                                            | **blob**                                               |
 | `tls/` ([tls.ts](../apps/server/src/tls.ts))                       | **blob** — CA key + cert                               |
 | `agent-binaries/`                                                  | **neither** — cache, re-downloadable                   |
@@ -392,8 +392,8 @@ uploader.
 - Stack registry records ([idea_stack_registry.md](idea_stack_registry.md)) — the per-volume
   metadata has to hang off `StackRoot`, which is why that lands first.
 - New secret store + master key under `CONFIG_DIR`; new git/restic driver in the control plane.
-- [`apps/server/src/handler.ts`](../apps/server/src/handler.ts) — classification CRUD, backup /
-  restore / drift-check ops.
+- A new feature slice under `apps/server/src/features/` — classification CRUD, backup /
+  restore / drift-check ops (see [idea_feature_convention.md](idea_feature_convention.md)).
 - Task system ([docs/task-system.md](../docs/task-system.md)) — backup, restore, and drift-scan
   are long-running and belong as task kinds, not request/response ops (`exec`'s 30s timeout
   rules out the direct path anyway).

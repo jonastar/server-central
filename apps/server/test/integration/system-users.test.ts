@@ -5,7 +5,7 @@ import * as path from "node:path";
 import type { UserInfo } from "@central/shared";
 import { AuthStore } from "../../src/auth";
 import type { HostAgent } from "../../src/host-agent";
-import { parseSystemUsers, resolveShellUser, systemUserLookup, systemUserSetGroups } from "../../src/system-users";
+import { parseSystemUsers, resolveShellUser, systemUserLookup, systemUserSetGroups } from "../../src/features/system-users/system-users";
 
 const PASSWD = [
     "root:x:0:0:root:/root:/bin/bash",

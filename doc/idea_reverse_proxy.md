@@ -1,6 +1,6 @@
 # Reverse Proxy (v1)
 
-Status: v1 implemented 2026-07-13 (`apps/server/src/proxy/`, `httpRequest` in the
+Status: v1 implemented 2026-07-13 (`apps/server/src/features/proxy/`, `httpRequest` in the
 node protocol, `ProxyView` in the web app). This doc remains the design record;
 the deferral ladder below is still future work. Sibling of
 [idea_stack_registry.md](idea_stack_registry.md) — shares its streaming-exec concern.

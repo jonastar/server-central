@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ProxyConfig, ProxyRoute } from "@central/shared";
-import { proxyDeployCommand, renderCaddyConfig } from "../../src/proxy/caddy";
+import { proxyDeployCommand, renderCaddyConfig } from "../../src/features/proxy/caddy";
 
 // The renderer is the contract between SC's route model and Caddy: what it
 // emits is exactly what gets POSTed to /load. These pin the parts that would

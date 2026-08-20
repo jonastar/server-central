@@ -82,7 +82,8 @@ export interface TaskUpdateAgent {
 // Every ZFS mutation runs as a task, even the ones that finish in milliseconds —
 // the point is the audit trail ("who destroyed pool tank, when"), not latency.
 // Pool/vdev topology kinds (create/destroy/import/export/vdev add/device replace)
-// are gated owner-only in handler.ts; see doc/idea_zfs.md's safety model.
+// are gated owner-only by the ZFS feature's `ownerOnlyTaskKinds`; see
+// doc/idea_zfs.md's safety model.
 
 /** `devices` are `/dev/disk/by-id/*` paths — never `/dev/sdX`, which isn't
  *  stable across reboots. */

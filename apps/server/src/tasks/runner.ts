@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { TaskLogLine, TaskRun, TaskSpec, TaskTrigger } from "@central/shared";
-import type { AppStore } from "../apps";
+import type { AppStore } from "../features/apps/apps";
 import type { Fleet } from "../fleet";
 import { TaskStore } from "./store";
-import { type TaskCtx, runTaskSpec } from "./types";
+import { type TaskCtx, type TaskHandlers, runTaskSpec } from "./types";
 
 /**
  * Owns the lifecycle of a task run: status transitions, the resolved agent +
@@ -25,6 +25,7 @@ export class TaskRunner {
         private readonly apps: AppStore,
         private readonly onUpdate: (run: TaskRun) => void,
         private readonly onLog: (taskId: string, line: TaskLogLine) => void,
+        private readonly handlers: TaskHandlers,
     ) { }
 
     /** Log lines buffered for a run so far, oldest first. */
@@ -78,7 +79,7 @@ export class TaskRunner {
             // Resolve the target host inside the try so an unknown/offline target
             // surfaces as a failed run rather than throwing out of the runner.
             ctx.agent = run.target === null ? null : this.fleet.get(run.target);
-            run.result = await runTaskSpec(run.spec, ctx);
+            run.result = await runTaskSpec(this.handlers, run.spec, ctx);
             run.status = "succeeded";
         } catch (err) {
             run.status = "failed";

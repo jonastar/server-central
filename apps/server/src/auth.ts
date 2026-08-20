@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { AssignableRole, Role, UserDetail, UserInfo, UserSession } from "@central/shared";
 import { CONFIG_DIR, writeFileAtomic } from "./config";
-import { assertSystemUsername } from "./system-users";
+import { assertSystemUsername } from "./features/system-users/system-users";
 
 /** Sessions older than this (since last use) are rejected and pruned. */
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -369,4 +369,14 @@ async function readJson<T>(file: string): Promise<T> {
 async function writeJson(file: string, value: unknown): Promise<void> {
     await fs.mkdir(path.dirname(file), { recursive: true });
     await writeFileAtomic(file, JSON.stringify(value, null, 2));
+}
+
+/** Throws unless the caller is the owner. Used to gate Users/OIDC-client admin
+ *  ops and other owner-only actions across features — the only place role
+ *  enforcement exists today (see Role's doc comment in @central/shared for the
+ *  broader per-operation RBAC that's still pending). */
+export function requireOwner(ctx?: AuthContext): void {
+    if (ctx?.user?.role !== "owner") {
+        throw new Error("Only the owner can do this");
+    }
 }

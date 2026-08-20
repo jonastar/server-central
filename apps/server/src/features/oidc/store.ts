@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import type { OidcAuthorizeParams, OidcClient } from "@central/shared";
-import { CONFIG_DIR, writeFileAtomic } from "../config";
+import { CONFIG_DIR, writeFileAtomic } from "../../config";
 
 interface OidcClientRecord {
     id: string;

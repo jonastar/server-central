@@ -19,8 +19,8 @@ import type {
     LogQuery,
     StackAction,
 } from "@central/shared";
-import type { HostAgent } from "./host-agent";
-import { dockerSince, reverseLines } from "./log-query";
+import type { HostAgent } from "../../host-agent";
+import { dockerSince, reverseLines } from "../../log-query";
 
 const SAFE_ID_RE = /^[A-Za-z0-9_.-]+$/;
 const SAFE_REF_RE = /^[A-Za-z0-9_./:@-]+$/;

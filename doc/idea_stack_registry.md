@@ -4,7 +4,7 @@ Status: idea / design. Not yet scheduled.
 
 ## Problem
 
-Today a "stack" in Server Central is derived purely from running containers. [`dockerStacks()`](../apps/server/src/docker.ts) runs `docker ps -a`, reads the `com.docker.compose.project` label off each container, and groups by it. A stack is therefore only visible if it has **at least one container** (running or stopped). The `com.docker.compose.project.config_files` label gives us the absolute path of the compose file that created those containers, and we already store it on [`DockerStack.configFiles`](../shared/src/index.ts) — but we never read or use it.
+Today a "stack" in Server Central is derived purely from running containers. [`dockerStacks()`](../apps/server/src/features/docker/docker.ts) runs `docker ps -a`, reads the `com.docker.compose.project` label off each container, and groups by it. A stack is therefore only visible if it has **at least one container** (running or stopped). The `com.docker.compose.project.config_files` label gives us the absolute path of the compose file that created those containers, and we already store it on [`DockerStack.configFiles`](../shared/src/index.ts) — but we never read or use it.
 
 This has two consequences:
 
@@ -104,7 +104,7 @@ Status meanings:
 
 ### 3. Actions move to `docker compose -f`
 
-The current [`dockerStackAction()`](../apps/server/src/docker.ts) operates on container IDs, which is impossible for a down stack — there are no containers to act on. A parallel compose-based path is needed:
+The current [`dockerStackAction()`](../apps/server/src/features/docker/docker.ts) operates on container IDs, which is impossible for a down stack — there are no containers to act on. A parallel compose-based path is needed:
 
 ```
 docker compose -f <composePath> -p <project> up -d
@@ -137,8 +137,8 @@ Because `writeFile` exists, the compose file can be edited in-browser and redepl
 
 - [`shared/src/index.ts`](../shared/src/index.ts) — extend `DockerStack` (`source`, `status`, `services`, `composePath`); add `StackRoot` and registry request/response shapes; widen `StackAction` for compose verbs (`up`, `pull`).
 - [`shared/src/node-protocol.ts`](../shared/src/node-protocol.ts) — streaming-exec messages, if that route is chosen.
-- New registry state + CRUD handlers in [`apps/server/src/handler.ts`](../apps/server/src/handler.ts).
-- [`apps/server/src/docker.ts`](../apps/server/src/docker.ts) — YAML parse + three-source merge in `dockerStacks()`; new compose-based action function; bounded discovery scan.
+- New registry state + CRUD handlers in the Docker feature's [`feature.ts`](../apps/server/src/features/docker/feature.ts) slice.
+- [`apps/server/src/features/docker/docker.ts`](../apps/server/src/features/docker/docker.ts) — YAML parse + three-source merge in `dockerStacks()`; new compose-based action function; bounded discovery scan.
 - Web: stack-root picker (reuse `FilesView`), richer stack cards in [`DockerStacks.tsx`](../apps/web/src/components/docker/DockerStacks.tsx) showing defined-vs-present services, deploy/up/down/pull buttons, optional editor.
 
 ## Build order (dependencies matter)

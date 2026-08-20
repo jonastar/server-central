@@ -1,6 +1,6 @@
 import type { LogQuery, ServiceAction, ServiceInfo, SystemdState } from "@central/shared";
-import type { HostAgent } from "./host-agent";
-import { journalPriority, journalSince } from "./log-query";
+import type { HostAgent } from "../../host-agent";
+import { journalPriority, journalSince } from "../../log-query";
 
 // Unit names: letters, digits, and the punctuation systemd allows (`. _ - @ : \`).
 const SAFE_UNIT_RE = /^[A-Za-z0-9_.@:\\-]+$/;

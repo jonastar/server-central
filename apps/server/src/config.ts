@@ -31,8 +31,8 @@ const AGENT_STATE_FILE = path.join(CONFIG_DIR, "agents.json");
 const AGENT_TOKENS_FILE = path.join(CONFIG_DIR, "agent-tokens.json");
 const TASK_STATE_FILE = path.join(CONFIG_DIR, "tasks.json");
 // Deliberately not "apps.json" — that file already belongs to the OIDC client
-// store (apps/server/src/oidc/store.ts), a same-directory naming collision left
-// over from when OIDC clients were briefly called "apps".
+// store (apps/server/src/features/oidc/store.ts), a same-directory naming
+// collision left over from when OIDC clients were briefly called "apps".
 const APP_STATE_FILE = path.join(CONFIG_DIR, "app-registry.json");
 
 export interface Config {
@@ -165,7 +165,7 @@ export async function writeTaskState(runs: TaskRun[]): Promise<void> {
 }
 
 /** Persisted App registry — the control plane's list of known App directories
- *  across the fleet. See AppStore (apps/server/src/apps.ts). */
+ *  across the fleet. See AppStore (apps/server/src/features/apps/apps.ts). */
 export async function readAppState(): Promise<Record<string, App>> {
     try {
         const text = await fs.readFile(APP_STATE_FILE, "utf8");

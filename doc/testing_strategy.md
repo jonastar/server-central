@@ -20,7 +20,7 @@ strategy" is usually to reach for new tools — but the backend already has real
   `SC_DATA_DIR`/`SC_AGENT_DIR` to throwaway tmpdirs before any test file loads. Any new test
   layer inherits this for free as long as it runs through `bun test`.
 - **Gap 1**: none of it touches the actual host-command paths. `docker.ts`, `zfs.ts`,
-  `systemd.ts`, and `handler.ts`'s `handleGetProcesses` all go through one seam,
+  `systemd.ts`, and the processes feature's `handleGetProcesses` all go through one seam,
   `HostAgent.exec(cmd)`, which shells out to real `docker`/`zpool`/`systemctl`/`ps` on whatever
   host the agent runs on. Zero coverage today — not even the pure-parsing half.
   `known_issues.md` already flags this explicitly ("Pure parsing logic is untested":

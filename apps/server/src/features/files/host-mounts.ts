@@ -1,5 +1,5 @@
 import type { MountAutoMountInfo, MountInfo, MountsState } from "@central/shared";
-import type { HostAgent } from "./host-agent";
+import type { HostAgent } from "../../host-agent";
 
 function firstErrorLine(res: { stdout: string; stderr: string }): string {
     return (res.stdout + res.stderr).trim().split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";

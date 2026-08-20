@@ -1,5 +1,5 @@
 import type { NetworkAddress, NetworkInfo, NetworkInterface, NetworkRoute } from "@central/shared";
-import type { HostAgent } from "./host-agent";
+import type { HostAgent } from "../../host-agent";
 
 // iproute2's JSON output (`ip -j`), the rows we care about.
 interface IpAddrRow {

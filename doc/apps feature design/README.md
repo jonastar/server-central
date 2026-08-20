@@ -192,7 +192,7 @@ task progress via `taskUpdate`/`taskLog`.
 Backend (per the design doc, for context):
 - Extend `App` in `shared/src/index.ts` with `hostId`, `dir`, `composeFile`, `createdAt`; existing
   `redirectUris` becomes optional.
-- `AppStore` in `apps/server/src/apps.ts` (new), `Fleet`-style load-on-start / persist-on-change,
+- `AppStore` in `apps/server/src/features/apps/apps.ts` (new), `Fleet`-style load-on-start / persist-on-change,
   keyed by `App.id`, persisted to `.sc-data/apps.json`.
 - `sc-app.json` on disk mirrors `{ id, name, composeFile, createdAt }`; regenerate from
   `compose.yaml` when missing.

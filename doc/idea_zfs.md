@@ -264,7 +264,7 @@ a ZFS dataset — cross-reference that doc's build order once this lands.
 
 ## Build order
 
-1. Shared types + `apps/server/src/zfs.ts` parsing module + read-only ops
+1. Shared types + `apps/server/src/features/zfs/zfs.ts` parsing module + read-only ops
    (`getZfsState`, `getZfsDatasets`, `getZfsSnapshots`) + ZFS tab
    showing pools/datasets/snapshots, no mutations. Ships real value
    immediately and is the checkpoint to pressure-test parsing against real
@@ -289,9 +289,9 @@ a ZFS dataset — cross-reference that doc's build order once this lands.
   `CentralApiOperations` entries.
 - [`shared/src/tasks.ts`](../shared/src/tasks.ts) — `zfs_*` `TaskSpec`/
   `TaskResult` variants.
-- New `apps/server/src/zfs.ts` — parsing + command-building, same shape as
-  [`docker.ts`](../apps/server/src/docker.ts)/[`systemd.ts`](../apps/server/src/systemd.ts).
-- [`apps/server/src/handler.ts`](../apps/server/src/handler.ts) — op wiring,
-  task-kind handlers.
+- New `apps/server/src/features/zfs/zfs.ts` — parsing + command-building, same shape as
+  [`docker.ts`](../apps/server/src/features/docker/docker.ts)/[`systemd.ts`](../apps/server/src/features/systemd/systemd.ts).
+- [`apps/server/src/features/zfs/feature.ts`](../apps/server/src/features/zfs/feature.ts) — op wiring,
+  task-kind handlers, owner-only gating.
 - Web — new ZFS tab, pool detail, create-pool wizard, dataset/snapshot
   tables and forms.

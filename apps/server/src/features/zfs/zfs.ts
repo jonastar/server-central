@@ -10,7 +10,7 @@ import type {
     ZfsVdev,
     ZfsVdevType,
 } from "@central/shared";
-import type { HostAgent } from "./host-agent";
+import type { HostAgent } from "../../host-agent";
 
 // Pool/dataset/snapshot names — ZoL is lenient enough to allow spaces in a name
 // (seen in the wild, e.g. a TrueNAS pool named "sata ssds"), so this can't be as
@@ -669,7 +669,7 @@ export async function zfsGetBlockDevices(server: HostAgent): Promise<ZfsBlockDev
     return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// ---- Pool lifecycle (owner-gated in handler.ts) -----------------------------------
+// ---- Pool lifecycle (owner-gated via the feature's ownerOnlyTaskKinds) ------------
 
 function vdevArgs(vdevs: { type: ZfsVdevType; devices: string[] }[]): string {
     return vdevs

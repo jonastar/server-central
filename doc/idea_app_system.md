@@ -118,7 +118,7 @@ interface AppManifest {   // sc-app.json
 }
 ```
 
-`AppStore` on the control plane (`apps/server/src/apps.ts`, new) mirrors `Fleet`'s
+`AppStore` on the control plane (`apps/server/src/features/apps/apps.ts`, new) mirrors `Fleet`'s
 load-on-start / persist-on-change pattern, keyed by `App.id`, persisted to
 `.sc-data/apps.json` — this *is* the central directory of app locations the write-up
 mentions, one flat list across all hosts (no per-host registry to merge; a host going
@@ -186,7 +186,7 @@ that exists today; it just gains new required fields (`hostId`, `dir`, `composeF
 Start/stop/restart already fit the existing `docker_stack_action` task kind
 (`shared/src/tasks.ts`, `apps/server/src/tasks/types.ts`) once it's driven by
 `composeFile` instead of only by a running project's containers — extend
-`dockerStackAction()` (`apps/server/src/docker.ts`) to accept a compose-file + project
+`dockerStackAction()` (`apps/server/src/features/docker/docker.ts`) to accept a compose-file + project
 pair the way `idea_stack_registry.md` §3 describes (`docker compose -f <composePath> -p
 <project> <verb>`), so it works on a fully-down App too. Same path-safety note as that doc:
 `composePath` needs proper quoting/escaping or a `cwd`+relative-filename approach — it's
@@ -196,7 +196,7 @@ host-controlled data, not a validated identifier like `SAFE_ID_RE` covers today.
 fix, not just the envelope.** Checked against the current code: `HostAgent.exec()`
 (`apps/server/src/host-agent.ts`) has a hard 30s `REQUEST_TIMEOUT_MS` with no override, and
 the existing `docker_image_pull` task kind already lives with this limitation today —
-`dockerImagePull()` (`apps/server/src/docker.ts`) calls `onLog` exactly **once**, after
+`dockerImagePull()` (`apps/server/src/features/docker/docker.ts`) calls `onLog` exactly **once**, after
 `exec` resolves, not as output streams in. A slow pull either finishes within 30s or the
 whole task fails with a timeout and no partial log — the task system's run-history/log
 envelope is already wired up, it's just fed by a call that can't stream and can't run long.

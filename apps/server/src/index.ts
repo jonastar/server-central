@@ -1,29 +1,43 @@
 import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ApiEvent, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
+import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
 import { MAX_UPLOAD_BYTES } from "@central/shared";
 import type { ShellSession } from "./host-agent";
-import { AppStore } from "./apps";
-import { dockerContainerShellCommand } from "./docker";
+import { AppStore } from "./features/apps/apps";
+import { createAppsFeature } from "./features/apps/feature";
+import { createAuthFeature } from "./features/auth/feature";
 import { CONFIG_DIR, readConfig } from "./config";
+import { createDockerFeature } from "./features/docker/feature";
+import { composeApiHandlers, composeTaskHandlers, defineFeatures } from "./feature";
+import { createFilesFeature } from "./features/files/feature";
 import { sweepTempFilesIn } from "./fs-atomic";
 import { AuthStore, type AuthContext } from "./auth";
 import { Fleet } from "./fleet";
-import { CentralHandler } from "./handler";
-import { OidcStore } from "./oidc/store";
-import { discoveryDocument } from "./oidc/discovery";
-import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "./oidc/tokens";
-import { ProxyManager } from "./proxy/manager";
-import { ProxyStore } from "./proxy/store";
+import { createNetworkFeature } from "./features/network/feature";
+import { OidcStore } from "./features/oidc/store";
+import { createOidcFeature } from "./features/oidc/feature";
+import { discoveryDocument } from "./features/oidc/discovery";
+import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "./features/oidc/tokens";
+import { createProcessesFeature } from "./features/processes/feature";
+import { ProxyManager } from "./features/proxy/manager";
+import { ProxyStore } from "./features/proxy/store";
+import { createProxyFeature } from "./features/proxy/feature";
+import { createServersFeature } from "./features/servers/feature";
+import { createSettingsFeature } from "./features/settings/feature";
+import { createSystemdFeature } from "./features/systemd/feature";
+import { createSystemUsersFeature } from "./features/system-users/feature";
 import { TaskStore } from "./tasks/store";
 import { TaskRunner } from "./tasks/runner";
+import { taskHandlers, type TaskHandlers } from "./tasks/types";
+import { createTasksFeature } from "./features/tasks/feature";
+import { openTerminalShell, createTerminalFeature } from "./features/terminal/feature";
 import { ensureTls, localIps } from "./tls";
 import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
 import { runAgentCli } from "./agent/agent-cli";
 import { serveStatic } from "./static";
 import { offerInteractiveInstall, runServerInstallCli } from "./server-install";
-import { resolveShellUser } from "./system-users";
+import { createZfsFeature } from "./features/zfs/feature";
 
 // This single binary is both the control plane and the host agent. With
 // `--agent` it connects to a control plane and runs the managed-host logic
@@ -83,11 +97,30 @@ await fleet.init();
 const auth = new AuthStore();
 await auth.init();
 
-const oidcStore = new OidcStore();
-await oidcStore.init();
-
 const appStore = new AppStore(fleet);
-await appStore.init();
+
+// ---- Features -------------------------------------------------------------------
+//
+// Two batches, for one ordering reason: host features own every task kind, so
+// their registry has to exist before the TaskRunner that dispatches it, while the
+// control-plane features below include the tasks feature itself and so must come
+// after the runner. Boot order stays this explicit, hand-written sequence rather
+// than a resolved dependency graph — see doc/idea_feature_convention.md §4.
+//
+// Both registries go through `defineFeatures` rather than being plain arrays, so
+// each element keeps its declared operations and task kinds — that's what the
+// compose* helpers union to prove the protocol is fully covered.
+const hostFeatures = defineFeatures(
+    createAppsFeature(appStore, fleet),
+    createDockerFeature(fleet),
+    createZfsFeature(fleet),
+    createSystemdFeature(fleet),
+    createSystemUsersFeature(fleet, auth),
+    createFilesFeature(fleet),
+    createProcessesFeature(fleet),
+    createNetworkFeature(fleet),
+    createTerminalFeature(),
+);
 
 const wanIp = await discoverWanIp();
 if (wanIp) {
@@ -110,19 +143,40 @@ const nodeServer = await startNodeServer(
 
 const taskStore = new TaskStore();
 await taskStore.init();
+
+// Typed as the full `TaskHandlers`, so a new kind in the `TaskSpec` union won't
+// compile until some feature (or the cross-cutting set in tasks/types.ts) handles
+// it — the guarantee this composition exists for.
+const featureTasks = composeTaskHandlers(hostFeatures);
+const allTaskHandlers: TaskHandlers = { ...taskHandlers, ...featureTasks.handlers };
 const taskRunner = new TaskRunner(
     taskStore,
     fleet,
     appStore,
     (run) => broadcast({ kind: "taskUpdate", data: run }),
     (taskId, line) => broadcast({ kind: "taskLog", data: { taskId, lines: [line] } }),
+    allTaskHandlers,
 );
 
+const oidcStore = new OidcStore();
 const proxyStore = new ProxyStore();
-await proxyStore.init();
 const proxyManager = new ProxyManager(fleet, proxyStore);
 
-const handler = new CentralHandler(fleet, auth, nodeServer, taskRunner, taskStore, oidcStore, proxyManager, appStore);
+const features = defineFeatures(
+    ...hostFeatures,
+    createAuthFeature(auth),
+    createOidcFeature(oidcStore),
+    createProxyFeature(proxyManager, proxyStore),
+    createServersFeature(fleet, nodeServer),
+    createSettingsFeature(nodeServer),
+    createTasksFeature(taskRunner, taskStore, featureTasks.ownerOnlyKinds),
+);
+for (const f of features) await f.init?.({ configDir: CONFIG_DIR, broadcast });
+
+// Same completeness check on the API side: this assignment is what fails, naming
+// the missing `handle*` methods, if an operation in `CentralApiOperations` has no
+// feature claiming it.
+const handler: ApiHandlerPrefixed<CentralApiOperations> = composeApiHandlers(features);
 
 /** Commands callable without a session (first-run setup + login). */
 const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]);
@@ -214,15 +268,7 @@ async function openTerminal(ws: ServerWebSocket<WsData>): Promise<void> {
         return;
     }
     try {
-        const agent = fleet.get(ws.data.serverId);
-        const shell = ws.data.containerId
-            // Container terminals run whatever `docker exec` resolves to inside
-            // the container — a separate identity boundary from the host OS
-            // user mapping below, same as the existing one-shot docker exec.
-            ? await agent.openShell(80, 24, null, dockerContainerShellCommand(ws.data.containerId))
-            // Host terminals run as the caller's mapped OS account; unmapped
-            // operator/viewer accounts are refused here (null = agent's own user, root).
-            : await agent.openShell(80, 24, resolveShellUser(ws.data.user));
+        const shell = await openTerminalShell(fleet, ws.data.serverId, ws.data.containerId, ws.data.user);
         ws.data.shell = shell;
         shell.onData((data) => sendTerminal(ws, { type: "data", data }));
         shell.onExit((code) => {
@@ -322,7 +368,7 @@ const server = Bun.serve<WsData>({
         const command = url.pathname.replace(/^\//, "") as Command;
         // Dispatch only ever reaches `handle*` methods — never an arbitrary property
         // off the handler (constructor, toString, …) — by prefixing the derived name.
-        const method = `handle${command.charAt(0).toUpperCase()}${command.slice(1)}` as keyof CentralHandler;
+        const method = `handle${command.charAt(0).toUpperCase()}${command.slice(1)}` as keyof ApiHandlerPrefixed<CentralApiOperations>;
         const fn = (handler[method] as ((data: unknown, ctx: AuthContext) => Promise<unknown>) | undefined)?.bind(handler);
         if (!fn) {
             return Response.json({ error: `Unknown command: ${command}` }, { status: 404, headers: corsHeaders });

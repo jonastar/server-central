@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ProxyApplyResult, ProxyConfig, ProxyRoute } from "@central/shared";
-import { CONFIG_DIR, writeFileAtomic } from "../config";
+import { CONFIG_DIR, writeFileAtomic } from "../../config";
 
 interface ProxyPersisted {
     config: ProxyConfig | null;

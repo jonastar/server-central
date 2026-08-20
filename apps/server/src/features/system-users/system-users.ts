@@ -1,5 +1,5 @@
 import type { SystemUserInfo, SystemUsersState, UserInfo } from "@central/shared";
-import type { HostAgent } from "./host-agent";
+import type { HostAgent } from "../../host-agent";
 
 /** Standard POSIX username shape (also what useradd accepts by default). Doubles
  *  as the injection guard for names interpolated into shell commands. */

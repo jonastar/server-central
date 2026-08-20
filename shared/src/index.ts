@@ -31,6 +31,21 @@ export type ApiHandlerPrefixed<T extends ProtocolSchema> = {
     [K in keyof T as `handle${Capitalize<string & K>}`]: (data: T[K]["data"]) => Promise<T[K]["response"]>;
 };
 
+// ---- Features ------------------------------------------------------------------
+//
+// Identity shared between a server-side Feature and its frontend counterpart. See
+// doc/idea_feature_interface.md.
+
+export interface FeatureDescriptor {
+    id: string;              // stable key: config storage, dependsOn refs, task-kind
+                              // prefixing, and the frontend's matching id. Never
+                              // renamed, never shown to the user.
+    name: string;
+    description: string;
+    experimental: boolean;
+    dependsOn?: string[];     // other features' ids — inert metadata for now
+}
+
 // ---- Servers -----------------------------------------------------------------
 //
 // Each managed host runs an agent. For now the only agent lives in the same
@@ -526,7 +541,7 @@ export interface UserDetail extends UserInfo {
 // below (compose stacks on a host), despite the similar name history: this was
 // briefly called `App` as a placeholder ahead of the real App system design,
 // renamed back to `OidcClient` once that system landed. Roles are exposed as a
-// `groups` claim on the ID token. See apps/server/src/oidc/ for the provider
+// `groups` claim on the ID token. See apps/server/src/features/oidc/ for the provider
 // implementation.
 
 export interface OidcClient {
@@ -681,10 +696,10 @@ export interface ProxyState {
 // ---- ZFS -------------------------------------------------------------------------
 //
 // Full pool/vdev/dataset/snapshot lifecycle, driven by shelling `zpool`/`zfs` on the
-// agent's host (see apps/server/src/zfs.ts) — the same "parse a CLI" shape as
+// agent's host (see apps/server/src/features/zfs/zfs.ts) — the same "parse a CLI" shape as
 // docker.ts/systemd.ts, not a new protocol message. Design: doc/idea_zfs.md.
 // Pool/vdev topology mutations run through the task system (see TaskSpec's zfs_*
-// variants) for an audit trail and are gated owner-only in handler.ts; dataset/
+// variants) for an audit trail and are gated owner-only by the ZFS feature; dataset/
 // snapshot mutations run the same way but aren't role-gated (matching the rest of
 // the task system today — see the Role doc comment below on per-op RBAC).
 

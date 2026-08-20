@@ -45,27 +45,10 @@ import type {
     TaskZfsVdevAddResult,
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
-import type { AppStore } from "../apps";
+import type { AppStore } from "../features/apps/apps";
 import type { Fleet } from "../fleet";
 import type { HostAgent } from "../host-agent";
 import { discoverWanIp } from "../stun";
-import { composeStackAction, dockerContainerAction, dockerImagePull, dockerStackAction } from "../docker";
-import { systemdServiceAction } from "../systemd";
-import {
-    zfsDatasetCreate,
-    zfsDatasetDestroy,
-    zfsDeviceReplace,
-    zfsPoolCreate,
-    zfsPoolDestroy,
-    zfsPoolExport,
-    zfsPoolImport,
-    zfsScrub,
-    zfsSnapshotClone,
-    zfsSnapshotCreate,
-    zfsSnapshotDestroy,
-    zfsSnapshotRollback,
-    zfsVdevAdd,
-} from "../zfs";
 
 // ---- Task handlers: the server half of the spec union ------------------------
 //
@@ -174,7 +157,7 @@ export interface TaskHandlers {
 
 /** Every kind below requires a target host — thrown as a normal task failure
  *  if a caller ever sends one with `target: null`. */
-function requireAgent(ctx: TaskCtx, kind: string): HostAgent {
+export function requireAgent(ctx: TaskCtx, kind: string): HostAgent {
     if (!ctx.agent) {
         throw new Error(`${kind} requires a target host`);
     }
@@ -185,10 +168,12 @@ function requireAgent(ctx: TaskCtx, kind: string): HostAgent {
 export type TaskHandlerFor<K extends TaskSpec["kind"]> = TaskHandlers[K];
 
 /**
- * The registry. Each handler is small and self-contained; the runner owns
- * status transitions, persistence, logs, and cancellation around them.
+ * Cross-cutting kinds with no single feature owner. Domain kinds (docker_*,
+ * zfs_*, service_action) live in their feature's own `<feature>-api.ts`
+ * instead, composed into the full registry alongside this at boot — see
+ * index.ts and doc/idea_feature_convention.md §3.
  */
-export const taskHandlers: TaskHandlers = {
+export const taskHandlers: Pick<TaskHandlers, "cmd" | "find_wan_ip" | "update_agent"> = {
     async cmd(spec, ctx) {
         // Runs against ctx.agent when targeted, else on the control plane host.
         const res = ctx.agent
@@ -206,41 +191,6 @@ export const taskHandlers: TaskHandlers = {
         // Untargeted: STUN from the control plane itself.
         const { ip } = ctx.agent ? await ctx.agent.discoverStun() : { ip: await discoverWanIp() };
         return { kind: "find_wan_ip", ip };
-    },
-
-    async service_action(spec, ctx) {
-        await systemdServiceAction(requireAgent(ctx, "service_action"), spec.unit, spec.action, ctx.log);
-        return { kind: "service_action" };
-    },
-
-    async docker_stack_action(spec, ctx) {
-        await dockerStackAction(requireAgent(ctx, "docker_stack_action"), spec.project, spec.action, ctx.log);
-        return { kind: "docker_stack_action" };
-    },
-
-    async docker_container_action(spec, ctx) {
-        await dockerContainerAction(requireAgent(ctx, "docker_container_action"), spec.containerId, spec.action, ctx.log);
-        return { kind: "docker_container_action" };
-    },
-
-    async docker_image_pull(spec, ctx) {
-        const { ok, message } = await dockerImagePull(requireAgent(ctx, "docker_image_pull"), spec.ref, ctx.log);
-        return { kind: "docker_image_pull", ok, message };
-    },
-
-    async docker_compose_action(spec, ctx) {
-        const app = ctx.apps.get(spec.appId);
-        await composeStackAction(
-            requireAgent(ctx, "docker_compose_action"),
-            app.dir,
-            app.composeFile,
-            app.project,
-            spec.action,
-            spec.pullFirst,
-            ctx.log,
-            spec.service,
-        );
-        return { kind: "docker_compose_action" };
     },
 
     async update_agent(spec, ctx) {
@@ -265,76 +215,12 @@ export const taskHandlers: TaskHandlers = {
         ctx.log("Agent reconnected — update complete.");
         return { kind: "update_agent" };
     },
-
-    async zfs_pool_create(spec, ctx) {
-        await zfsPoolCreate(requireAgent(ctx, "zfs_pool_create"), spec.name, spec.vdevs, spec.force, ctx.log);
-        return { kind: "zfs_pool_create" };
-    },
-
-    async zfs_pool_destroy(spec, ctx) {
-        await zfsPoolDestroy(requireAgent(ctx, "zfs_pool_destroy"), spec.name, ctx.log);
-        return { kind: "zfs_pool_destroy" };
-    },
-
-    async zfs_pool_import(spec, ctx) {
-        await zfsPoolImport(requireAgent(ctx, "zfs_pool_import"), spec.name, ctx.log);
-        return { kind: "zfs_pool_import" };
-    },
-
-    async zfs_pool_export(spec, ctx) {
-        await zfsPoolExport(requireAgent(ctx, "zfs_pool_export"), spec.name, ctx.log);
-        return { kind: "zfs_pool_export" };
-    },
-
-    async zfs_vdev_add(spec, ctx) {
-        await zfsVdevAdd(requireAgent(ctx, "zfs_vdev_add"), spec.pool, spec.vdev, spec.force, ctx.log);
-        return { kind: "zfs_vdev_add" };
-    },
-
-    async zfs_device_replace(spec, ctx) {
-        await zfsDeviceReplace(requireAgent(ctx, "zfs_device_replace"), spec.pool, spec.oldDevice, spec.newDevice, ctx.log);
-        return { kind: "zfs_device_replace" };
-    },
-
-    async zfs_scrub(spec, ctx) {
-        await zfsScrub(requireAgent(ctx, "zfs_scrub"), spec.pool, spec.action, ctx.log);
-        return { kind: "zfs_scrub" };
-    },
-
-    async zfs_dataset_create(spec, ctx) {
-        await zfsDatasetCreate(requireAgent(ctx, "zfs_dataset_create"), spec.parent, spec.name, spec.type, spec.volsizeBytes, spec.properties, ctx.log);
-        return { kind: "zfs_dataset_create" };
-    },
-
-    async zfs_dataset_destroy(spec, ctx) {
-        await zfsDatasetDestroy(requireAgent(ctx, "zfs_dataset_destroy"), spec.name, spec.recursive, ctx.log);
-        return { kind: "zfs_dataset_destroy" };
-    },
-
-    async zfs_snapshot_create(spec, ctx) {
-        await zfsSnapshotCreate(requireAgent(ctx, "zfs_snapshot_create"), spec.dataset, spec.name, spec.recursive, ctx.log);
-        return { kind: "zfs_snapshot_create" };
-    },
-
-    async zfs_snapshot_rollback(spec, ctx) {
-        await zfsSnapshotRollback(requireAgent(ctx, "zfs_snapshot_rollback"), spec.snapshot, spec.destroyLater, ctx.log);
-        return { kind: "zfs_snapshot_rollback" };
-    },
-
-    async zfs_snapshot_destroy(spec, ctx) {
-        await zfsSnapshotDestroy(requireAgent(ctx, "zfs_snapshot_destroy"), spec.snapshot, ctx.log);
-        return { kind: "zfs_snapshot_destroy" };
-    },
-
-    async zfs_snapshot_clone(spec, ctx) {
-        await zfsSnapshotClone(requireAgent(ctx, "zfs_snapshot_clone"), spec.snapshot, spec.target, ctx.log);
-        return { kind: "zfs_snapshot_clone" };
-    },
 };
 
-/** Run a spec by dispatching to its handler. */
-export function runTaskSpec(spec: TaskSpec, ctx: TaskCtx): Promise<TaskResult> {
+/** Run a spec by dispatching to its handler. `handlers` is the full registry
+ *  composed at boot (core kinds above + every feature's `taskHandlers()`). */
+export function runTaskSpec(handlers: TaskHandlers, spec: TaskSpec, ctx: TaskCtx): Promise<TaskResult> {
     // The cast is the one unavoidable bridge between the value-level dispatch and
     // the type-level kind→handler map; each branch is still individually checked.
-    return (taskHandlers[spec.kind] as (s: TaskSpec, c: TaskCtx) => Promise<TaskResult>)(spec, ctx);
+    return (handlers[spec.kind] as (s: TaskSpec, c: TaskCtx) => Promise<TaskResult>)(spec, ctx);
 }

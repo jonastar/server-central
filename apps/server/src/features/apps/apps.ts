@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { App, AppDetection } from "@central/shared";
-import type { Fleet } from "./fleet";
-import { readAppState, writeAppState } from "./config";
-import { composeConfig } from "./docker";
+import type { Fleet } from "../../fleet";
+import { readAppState, writeAppState } from "../../config";
+import { composeConfig } from "../docker/docker";
 
 const COMPOSE_CANDIDATES = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"];
 
