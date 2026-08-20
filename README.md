@@ -4,9 +4,11 @@ This project is in the prototyping stage, it's not meant to be used by end users
 
 # Server-central (working title)
 
-Server central is a project of mine to create a all in one server/Cluster management tool targetting home servers/homelabs/smaller businesses. This is not meant as a tool to manage massive clusters of thousands of servers.
+Server central is a project of mine to create a all in one server/Cluster management tool targetting home servers/homelabs/smaller businesses.
 
-There's a lot of similar services and tools out there, but æm not satisfied with what i've tried so far (granted i haven't tried everything) so here is my attempt at seeing how far i can making my own.
+There's a lot of similar services and tools out there, but i'm not satisfied with what i've tried so far (granted i haven't tried everything) so here is my attempt at seeing how far i can making my own.
+
+<img width="3062" height="1203" alt="bilde" src="https://github.com/user-attachments/assets/3b0e905f-a2fe-47b5-b920-23b6f83164e5" />
 
 # Features
 
