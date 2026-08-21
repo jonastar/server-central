@@ -1,4 +1,4 @@
-import type { InstallMechanism, InstallProbeResult, MetricsSnapshot, ServerEntry } from "@central/shared";
+import type { HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, ServerEntry } from "@central/shared";
 import { readConfig } from "../../config";
 import type { Feature, FeatureApiHandlers } from "../../feature";
 import type { Fleet } from "../../fleet";
@@ -24,7 +24,8 @@ export function createServersFeature(fleet: Fleet, nodeServer: NodeServer | null
 }
 
 export type ServersOps = "getServers" | "deleteServer" | "getMetricsHistory"
-    | "generateNodeInstallCommand" | "probeInstallPath" | "installNodeService";
+    | "generateNodeInstallCommand" | "probeInstallPath" | "installNodeService"
+    | "redetectHostCapabilities";
 
 export function serversApiHandlers(fleet: Fleet, nodeServer: NodeServer | null): FeatureApiHandlers<ServersOps> {
     /** Enrollment needs the node server; it's null only if TLS/listener startup
@@ -43,6 +44,17 @@ export function serversApiHandlers(fleet: Fleet, nodeServer: NodeServer | null):
 
         async handleDeleteServer(data: { serverId: string }): Promise<void> {
             fleet.remove(data.serverId);
+        },
+
+        /** Not owner-gated: re-probing reads the host's own state and changes
+         *  nothing on it, same as the other read paths here. */
+        async handleRedetectHostCapabilities(data: { serverId: string }): Promise<HostCapabilityReport> {
+            const report = await fleet.get(data.serverId).redetectHostCapabilities();
+            // The report rides on ServerStatus, so push the refreshed list rather
+            // than relying on the caller's response alone — every open client's
+            // sidebar needs to stop (or start) greying the affected tabs.
+            fleet.notifyServersChanged();
+            return report;
         },
 
         async handleGetMetricsHistory(data: { serverId: string }): Promise<MetricsSnapshot[]> {

@@ -1,7 +1,8 @@
 import * as fs from "node:fs/promises";
-import type { AgentMode, InstallMechanism, NodeMessage, SystemInfo } from "@central/shared";
+import type { AgentMode, HostCapabilityReport, InstallMechanism, NodeMessage, SystemInfo } from "@central/shared";
 import { AGENT_CAPABILITIES, AGENT_VERSION } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, DEFAULT_DATA_DIR, DEFAULT_INSTALL_DIR, resolveMachineId } from "./agent";
+import { probeHostCapabilities } from "./host-capabilities";
 import { sweepTempFilesIn, writeFileAtomic } from "../fs-atomic";
 import {
     type InstallPaths,
@@ -153,6 +154,10 @@ interface Identity {
     mode: AgentMode;
     info: SystemInfo;
     certPem: string;
+    /** Re-probed before every connect attempt, not once at startup: a long-lived
+     *  agent reconnects across NAT evictions and restarts, and the host may have
+     *  gained or lost ZFS/Docker in between. */
+    hostCapabilities?: HostCapabilityReport;
 }
 
 /** Callbacks the connect loop hands the Agent, plus the loop's own success hook. */
@@ -389,6 +394,7 @@ function hangUp(ws: WebSocket): void {
 }
 
 async function connect(url: string, id: Identity): Promise<WebSocket> {
+    id.hostCapabilities = await probeHostCapabilities();
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(url, {
             // @ts-expect-error Bun-specific TLS option
@@ -421,9 +427,12 @@ async function connect(url: string, id: Identity): Promise<WebSocket> {
         };
 
         ws.onopen = () => {
+            // Probed before the socket opened (see the caller) so identify carries
+            // the answer — the control plane never has a window where a host's
+            // capabilities are unknown and the UI has to guess.
             ws.send(JSON.stringify({
                 type: "identify", token: id.token, info: id.info, machineId: id.machineId, mode: id.mode,
-                capabilities: [...AGENT_CAPABILITIES],
+                capabilities: [...AGENT_CAPABILITIES], hostCapabilities: id.hostCapabilities,
             } satisfies NodeMessage));
         };
 

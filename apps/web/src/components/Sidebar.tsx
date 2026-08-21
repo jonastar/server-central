@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ServerEntry } from "@central/shared";
-import { cx, isAgentOutdated } from "../utils";
+import { cx, hostCapability, hostCapabilityUnavailable, isAgentOutdated } from "../utils";
 import { SERVER_TABS, type Route } from "../routes";
 import { ExperimentalBadge, StatusDot } from "./ui";
 import { AddNodeModal } from "./AddNodeModal";
@@ -95,15 +95,25 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                         </button>
                         {selected && (
                             <div>
-                                {SERVER_TABS.map((tab) => (
-                                    <button
-                                        key={tab.id}
-                                        className={cx(styles["nav-item"], styles.sub, route.view === "server" && route.tab === tab.id && styles.active)}
-                                        onClick={() => onNavigate({ view: "server", serverId: entry.id, tab: tab.id })}
-                                    >
-                                        {tab.label} {tab.id === "zfs" && <ExperimentalBadge compact />}
-                                    </button>
-                                ))}
+                                {SERVER_TABS.map((tab) => {
+                                    const unavailable = hostCapabilityUnavailable(entry.status, tab.requires);
+                                    const detail = tab.requires && hostCapability(entry.status, tab.requires)?.detail;
+                                    return (
+                                        <button
+                                            key={tab.id}
+                                            className={cx(
+                                                styles["nav-item"],
+                                                styles.sub,
+                                                route.view === "server" && route.tab === tab.id && styles.active,
+                                                unavailable && styles.unavailable,
+                                            )}
+                                            title={unavailable ? detail : undefined}
+                                            onClick={() => onNavigate({ view: "server", serverId: entry.id, tab: tab.id })}
+                                        >
+                                            {tab.label} {tab.id === "zfs" && <ExperimentalBadge compact />}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>

@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { MetricsSnapshot, ServerEntry } from "@central/shared";
+import { HOST_CAPABILITIES } from "@central/shared";
 import { Fleet } from "../../src/fleet";
 import { NodeServer } from "../../src/node-server";
 import { ensureTls, type TlsBundle } from "../../src/tls";
@@ -70,6 +71,43 @@ test(
                 throw new Error(`${err}\n--- agent output ---\n${agent.output()}`);
             });
             expect(entry.status.state).toBe("online");
+        } finally {
+            await agent.stop();
+        }
+    },
+    20_000,
+);
+
+test(
+    "a real agent reports its host capabilities on identify",
+    async () => {
+        // The embedded agent gets its report by calling the probes directly, so
+        // this is the only path that exercises the wire: probe → identify →
+        // HostAgent → ServerStatus. The values are machine-dependent; what must
+        // hold everywhere is that every declared capability arrived, answered,
+        // and that a negative carries the detail the UI renders.
+        const { token } = server.mintToken();
+        const agent = spawnTestAgent({ control: control(), token, certPath: tls.caCertPath });
+        try {
+            const entry = await poll(() => {
+                const found = onlineRemoteAgent();
+                return found?.status.hostCapabilities ? found : undefined;
+            }, {
+                label: "real agent reporting host capabilities",
+                timeoutMs: 15_000,
+            }).catch((err) => {
+                throw new Error(`${err}\n--- agent output ---\n${agent.output()}`);
+            });
+
+            const report = entry.status.hostCapabilities!;
+            expect(Object.keys(report).sort()).toEqual([...HOST_CAPABILITIES].sort());
+            expect(entry.status.hostCapabilitiesAt).toBeGreaterThan(0);
+            for (const [id, result] of Object.entries(report)) {
+                expect(typeof result.available).toBe("boolean");
+                if (!result.available) {
+                    expect(result.detail, `${id} unavailable with no detail`).toBeTruthy();
+                }
+            }
         } finally {
             await agent.stop();
         }

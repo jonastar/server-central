@@ -1,4 +1,4 @@
-import type { AgentMode, DirEntry, FileContent, InstallMechanism, InstallProbeResult, MetricsSnapshot, SystemInfo } from "./index";
+import type { AgentMode, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, SystemInfo } from "./index";
 
 export interface NodeExecResult {
     stdout: string;
@@ -19,7 +19,11 @@ export interface NodeHttpResult {
 export type NodeMessage =
     // capabilities: post-v0.6.0 message kinds this agent handles (see
     // AGENT_CAPABILITIES). Absent from older agents — treated as none.
-    | { type: "identify"; token: string; info: SystemInfo; machineId: string; mode: AgentMode; capabilities?: string[] }
+    // hostCapabilities: what this *machine* can do, probed by the agent before it
+    // connects. Rides along on identify rather than costing a round trip after
+    // it, so the control plane knows before it even acknowledges — no window
+    // where the UI has to guess. Absent from older agents: treated as unknown.
+    | { type: "identify"; token: string; info: SystemInfo; machineId: string; mode: AgentMode; capabilities?: string[]; hostCapabilities?: HostCapabilityReport }
     | { type: "metrics"; snapshot: MetricsSnapshot }
     | { type: "execResponse"; requestId: string; result: NodeExecResult }
     | { type: "listDirResponse"; requestId: string; result: { path: string; entries: DirEntry[] } }
@@ -36,6 +40,7 @@ export type NodeMessage =
     | { type: "probeInstallPathResponse"; requestId: string; result: InstallProbeResult }
     | { type: "installServiceResponse"; requestId: string; startCommand: string | null }
     | { type: "updateServiceResponse"; requestId: string }
+    | { type: "hostCapabilitiesResponse"; requestId: string; report: HostCapabilityReport }
     // Reply to a control-plane `ping`. The control plane doesn't need it for
     // liveness (metrics already flow every 5s) — it exists so the exchange is a
     // real round trip, and older control planes ignore it (no requestId).
@@ -89,6 +94,10 @@ export type ControlMessage =
     // from the control plane, repoint its symlink, and restart into it. force
     // bypasses the agent's own "already running this version" refusal.
     | { type: "updateService"; requestId: string; version: string; force?: boolean }
+    // Re-run the host capability probes and report fresh results. Sent only to
+    // agents advertising the "hostCapabilities" protocol capability; older ones
+    // would never reply and the request would die as a protocol timeout.
+    | { type: "hostCapabilitiesRequest"; requestId: string }
     // Periodic liveness beat, sent only to agents advertising the "heartbeat"
     // capability. The agent replies `pong` and, more importantly, treats a
     // missing beat as a dead link: TCP alone can leave a half-open socket the

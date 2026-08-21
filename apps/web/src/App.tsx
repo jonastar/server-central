@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { useConnection } from "./hooks/useConnection";
 import { useHashRoute } from "./hooks/useHashRoute";
-import { leavesTerminalSession, type Route } from "./routes";
+import { leavesTerminalSession, SERVER_TABS, type Route } from "./routes";
+import { hostCapability } from "./utils";
+import { HostCapabilityNotice } from "./components/HostCapabilityNotice";
 import { terminalNeedsLeaveConfirm } from "./terminalSession";
 import { useAuth } from "./hooks/useAuth";
 import { connectionManager } from "./connection";
@@ -103,6 +105,23 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                 </EmptyState>
             );
         }
+        // A capability the agent positively reported missing replaces the tab
+        // outright: the view behind it would only fire doomed requests, and this
+        // is the surface that can actually explain the gap. Unknown (older agent,
+        // never probed) deliberately falls through to the normal view.
+        const tabSpec = SERVER_TABS.find((t) => t.id === route.tab);
+        const gated = tabSpec?.requires ? hostCapability(currentEntry.status, tabSpec.requires) : undefined;
+        if (tabSpec?.requires && gated?.available === false) {
+            return (
+                <HostCapabilityNotice
+                    serverId={currentEntry.id}
+                    capability={tabSpec.requires}
+                    label={tabSpec.label}
+                    result={gated}
+                />
+            );
+        }
+
         switch (route.tab) {
             case "overview":
                 return <ServerOverview entry={currentEntry} history={conn.metrics[currentEntry.id] ?? []} />;

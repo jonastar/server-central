@@ -1,4 +1,4 @@
-import { AGENT_VERSION, type ServerEntry } from "@central/shared";
+import { AGENT_VERSION, type HostCapability, type HostCapabilityResult, type ServerEntry, type ServerStatus } from "@central/shared";
 
 export function cx(...parts: Array<string | false | null | undefined>): string {
     return parts.filter(Boolean).join(" ");
@@ -15,6 +15,25 @@ export function isAgentOutdated(entry: ServerEntry): boolean {
         && status.mode === "installed"
         && !!status.info?.agentVersion
         && status.info.agentVersion !== AGENT_VERSION;
+}
+
+/**
+ * A host capability's state, as three cases the UI must keep distinct:
+ * `undefined` (unknown — never probed, agent too old, or host offline),
+ * `{ available: true }`, and `{ available: false, detail }`.
+ *
+ * Unknown deliberately reads as "not unavailable" at every call site below:
+ * greying a tab because a host is momentarily offline would make the whole
+ * sidebar flicker on each reconnect, and would hide features on older agents
+ * that support them perfectly well.
+ */
+export function hostCapability(status: ServerStatus | undefined, capability: HostCapability): HostCapabilityResult | undefined {
+    return status?.hostCapabilities?.[capability];
+}
+
+/** True only when a host has *positively reported* the capability missing. */
+export function hostCapabilityUnavailable(status: ServerStatus | undefined, capability: HostCapability | undefined): boolean {
+    return capability !== undefined && hostCapability(status, capability)?.available === false;
 }
 
 export function fmtBytes(n: number): string {

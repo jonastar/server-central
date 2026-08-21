@@ -60,7 +60,7 @@ export interface Feature<TConfig = void> {
 
 ```ts
 export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = never, TConfig = void> {
-    descriptor: FeatureDescriptor;
+    descriptor: FeatureDescriptor;                 // .requiresHostCapability gates it per host
     init?(ctx: FeatureBootCtx): Promise<void>;
     apiHandlers?(): FeatureApiHandlers<TOps>;      // not Partial<...>
     taskHandlers?(): FeatureTaskHandlers<TKinds>;  // not Partial<...>
@@ -68,6 +68,34 @@ export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = n
     config?: { default: TConfig; load(raw: unknown): TConfig };
 }
 ```
+
+### The node-side half
+
+A feature's contribution to the *agent* is a second object, `AgentFeature`,
+exported from the same `features/<id>/feature.ts` and registered in
+`agent/features.ts`:
+
+```ts
+export interface AgentFeature {
+    id: string;                    // same id as the control-plane Feature
+    hostProbe?: { capability: HostCapability; probe(): Promise<HostCapabilityResult> };
+}
+```
+
+It is deliberately **not** more optional members on `Feature`. Every host-feature
+factory takes control-plane dependencies — `createZfsFeature(fleet)`,
+`createSystemUsersFeature(fleet, auth)` — and none of them exist on a managed
+host: a node has no `Fleet`, it *is* a host. Reusing the same objects would mean
+passing fakes into constructors to reach a method that ignores them, and
+`index.ts` exits into `runAgentCli` before `fleet`/`auth`/`appStore` are even
+built. Sharing the *shape* rather than the *instance* also means the agent
+registry needs no boot order and no `init`: nothing in it has dependencies.
+
+Coverage is proven in two steps, since the registries can't see each other:
+`requiresHostCapability` is typed to `HostCapability`, so a feature can only ask
+for an id in the union; `assertHostProbeCoverage` asserts the node registry
+answers every id in that union. A need no agent can answer would otherwise
+surface as a permanently-unknown capability.
 
 ```ts
 // shared/src/index.ts — the one piece both sides need to agree on

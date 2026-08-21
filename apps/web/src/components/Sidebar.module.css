@@ -50,6 +50,20 @@
     font-size: 12.5px;
 }
 
+/* A tab whose host capability was reported unavailable. Dimmed, not disabled:
+   the item stays clickable so the view behind it can explain *why* (and offer a
+   re-check), which a `disabled` button has no way to do — and which keyboard and
+   touch users would otherwise never reach. */
+.nav-item.unavailable {
+    color: var(--muted);
+    opacity: 0.55;
+}
+
+.nav-item.unavailable.active {
+    color: var(--muted);
+    background: var(--panel-2);
+}
+
 .nav-badge {
     margin-left: 6px;
     color: var(--warn);

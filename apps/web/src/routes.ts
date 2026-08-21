@@ -1,3 +1,5 @@
+import type { HostCapability } from "@central/shared";
+
 export type ServerTab = "overview" | "files" | "docker" | "processes" | "network" | "services" | "users" | "zfs" | "mounts" | "terminal";
 
 export type DockerSection = "overview" | "stacks" | "containers" | "volumes" | "images";
@@ -45,15 +47,22 @@ export type Route =
 const DOCKER_SECTIONS = new Set<DockerSection>(["overview", "stacks", "containers", "volumes", "images"]);
 const ZFS_SECTIONS = new Set<ZfsSection>(["pools", "datasets", "snapshots"]);
 
-export const SERVER_TABS: Array<{ id: ServerTab; label: string }> = [
+/**
+ * `requires` mirrors the owning Feature's `descriptor.requiresHostCapability`
+ * server-side. It's restated here because feature descriptors aren't shipped to
+ * the frontend yet (see doc/idea_feature_convention.md) — both sides reference
+ * the same `HostCapability` ids from @central/shared, so this collapses into a
+ * descriptor lookup the moment that pipeline exists.
+ */
+export const SERVER_TABS: Array<{ id: ServerTab; label: string; requires?: HostCapability }> = [
     { id: "overview", label: "Overview" },
     { id: "files", label: "Files" },
-    { id: "docker", label: "Docker" },
-    { id: "zfs", label: "ZFS" },
+    { id: "docker", label: "Docker", requires: "docker" },
+    { id: "zfs", label: "ZFS", requires: "zfs" },
     { id: "mounts", label: "Mounts" },
     { id: "processes", label: "Processes" },
     { id: "network", label: "Network" },
-    { id: "services", label: "Services" },
+    { id: "services", label: "Services", requires: "systemd" },
     { id: "users", label: "Users" },
     { id: "terminal", label: "Terminal" },
 ];

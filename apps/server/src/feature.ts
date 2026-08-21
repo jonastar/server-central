@@ -1,4 +1,5 @@
-import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, FeatureDescriptor, TaskSpec } from "@central/shared";
+import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, FeatureDescriptor, HostCapability, HostCapabilityReport, HostCapabilityResult, TaskSpec } from "@central/shared";
+import { HOST_CAPABILITIES } from "@central/shared";
 import type { TaskHandlers } from "./tasks/types";
 
 export interface FeatureBootCtx {
@@ -62,6 +63,110 @@ export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = n
         default: TConfig;
         load(raw: unknown): TConfig;
     };
+}
+
+// ---- The node-side half -----------------------------------------------------
+//
+// A feature's contribution to the *agent*, which runs on a managed host. Kept a
+// separate object from `Feature` rather than more optional members on it, for a
+// blunt reason: every host-feature factory takes control-plane dependencies
+// (`Fleet`, `AuthStore`, `AppStore`) that don't exist on a node — a node has no
+// fleet, it *is* a host. Building the control-plane registry there would mean
+// passing fakes into constructors just to reach a method that ignores them.
+//
+// Both halves live in the same `features/<id>/feature.ts`, so what a feature
+// needs and how a host answers for it still sit next to each other; only the
+// composition is split. The agent registry needs no dependencies at all, which
+// is also why it has no `init` — there's nothing to wire up.
+
+export interface AgentFeature {
+    /** Matches the control-plane `Feature`'s `descriptor.id`. */
+    id: string;
+
+    /**
+     * Answer whether this feature's subsystem is actually usable on this host.
+     *
+     * Runs on the node, on every connect and on demand — so it must be cheap and
+     * must never throw. Probe natively (filesystem, /proc) rather than shelling
+     * out: the distinction worth reporting is *usable* vs merely *installed*, and
+     * a false positive un-greys a tab that then errors, which is worse than never
+     * having probed. An unavailable result must carry a `detail` a user can act
+     * on — it's the only explanation the UI has.
+     */
+    hostProbe?: {
+        capability: HostCapability;
+        probe(): Promise<HostCapabilityResult>;
+    };
+}
+
+/** Register the node-side features. Plain array, no inference trickery needed:
+ *  unlike `defineFeatures` there are no per-element type arguments to preserve. */
+export function defineAgentFeatures(...features: AgentFeature[]): readonly AgentFeature[] {
+    return features;
+}
+
+/**
+ * Every `HostCapability` in the shared union must have exactly one feature
+ * probing it.
+ *
+ * This is the agent-side counterpart to what `composeApiHandlers` proves for
+ * operations, split into two steps because the two registries can't see each
+ * other: `requiresHostCapability` is typed to `HostCapability`, so a feature can
+ * only ask for an id in the union — and this asserts the node registry answers
+ * every id in that union. Together they mean a control-plane feature can't
+ * declare a need no agent can answer, which would otherwise surface as a
+ * permanently-unknown capability and a tab that never greys.
+ */
+export function assertHostProbeCoverage(features: readonly AgentFeature[]): void {
+    const owners = new Map<HostCapability, string>();
+    for (const feature of features) {
+        if (!feature.hostProbe) {
+            continue;
+        }
+        const existing = owners.get(feature.hostProbe.capability);
+        if (existing) {
+            throw new Error(`Feature "${feature.id}" and "${existing}" both probe host capability "${feature.hostProbe.capability}"`);
+        }
+        owners.set(feature.hostProbe.capability, feature.id);
+    }
+    const missing = HOST_CAPABILITIES.filter((c) => !owners.has(c));
+    if (missing.length) {
+        throw new Error(`No agent feature probes host capability: ${missing.join(", ")}`);
+    }
+}
+
+/**
+ * Run every declared host probe, keyed by capability.
+ *
+ * Rejects two features claiming one capability, same as `mergeSlices` does for
+ * operations — the type system can prove coverage but not uniqueness.
+ */
+export async function composeHostProbes(features: readonly AgentFeature[]): Promise<HostCapabilityReport> {
+    const owners = new Map<HostCapability, string>();
+    const probes: Array<{ capability: HostCapability; id: string; run: () => Promise<HostCapabilityResult> }> = [];
+    for (const feature of features) {
+        if (!feature.hostProbe) {
+            continue;
+        }
+        const { capability, probe } = feature.hostProbe;
+        const existing = owners.get(capability);
+        if (existing) {
+            throw new Error(`Feature "${feature.id}" and "${existing}" both probe host capability "${capability}"`);
+        }
+        owners.set(capability, feature.id);
+        probes.push({ capability, id: feature.id, run: () => probe() });
+    }
+
+    const results = await Promise.all(probes.map(async ({ capability, id, run }): Promise<[HostCapability, HostCapabilityResult]> => {
+        try {
+            return [capability, await run()];
+        } catch (err) {
+            // One bad probe must not take down the report — it rides on identify,
+            // so a throw here would fail the whole connect.
+            return [capability, { available: false, detail: `Probe for "${id}" failed: ${(err as Error).message}` }];
+        }
+    }));
+    return Object.fromEntries(results) as HostCapabilityReport;
 }
 
 /**

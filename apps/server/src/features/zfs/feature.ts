@@ -1,4 +1,5 @@
 import type {
+    HostCapabilityResult,
     TaskZfsDatasetCreate,
     TaskZfsDatasetCreateResult,
     TaskZfsDatasetDestroy,
@@ -30,7 +31,7 @@ import type {
     ZfsSnapshot,
     ZfsState,
 } from "@central/shared";
-import type { Feature, FeatureApiHandlers, FeatureTaskHandlers } from "../../feature";
+import type { AgentFeature, Feature, FeatureApiHandlers, FeatureTaskHandlers } from "../../feature";
 import type { Fleet } from "../../fleet";
 import { requireAgent, type TaskCtx } from "../../tasks/types";
 import {
@@ -53,6 +54,8 @@ import {
     zfsSnapshotRollback,
     zfsVdevAdd,
 } from "./zfs";
+import * as os from "node:os";
+import { accessible, constants, exists, which } from "../../agent/probe-utils";
 
 export function createZfsFeature(fleet: Fleet): Feature<ZfsOps, ZfsTaskKind> {
     return {
@@ -61,6 +64,7 @@ export function createZfsFeature(fleet: Fleet): Feature<ZfsOps, ZfsTaskKind> {
             name: "ZFS",
             description: "ZFS pool/dataset/snapshot management on a host. See doc/idea_zfs.md.",
             experimental: false,
+            requiresHostCapability: "zfs",
         },
         apiHandlers() {
             return zfsApiHandlers(fleet);
@@ -181,6 +185,34 @@ export function zfsTaskHandlers(): FeatureTaskHandlers<ZfsTaskKind> {
         async zfs_snapshot_clone(spec: TaskZfsSnapshotClone, ctx: TaskCtx): Promise<TaskZfsSnapshotCloneResult> {
             await zfsSnapshotClone(requireAgent(ctx, "zfs_snapshot_clone"), spec.snapshot, spec.target, ctx.log);
             return { kind: "zfs_snapshot_clone" };
+        },
+    };
+}
+
+/**
+ * ZFS needs both halves: the userland tools *and* a loaded kernel module. They
+ * install independently, and on a kernel that never loaded the module `zpool` is
+ * present while every command fails — so probing the binary alone is exactly the
+ * false positive this exists to avoid. `/dev/zfs` is the character device the
+ * tools talk to; its presence is what "loaded and usable" actually means.
+ */
+export function zfsAgentFeature(): AgentFeature {
+    return {
+        id: "zfs",
+        hostProbe: {
+            capability: "zfs",
+            async probe(): Promise<HostCapabilityResult> {
+                if (!await which("zpool")) {
+                    return { available: false, detail: "The zpool/zfs tools aren't installed on this host (try the zfsutils-linux package)." };
+                }
+                if (!await exists("/dev/zfs")) {
+                    return { available: false, detail: "ZFS tools are installed but the kernel module isn't loaded — try `modprobe zfs`." };
+                }
+                if (!await accessible("/dev/zfs", constants.R_OK | constants.W_OK)) {
+                    return { available: false, detail: `ZFS is present but the agent (uid ${os.userInfo().uid}) can't open /dev/zfs — it needs to run as root.` };
+                }
+                return { available: true };
+            },
         },
     };
 }

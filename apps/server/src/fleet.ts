@@ -138,6 +138,12 @@ export class Fleet {
         this.onServersChange(this.entries());
     }
 
+    /** Re-broadcast the server list after something changed on an agent that the
+     *  fleet itself didn't mediate — a host capability re-probe, today. */
+    notifyServersChanged(): void {
+        this.onServersChange(this.entries());
+    }
+
     private recordAgent(agent: HostAgent): void {
         this.knownAgents.set(agent.id, {
             id: agent.id,

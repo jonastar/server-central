@@ -1,4 +1,4 @@
-import type { AgentMode, ControlMessage, DirEntry, FileContent, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
+import type { AgentMode, ControlMessage, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
 import { METRICS_HISTORY_MAX } from "@central/shared";
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -56,6 +56,13 @@ export class HostAgent {
      *  advertise it would die as a silent protocol timeout — check here first. */
     private readonly capabilities: ReadonlySet<string>;
 
+    /** What the *host* can do, as last reported by its agent (at identify, or by
+     *  a later `redetectHostCapabilities`). Empty means unknown — an agent too
+     *  old to probe — which callers must not conflate with "nothing available".
+     *  See {@link HostCapabilityReport}. */
+    private hostCapabilities: HostCapabilityReport;
+    private hostCapabilitiesAt: number | null;
+
     constructor(
         private readonly sendControl: (msg: ControlMessage) => void,
         nodeId: string,
@@ -65,6 +72,7 @@ export class HostAgent {
         mode: AgentMode = "live",
         remoteIp: string | null = null,
         capabilities: readonly string[] = [],
+        hostCapabilities: HostCapabilityReport = {},
     ) {
         this.id = nodeId;
         this.name = name;
@@ -72,6 +80,8 @@ export class HostAgent {
         this.mode = mode;
         this.remoteIp = remoteIp;
         this.capabilities = new Set(capabilities);
+        this.hostCapabilities = hostCapabilities;
+        this.hostCapabilitiesAt = Object.keys(hostCapabilities).length ? Date.now() : null;
     }
 
     /** Update system info (used by the embedded agent after it collects info on start). */
@@ -96,6 +106,8 @@ export class HostAgent {
             info: this.info ?? undefined,
             mode: this.mode,
             remoteIp: this.remoteIp,
+            hostCapabilities: Object.keys(this.hostCapabilities).length ? this.hostCapabilities : undefined,
+            hostCapabilitiesAt: this.hostCapabilitiesAt ?? undefined,
         };
     }
 
@@ -253,6 +265,32 @@ export class HostAgent {
             type: "stunRequest", requestId: crypto.randomUUID(),
         });
         return resp.result;
+    }
+
+    /** Last reported host capabilities. Empty when the agent never reported —
+     *  unknown, not "none". */
+    hostCapabilityReport(): HostCapabilityReport {
+        return this.hostCapabilities;
+    }
+
+    /**
+     * Ask the agent to re-run its host capability probes and cache the result.
+     *
+     * Probes already run unprompted on every connect, so this is for the case a
+     * reconnect would otherwise be needed to notice: the operator installed ZFS
+     * (or started dockerd) on a host whose agent has been connected for days.
+     */
+    async redetectHostCapabilities(): Promise<HostCapabilityReport> {
+        if (!this.capabilities.has("hostCapabilities")) {
+            const version = this.info?.agentVersion ?? "unknown version";
+            throw new Error(`The agent on ${this.name} (${version}) predates host capability probing — update the agent, then retry`);
+        }
+        const resp = await this.request<Extract<NodeMessage, { type: "hostCapabilitiesResponse" }>>({
+            type: "hostCapabilitiesRequest", requestId: crypto.randomUUID(),
+        });
+        this.hostCapabilities = resp.report;
+        this.hostCapabilitiesAt = Date.now();
+        return resp.report;
     }
 
     /**

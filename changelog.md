@@ -7,6 +7,30 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+### Added
+
+- **Per-host feature availability.** Agents now probe their own machine for what it can
+  actually do — ZFS, systemd, Docker — and report the result on `identify`, so the control
+  plane knows before it acknowledges the connection. Probes are native (filesystem and
+  `/proc` checks in `apps/server/src/agent/host-capabilities.ts`), not shelled out, so they
+  distinguish *installed* from *usable*: ZFS tools without a loaded kernel module, a Docker
+  socket the agent's user can't open, or `systemctl` present on a host that isn't actually
+  booted with systemd all report unavailable with an explanation rather than a working tab
+  that errors on click. A feature declares what it needs via
+  `descriptor.requiresHostCapability`; the matching server tab greys out in the sidebar for
+  hosts that reported it missing, stays clickable, and explains the gap with a **Re-check**
+  button (`redetectHostCapabilities`) that re-runs the probes without waiting for a
+  reconnect. The probe itself is declared on the feature — an `AgentFeature` exported
+  alongside the control-plane one and registered in `agent/features.ts`, giving the feature
+  system a node-side half. A capability the agent never reported — an older agent, or an offline host — is
+  treated as *unknown* and renders normally, so nothing greys out on a reconnect flicker.
+
+### Changed
+
+- Every feature's `api.ts` is now `feature.ts`, and each opens with its `create<X>Feature`
+  factory — the feature's entry point reads first, with the operation slice and task
+  handlers below it.
+
 ## [0.10.0] - 2026-08-18
 
 ### Added

@@ -6,6 +6,7 @@ import type {
     DockerStacksState,
     DockerState,
     DockerVolumeDetail,
+    HostCapabilityResult,
     ImageAction,
     ImageDefaults,
     TaskDockerComposeAction,
@@ -33,9 +34,11 @@ import {
     imageDefaults,
     dockerContainerLogs,
 } from "./docker";
-import type { Feature, FeatureApiHandlers, FeatureTaskHandlers } from "../../feature";
+import type { AgentFeature, Feature, FeatureApiHandlers, FeatureTaskHandlers } from "../../feature";
 import type { Fleet } from "../../fleet";
 import { requireAgent, type TaskCtx } from "../../tasks/types";
+import * as os from "node:os";
+import { accessible, constants, exists, which } from "../../agent/probe-utils";
 
 export function createDockerFeature(fleet: Fleet): Feature<DockerOps, DockerTaskKind> {
     return {
@@ -44,6 +47,7 @@ export function createDockerFeature(fleet: Fleet): Feature<DockerOps, DockerTask
             name: "Docker",
             description: "Container/volume/image/stack management on a host.",
             experimental: false,
+            requiresHostCapability: "docker",
         },
         apiHandlers() {
             return dockerApiHandlers(fleet);
@@ -135,6 +139,45 @@ export function dockerTaskHandlers(): FeatureTaskHandlers<DockerTaskKind> {
                 spec.service,
             );
             return { kind: "docker_compose_action" };
+        },
+    };
+}
+
+/**
+ * The daemon socket, not the client binary: a `docker` CLI on a host whose
+ * daemon isn't running (or whose socket the agent can't open) is the same false
+ * positive as ZFS-without-the-module. A remote daemon via DOCKER_HOST can't be
+ * confirmed without a network call, so that case reports available with a note
+ * rather than pretending to have probed it.
+ */
+export function dockerAgentFeature(): AgentFeature {
+    return {
+        id: "docker",
+        hostProbe: {
+            capability: "docker",
+            async probe(): Promise<HostCapabilityResult> {
+                const cli = await which("docker");
+                const socket = "/var/run/docker.sock";
+
+                if (process.env.DOCKER_HOST) {
+                    return cli
+                        ? { available: true, detail: `Using the remote daemon at DOCKER_HOST (${process.env.DOCKER_HOST}); reachability isn't probed.` }
+                        : { available: false, detail: "DOCKER_HOST is set but the docker CLI isn't installed on this host." };
+                }
+                if (!cli && !await exists(socket)) {
+                    return { available: false, detail: "Docker isn't installed on this host." };
+                }
+                if (!cli) {
+                    return { available: false, detail: "A Docker daemon socket is present but the docker CLI isn't on the agent's PATH." };
+                }
+                if (!await exists(socket)) {
+                    return { available: false, detail: "Docker is installed but its daemon socket isn't present — the daemon may not be running." };
+                }
+                if (!await accessible(socket, constants.R_OK | constants.W_OK)) {
+                    return { available: false, detail: `The Docker socket exists but the agent (uid ${os.userInfo().uid}) can't open it — add its user to the docker group.` };
+                }
+                return { available: true };
+            },
         },
     };
 }

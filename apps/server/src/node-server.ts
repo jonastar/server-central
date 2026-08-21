@@ -337,6 +337,7 @@ export class NodeServer {
                             msg.mode,
                             ws.data.remoteIp,
                             msg.capabilities ?? [],
+                            msg.hostCapabilities ?? {},
                         );
                         self.agents.set(conn, proxy);
                         const active = self.fleet.register(proxy);

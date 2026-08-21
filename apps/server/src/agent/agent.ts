@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type { ControlMessage, DirEntry, DirEntryType, FileContent, InstallMechanism, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
 import { AGENT_VERSION, MAX_UPLOAD_BYTES, METRICS_HISTORY_MAX, MetricsCollector } from "@central/shared";
 import { probeDir } from "./mounts";
+import { probeHostCapabilities } from "./host-capabilities";
 import { discoverWanIp } from "../stun";
 
 export { resolveMachineId } from "./machine-id";
@@ -152,6 +153,15 @@ export class Agent {
         switch (msg.type) {
             case "acknowledged":
                 break;
+
+            case "hostCapabilitiesRequest": {
+                this.transport.send({
+                    type: "hostCapabilitiesResponse",
+                    requestId: msg.requestId,
+                    report: await probeHostCapabilities(),
+                });
+                break;
+            }
 
             case "ping":
                 // The reply is for symmetry; the beat's real job is on the receiving

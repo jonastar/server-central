@@ -2,6 +2,7 @@ import * as os from "node:os";
 import type { MetricsSnapshot } from "@central/shared";
 import { AGENT_CAPABILITIES } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, resolveMachineId } from "./agent";
+import { probeHostCapabilities } from "./host-capabilities";
 import { HostAgent } from "../host-agent";
 
 /**
@@ -30,6 +31,7 @@ export async function createEmbeddedAgent(
         "embedded",
         null,
         AGENT_CAPABILITIES,
+        await probeHostCapabilities(),
     );
 
     const transport: AgentTransport = { send: (nodeMsg) => host.receive(nodeMsg) };

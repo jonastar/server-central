@@ -44,7 +44,46 @@ export interface FeatureDescriptor {
     description: string;
     experimental: boolean;
     dependsOn?: string[];     // other features' ids — inert metadata for now
+    /** Host capability this feature needs to be usable on a given host. The
+     *  feature still loads (it's per-host, not per-deployment); what changes is
+     *  that the UI greys it out for hosts whose agent reported it unavailable. */
+    requiresHostCapability?: HostCapability;
 }
+
+// ---- Host capabilities -----------------------------------------------------------
+//
+// Probeable facts about a *managed host* — "is this subsystem actually usable
+// here". Distinct from the two other things this codebase calls capabilities:
+// AGENT_CAPABILITIES (which protocol message kinds an agent build understands, a
+// function of agent version) and the planned RBAC capabilities (what a user may
+// do). These are a function of the machine, and can change while the agent runs.
+//
+// Answered by the agent natively — filesystem and /proc checks, not shelling out
+// — so "installed" is distinguished from "actually usable" (a zfs binary with no
+// kernel module, a docker socket the agent can't open). Reported unprompted at
+// identify and re-runnable on demand; see agent/host-capabilities.ts.
+
+/** Ids are protocol surface: features declare one, agents implement one. */
+export type HostCapability = "zfs" | "systemd" | "docker";
+
+export const HOST_CAPABILITIES: readonly HostCapability[] = ["zfs", "systemd", "docker"];
+
+export interface HostCapabilityResult {
+    available: boolean;
+    /** Why it's unavailable (or a note when it is) — surfaced verbatim in the UI,
+     *  so it should name the thing to install or fix. */
+    detail?: string;
+}
+
+/**
+ * Every probe an agent answered, keyed by id.
+ *
+ * A capability *absent* from the map is **unknown**, not unavailable — the agent
+ * predates that probe, or hasn't reported yet. Unknown must render as normally
+ * available: an offline or older host has undetermined capabilities, and treating
+ * that as "no" would grey out every tab on each reconnect.
+ */
+export type HostCapabilityReport = Partial<Record<HostCapability, HostCapabilityResult>>;
 
 // ---- Servers -----------------------------------------------------------------
 //
@@ -81,7 +120,7 @@ export const AGENT_VERSION: string = pkg.version;
  * the control plane checks the advertised set and fails fast with a real
  * error instead. Add an entry whenever a new request kind joins the protocol.
  */
-export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat"];
+export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities"];
 
 /**
  * Common Name (and a baseline SAN entry) of the control-plane leaf cert. Agents
@@ -169,6 +208,12 @@ export interface ServerStatus {
     lastSeenAt?: number;
     /** Other connections to this machine that lost the priority race (live vs installed). */
     standbys?: StandbyAgent[];
+    /** What this host can actually do, as probed by its agent. Absent for
+     *  never-connected hosts and agents too old to report — see
+     *  {@link HostCapabilityReport} on why that means "unknown", not "no". */
+    hostCapabilities?: HostCapabilityReport;
+    /** When those probes last ran on the host. */
+    hostCapabilitiesAt?: number;
 }
 
 export interface ServerEntry {
@@ -914,6 +959,10 @@ export type CentralApiOperations = {
     // Forget a server. Only offline agents can be removed (the embedded host and
     // currently-connected agents are rejected).
     deleteServer: { data: { serverId: string }; response: void };
+    // Re-run the host capability probes on a connected node and return the fresh
+    // report. Probes also run unprompted at identify; this is the "I just
+    // installed ZFS, stop greying out the tab" button.
+    redetectHostCapabilities: { data: { serverId: string }; response: HostCapabilityReport };
 
     // Metrics
     getMetricsHistory: { data: { serverId: string }; response: MetricsSnapshot[] };
