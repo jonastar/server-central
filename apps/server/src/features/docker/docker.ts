@@ -317,10 +317,11 @@ export interface ComposeConfigResult {
 }
 
 /**
- * Resolved compose config (`docker compose config --format json`) — works even
- * when the project has never run, since it only parses the compose file on
- * disk. `config` is null if the file is missing, invalid, or docker compose
- * fails for any other reason (the caller treats that as "nothing usable found" —
+ * Resolved compose config (`docker compose config --format json`, falling back
+ * to the YAML shape of the same document — see `parseComposeConfigOutput`) —
+ * works even when the project has never run, since it only parses the compose
+ * file on disk. `config` is null if the file is missing, invalid, or docker
+ * compose fails for any other reason (the caller treats that as "nothing usable found" —
  * see `AppDetection.composeFound`/`getAppStatus`'s `"down"` fallback); `error`
  * carries why. Deliberately doesn't merge stderr into stdout (unlike most other
  * commands in this file) — compose v2 writes deprecation warnings (e.g. the
@@ -341,11 +342,39 @@ export async function composeConfig(
     if (res.code !== 0) {
         return { config: null, error: errorText(res) || "docker compose config failed" };
     }
-    try {
-        return { config: JSON.parse(res.stdout) as ComposeConfigJson };
-    } catch {
-        return { config: null, error: errorText(res) || "docker compose config returned unparsable output" };
+    const config = parseComposeConfigOutput(res.stdout);
+    if (config) {
+        return { config };
     }
+    return { config: null, error: errorText(res) || "docker compose config returned unparsable output" };
+}
+
+function asConfig(parse: () => unknown): ComposeConfigJson | null {
+    try {
+        const doc = parse();
+        return doc && typeof doc === "object" && !Array.isArray(doc) ? doc as ComposeConfigJson : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Compose's canonical config output, in whichever of the two shapes it came
+ * back in. `--format json` is asked for, but not every compose build honours it
+ * on `config` — some print the canonical YAML regardless, which used to fail
+ * `JSON.parse` and left the whole App looking empty (0 services declared, so
+ * `getAppStatus` reported `"down"` even with containers running). The YAML is
+ * the same canonical document with the same long-form volume entries, so
+ * parsing it costs nothing beyond the second attempt. Only compose's own output
+ * is parsed here, never a raw compose file — interpolation, `env_file` merging
+ * and `extends` still belong to docker.
+ */
+function parseComposeConfigOutput(stdout: string): ComposeConfigJson | null {
+    const text = stdout.trim();
+    if (!text) {
+        return null;
+    }
+    return asConfig(() => JSON.parse(text)) ?? asConfig(() => Bun.YAML.parse(text));
 }
 
 /**

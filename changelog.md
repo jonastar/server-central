@@ -25,6 +25,16 @@ opens a fresh `## Unreleased` above it.
   system a node-side half. A capability the agent never reported — an older agent, or an offline host — is
   treated as *unknown* and renders normally, so nothing greys out on a reconnect flicker.
 
+### Fixed
+
+- **Apps with a compose file that docker rendered as YAML showed no services.** The App
+  system asks docker for `config --format json`, but some compose builds print the canonical
+  YAML regardless of the flag; the output then failed `JSON.parse`, so Import reported
+  "Couldn't read services from the compose file" and the imported App listed zero services
+  and a **down** badge while its containers were happily running. Compose's output is now
+  read in either shape (`parseComposeConfigOutput`) — it's the same canonical document, so
+  service names, images, named volumes and long-form bind mounts all survive the fallback.
+
 ### Changed
 
 - Every feature's `api.ts` is now `feature.ts`, and each opens with its `create<X>Feature`
