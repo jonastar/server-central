@@ -3,8 +3,8 @@ import type { ServerWebSocket } from "bun";
 import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
 import { MAX_UPLOAD_BYTES } from "@central/shared";
 import type { ShellSession } from "./host-agent";
-import { AppStore } from "./features/apps/apps";
-import { createAppsFeature } from "./features/apps/feature";
+import { ComposeStackStore } from "./features/compose/store";
+import { createComposeStacksFeature } from "./features/compose/feature";
 import { createAuthFeature } from "./features/auth/feature";
 import { CONFIG_DIR, readConfig } from "./config";
 import { createDockerFeature } from "./features/docker/feature";
@@ -97,7 +97,7 @@ await fleet.init();
 const auth = new AuthStore();
 await auth.init();
 
-const appStore = new AppStore(fleet);
+const stackStore = new ComposeStackStore(fleet);
 
 // ---- Features -------------------------------------------------------------------
 //
@@ -111,7 +111,7 @@ const appStore = new AppStore(fleet);
 // each element keeps its declared operations and task kinds — that's what the
 // compose* helpers union to prove the protocol is fully covered.
 const hostFeatures = defineFeatures(
-    createAppsFeature(appStore, fleet),
+    createComposeStacksFeature(stackStore, fleet),
     createDockerFeature(fleet),
     createZfsFeature(fleet),
     createSystemdFeature(fleet),
@@ -152,7 +152,7 @@ const allTaskHandlers: TaskHandlers = { ...taskHandlers, ...featureTasks.handler
 const taskRunner = new TaskRunner(
     taskStore,
     fleet,
-    appStore,
+    stackStore,
     (run) => broadcast({ kind: "taskUpdate", data: run }),
     (taskId, line) => broadcast({ kind: "taskLog", data: { taskId, lines: [line] } }),
     allTaskHandlers,

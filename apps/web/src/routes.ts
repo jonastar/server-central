@@ -5,17 +5,16 @@ export type ServerTab = "overview" | "files" | "docker" | "processes" | "network
 export type DockerSection = "overview" | "stacks" | "containers" | "volumes" | "images";
 export type ZfsSection = "pools" | "datasets" | "snapshots";
 
-export type AppTab = "overview" | "compose" | "volumes" | "controls" | "logs";
+export type ComposeStackTab = "overview" | "compose" | "files" | "logs";
 
-export const APP_TABS: Array<{ id: AppTab; label: string }> = [
+export const STACK_TABS: Array<{ id: ComposeStackTab; label: string }> = [
     { id: "overview", label: "Overview" },
     { id: "compose", label: "Compose" },
-    { id: "volumes", label: "Volumes" },
-    { id: "controls", label: "Controls" },
+    { id: "files", label: "Files" },
     { id: "logs", label: "Logs" },
 ];
 
-const APP_TAB_IDS = new Set<AppTab>(APP_TABS.map((t) => t.id));
+const STACK_TAB_IDS = new Set<ComposeStackTab>(STACK_TABS.map((t) => t.id));
 
 export type Route =
     | { view: "dashboard" }
@@ -23,8 +22,6 @@ export type Route =
     | { view: "proxy" }
     | { view: "tasks" }
     | { view: "settings" }
-    | { view: "apps" }
-    | { view: "app"; appId: string; tab: AppTab }
     | {
           view: "server";
           serverId: string;
@@ -33,6 +30,11 @@ export type Route =
           section?: DockerSection;
           /** Docker tab, volumes section only: the volume being browsed. */
           volume?: string;
+          /** Docker tab, stacks section only: the registered compose stack
+           *  being viewed. Absent means the stacks list. */
+          stackId?: string;
+          /** Docker tab, stack detail only: active tab. Defaults to "overview". */
+          stackTab?: ComposeStackTab;
           /** Files tab / volume browser: current folder. Defaults to "/". */
           path?: string;
           /** Files tab / volume browser: path of the open file, if any. */
@@ -40,6 +42,10 @@ export type Route =
           /** Docker tab, containers section only: initial name/image/stack
            *  filter — lets other views deep-link to a specific container. */
           filter?: string;
+          /** Docker tab, containers section only: container whose detail view is
+           *  open. Routed so a container page can be linked to and reloaded —
+           *  the stack's services table links here. */
+          containerId?: string;
           /** ZFS tab only: active sub-section. Defaults to "pools". */
           zfsSection?: ZfsSection;
       };
@@ -95,10 +101,6 @@ export function routeToHash(route: Route): string {
             return "#/tasks";
         case "settings":
             return "#/settings";
-        case "apps":
-            return "#/apps";
-        case "app":
-            return `#/apps/${encodeURIComponent(route.appId)}/${route.tab}`;
         case "server": {
             let hash = `#/server/${encodeURIComponent(route.serverId)}/${route.tab}`;
             if (route.tab === "files") {
@@ -111,6 +113,12 @@ export function routeToHash(route: Route): string {
                 }
             } else if (route.tab === "docker") {
                 hash += `/${route.section ?? "overview"}`;
+                if (route.section === "stacks" && route.stackId) {
+                    hash += `/${encodeURIComponent(route.stackId)}/${route.stackTab ?? "overview"}`;
+                }
+                if (route.section === "containers" && route.containerId) {
+                    hash += `/${encodeURIComponent(route.containerId)}`;
+                }
                 if (route.section === "containers" && route.filter) {
                     hash += `?q=${encodeURIComponent(route.filter)}`;
                 }
@@ -152,16 +160,6 @@ export function hashToRoute(hash: string): Route {
     if (segs[0] === "settings") {
         return { view: "settings" };
     }
-    if (segs[0] === "apps") {
-        if (segs[1]) {
-            const appId = decodeURIComponent(segs[1]);
-            const tabSeg = segs[2] as AppTab | undefined;
-            const tab = tabSeg && APP_TAB_IDS.has(tabSeg) ? tabSeg : "overview";
-            return { view: "app", appId, tab };
-        }
-        return { view: "apps" };
-    }
-
     if (segs[0] === "server" && segs[1]) {
         const serverId = decodeURIComponent(segs[1]);
         const tabSeg = segs[2] as ServerTab | undefined;
@@ -180,9 +178,16 @@ export function hashToRoute(hash: string): Route {
                 const file = new URLSearchParams(queryPart).get("f") ?? undefined;
                 return { view: "server", serverId, tab, section, volume, path, file };
             }
+            if (section === "stacks" && segs[4]) {
+                const stackId = decodeURIComponent(segs[4]);
+                const stackTabSeg = segs[5] as ComposeStackTab | undefined;
+                const stackTab = stackTabSeg && STACK_TAB_IDS.has(stackTabSeg) ? stackTabSeg : "overview";
+                return { view: "server", serverId, tab, section, stackId, stackTab };
+            }
             if (section === "containers") {
                 const filter = new URLSearchParams(queryPart).get("q") ?? undefined;
-                return { view: "server", serverId, tab, section, filter };
+                const containerId = segs[4] ? decodeURIComponent(segs[4]) : undefined;
+                return { view: "server", serverId, tab, section, filter, containerId };
             }
             return { view: "server", serverId, tab, section };
         }

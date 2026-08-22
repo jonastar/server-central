@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DockerExecResult, ServerConnState } from "@central/shared";
 import { cx, copyToClipboard } from "../utils";
@@ -168,6 +168,111 @@ export function ExecBox({ onRun, placeholder }: { onRun: (command: string) => Pr
  * ones that can permanently lose data. `children` renders above the input for
  * extra context (e.g. "this destroys 3 newer snapshots").
  */
+export interface ActionMenuItem {
+    label: string;
+    danger?: boolean;
+    disabled?: boolean;
+    onSelect: () => void;
+}
+
+/**
+ * Compact "…" button that opens a list of actions — for rows that have more
+ * actions than fit as buttons (the stack view's per-service row).
+ *
+ * The popup is `position: fixed`, placed from the trigger's bounding rect, so it
+ * escapes the scroll containers and `overflow` on the panels/tables it opens
+ * inside instead of being clipped by them. It closes on outside click, Escape,
+ * scroll, or resize — the rect it was placed from goes stale otherwise.
+ */
+export function ActionMenu({ items, disabled, label = "…", title }: {
+    items: ActionMenuItem[];
+    disabled?: boolean;
+    label?: string;
+    title?: string;
+}) {
+    const btnRef = useRef<HTMLButtonElement | null>(null);
+    const [at, setAt] = useState<{ top: number; right: number } | null>(null);
+
+    useEffect(() => {
+        if (!at) {
+            return;
+        }
+        const close = () => setAt(null);
+        const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { close(); } };
+        // `true` (capture) so a click anywhere closes before the target's own
+        // handler runs — including a click on another row's trigger.
+        window.addEventListener("mousedown", close, true);
+        window.addEventListener("keydown", onKey);
+        window.addEventListener("scroll", close, true);
+        window.addEventListener("resize", close);
+        return () => {
+            window.removeEventListener("mousedown", close, true);
+            window.removeEventListener("keydown", onKey);
+            window.removeEventListener("scroll", close, true);
+            window.removeEventListener("resize", close);
+        };
+    }, [at]);
+
+    function toggle() {
+        if (at) {
+            setAt(null);
+            return;
+        }
+        const r = btnRef.current?.getBoundingClientRect();
+        if (r) {
+            setAt({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+        }
+    }
+
+    return (
+        <>
+            <button
+                ref={btnRef}
+                type="button"
+                title={title ?? "Actions"}
+                className={cx(shared.btn, shared["btn-sm"])}
+                disabled={disabled}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={toggle}
+            >
+                {label}
+            </button>
+            {at && (
+                <div
+                    role="menu"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    style={{
+                        position: "fixed", top: at.top, right: at.right, zIndex: 40, minWidth: 168,
+                        background: "var(--panel)", border: "1px solid var(--border)", borderRadius: 6,
+                        boxShadow: "0 8px 24px rgba(20,30,60,0.18)", padding: 4,
+                        display: "flex", flexDirection: "column",
+                    }}
+                >
+                    {items.map((item) => (
+                        <button
+                            key={item.label}
+                            type="button"
+                            role="menuitem"
+                            disabled={item.disabled}
+                            onClick={() => { setAt(null); item.onSelect(); }}
+                            style={{
+                                background: "none", border: "none", font: "inherit", textAlign: "left",
+                                padding: "6px 10px", borderRadius: 4, cursor: item.disabled ? "default" : "pointer",
+                                color: item.disabled ? "var(--muted)" : item.danger ? "var(--err)" : "var(--text)",
+                                opacity: item.disabled ? 0.6 : 1,
+                            }}
+                            onMouseEnter={(e) => { if (!item.disabled) { e.currentTarget.style.background = "var(--panel-2)"; } }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
+            )}
+        </>
+    );
+}
+
 export function ConfirmDangerModal({ title, confirmWord, actionLabel, busy, error, children, onConfirm, onClose }: {
     title: string;
     /** The exact text the operator must type — usually the pool/dataset/snapshot name. */

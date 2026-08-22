@@ -52,16 +52,17 @@ export interface TaskDockerImagePull {
     ref: string;
 }
 
-/** Run a compose verb against an App's compose file (`docker compose -f <path>
- *  -p <project> <verb>`), driven from the App directory rather than existing
- *  container ids — unlike `docker_stack_action`, this works on a fully-down
- *  App (including one that has never had a container at all). `action: "up"`
+/** Run a compose verb against a registered stack's compose file (`docker
+ *  compose -f <path> -p <project> <verb>`), driven from the stack directory
+ *  rather than existing container ids — unlike `docker_stack_action`, this
+ *  works on a fully-down stack (including one that has never had a container
+ *  at all). `action: "up"`
  *  with `pullFirst` is the "Pull & up" control. Runs over the plain (30s,
  *  non-streaming) exec today — see doc/idea_app_system.md §8's streaming-exec
  *  deferral for the known limitation on slow pulls. */
 export interface TaskDockerComposeAction {
     kind: "docker_compose_action";
-    appId: string;
+    stackId: string;
     action: "up" | "restart" | "stop" | "down";
     pullFirst?: boolean;
     /** Scope the action to one service instead of the whole project. */

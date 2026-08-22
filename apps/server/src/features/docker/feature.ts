@@ -3,7 +3,6 @@ import type {
     DockerContainerDetail,
     DockerExecResult,
     DockerOverview,
-    DockerStacksState,
     DockerState,
     DockerVolumeDetail,
     HostCapabilityResult,
@@ -58,7 +57,7 @@ export function createDockerFeature(fleet: Fleet): Feature<DockerOps, DockerTask
     };
 }
 
-export type DockerOps = "dockerList" | "dockerContainerLogs" | "dockerOverview" | "dockerStacks"
+export type DockerOps = "dockerList" | "dockerContainerLogs" | "dockerOverview"
     | "dockerContainerInspect" | "dockerContainerExec" | "dockerVolumeInspect" | "dockerVolumeRemove"
     | "dockerImageAction" | "dockerImageDefaults";
 
@@ -77,9 +76,6 @@ export function dockerApiHandlers(fleet: Fleet): FeatureApiHandlers<DockerOps> {
             return dockerOverview(fleet.get(data.serverId));
         },
 
-        async handleDockerStacks(data: { serverId: string }): Promise<DockerStacksState> {
-            return dockerStacks(fleet.get(data.serverId));
-        },
 
         async handleDockerContainerInspect(data: { serverId: string; containerId: string }): Promise<DockerContainerDetail> {
             return dockerContainerInspect(fleet.get(data.serverId), data.containerId);
@@ -127,12 +123,12 @@ export function dockerTaskHandlers(): FeatureTaskHandlers<DockerTaskKind> {
         },
 
         async docker_compose_action(spec: TaskDockerComposeAction, ctx: TaskCtx): Promise<TaskDockerComposeActionResult> {
-            const app = ctx.apps.get(spec.appId);
+            const stack = ctx.stacks.get(spec.stackId);
             await composeStackAction(
                 requireAgent(ctx, "docker_compose_action"),
-                app.dir,
-                app.composeFile,
-                app.project,
+                stack.dir,
+                stack.composeFile,
+                stack.project,
                 spec.action,
                 spec.pullFirst,
                 ctx.log,

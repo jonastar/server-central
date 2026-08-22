@@ -33,7 +33,7 @@ export function getServiceField<T>(doc: Document, service: string, field: string
  * bare `key:` with nothing under it) makes it throw ("Expected YAML collection
  * at ..."), since `null` isn't a collection to descend into. This replaces such
  * placeholders with maps instead of erroring, which is what every writer here
- * needs since v1 Apps start from exactly that empty scaffold.
+ * needs since a new stack starts from exactly that empty scaffold.
  */
 function ensureMapPath(doc: Document, path: (string | number)[]): YAMLMap {
     if (!isMap(doc.contents)) {

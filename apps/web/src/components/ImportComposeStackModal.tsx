@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AppDetection, ServerEntry } from "@central/shared";
+import type { ComposeStackDetection, ServerEntry } from "@central/shared";
 import { api } from "../api";
 import { cx } from "../utils";
 import { DirectoryPicker } from "./DirectoryPicker";
@@ -43,15 +43,18 @@ function StepStrip({ current }: { current: Step }) {
 
 /** Design ref 1l: stepped modal — the detection result (step 2) is the thing
  *  worth a step of its own. */
-export function ImportAppModal({ servers, onClose, onImported }: {
-    servers: ServerEntry[];
+export function ImportComposeStackModal({ host, initialDir, onClose, onImported }: {
+    host: ServerEntry;
+    /** Prefilled directory — set when adopting a stack SC already sees running,
+     *  whose compose path came from its container labels. */
+    initialDir?: string;
     onClose: () => void;
-    onImported: (appId: string) => void;
+    onImported: (stackId: string) => void;
 }) {
     const [step, setStep] = useState<Step>("location");
-    const [hostId, setHostId] = useState(servers[0]?.id ?? "");
-    const [dir, setDir] = useState("/opt/sc-apps");
-    const [detection, setDetection] = useState<AppDetection | null>(null);
+    const hostId = host.id;
+    const [dir, setDir] = useState(initialDir ?? "/opt/sc-apps");
+    const [detection, setDetection] = useState<ComposeStackDetection | null>(null);
     const [name, setName] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
@@ -60,7 +63,7 @@ export function ImportAppModal({ servers, onClose, onImported }: {
         setError(null);
         setBusy(true);
         try {
-            const result = await api("detectApp", { hostId, dir });
+            const result = await api("detectComposeStack", { hostId, dir });
             setDetection(result);
             setName(result.predictedName);
             setStep("detected");
@@ -75,8 +78,8 @@ export function ImportAppModal({ servers, onClose, onImported }: {
         setError(null);
         setBusy(true);
         try {
-            const app = await api("importApp", { hostId, dir, name });
-            onImported(app.id);
+            const stack = await api("importComposeStack", { hostId, dir, name });
+            onImported(stack.id);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -85,7 +88,7 @@ export function ImportAppModal({ servers, onClose, onImported }: {
     }
 
     return (
-        <Modal title="Import existing App" onClose={onClose} width={620}>
+        <Modal title="Import existing compose stack" onClose={onClose} width={620}>
             <div style={{ margin: "-16px -16px 0" }}>
                 <StepStrip current={step} />
             </div>
@@ -96,20 +99,18 @@ export function ImportAppModal({ servers, onClose, onImported }: {
                     <>
                         <label className={shared["login-field"]}>
                             <span>Host</span>
-                            <select value={hostId} onChange={(e) => setHostId(e.target.value)}>
-                                {servers.map((s) => (
-                                    <option key={s.id} value={s.id}>{s.name}{s.status.info ? ` (${s.status.info.primaryIp})` : ""}</option>
-                                ))}
-                            </select>
+                            <span className={shared.dim} style={{ fontSize: 12.5 }}>
+                                {host.name}{host.status.info ? ` (${host.status.info.primaryIp})` : ""}
+                            </span>
                         </label>
                         <label className={shared["login-field"]}>
                             <span>Directory</span>
                             <input value={dir} onChange={(e) => setDir(e.target.value)} spellCheck={false} />
                         </label>
-                        {hostId && <DirectoryPicker serverId={hostId} value={dir} onChange={setDir} />}
+                        <DirectoryPicker serverId={hostId} value={dir} onChange={setDir} />
                         <div className={shared["modal-actions"]} style={{ marginTop: 4 }}>
                             <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
-                            <button className={cx(shared.btn, shared["btn-primary"])} type="button" disabled={busy || !hostId} onClick={() => void detect()}>
+                            <button className={cx(shared.btn, shared["btn-primary"])} type="button" disabled={busy} onClick={() => void detect()}>
                                 {busy ? "Checking…" : "Continue"}
                             </button>
                         </div>
@@ -119,7 +120,7 @@ export function ImportAppModal({ servers, onClose, onImported }: {
                 {step === "detected" && detection && (
                     <>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--muted)", fontSize: 12 }}>
-                            <span className={shared.mono}>{servers.find((s) => s.id === hostId)?.name ?? hostId} : {dir}</span>
+                            <span className={shared.mono}>{host.name} : {dir}</span>
                             <button className={cx(shared.btn, shared["btn-sm"])} style={{ marginLeft: "auto" }} onClick={() => setStep("location")}>Change</button>
                         </div>
 
@@ -141,13 +142,13 @@ export function ImportAppModal({ servers, onClose, onImported }: {
                             <div style={{ border: "1px solid color-mix(in srgb, var(--warn) 40%, var(--border))", background: "color-mix(in srgb, var(--warn) 8%, var(--panel))", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
                                 <b style={{ color: "var(--warn)" }}>Couldn't read services from the compose file</b>
                                 <span className={shared.dim}>{detection.composeError}</span>
-                                <span className={shared.dim}>The service count above may show 0 even though the file declares some — you can still import, and the correct count will show once the app is added.</span>
+                                <span className={shared.dim}>The service count above may show 0 even though the file declares some — you can still import, and the correct count will show once the stack is registered.</span>
                             </div>
                         )}
 
                         {!detection.manifestFound && detection.composeFound && (
                             <div style={{ border: "1px solid color-mix(in srgb, var(--warn) 40%, var(--border))", background: "color-mix(in srgb, var(--warn) 8%, var(--panel))", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
-                                <b style={{ color: "var(--warn)" }}>No sc-app.json in this directory</b>
+                                <b style={{ color: "var(--warn)" }}>No sc-stack.json in this directory</b>
                                 <span className={shared.dim}>A fresh one will be written with a new id. Project name predicted from the directory — confirm below.</span>
                             </div>
                         )}
@@ -158,12 +159,12 @@ export function ImportAppModal({ servers, onClose, onImported }: {
                                 <pre className={shared.mono} style={{ margin: 0 }}>
                                     {detection.externalBindMounts.map((m) => `${m.source} → ${m.target}`).join("\n")}
                                 </pre>
-                                <span className={shared.dim}>They stay where they are — the Volumes tab only browses <b>volumes/</b>.</span>
+                                <span className={shared.dim}>They stay where they are — the Files tab only browses the stack's own folder.</span>
                             </div>
                         )}
 
                         <label className={shared["login-field"]}>
-                            <span>App name</span>
+                            <span>Name</span>
                             <input value={name} onChange={(e) => setName(e.target.value)} />
                         </label>
 
@@ -185,7 +186,7 @@ export function ImportAppModal({ servers, onClose, onImported }: {
                     <>
                         <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 10, rowGap: 8 }}>
                             <span className={shared.dim}>Name</span><span>{name}</span>
-                            <span className={shared.dim}>Host</span><span>{servers.find((s) => s.id === hostId)?.name ?? hostId}</span>
+                            <span className={shared.dim}>Host</span><span>{host.name}</span>
                             <span className={shared.dim}>Directory</span><span className={shared.mono}>{dir}</span>
                             <span className={shared.dim}>Services</span><span>{detection.services.length}</span>
                         </div>

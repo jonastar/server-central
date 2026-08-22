@@ -45,7 +45,7 @@ import type {
     TaskZfsVdevAddResult,
 } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
-import type { AppStore } from "../features/apps/apps";
+import type { ComposeStackStore } from "../features/compose/store";
 import type { Fleet } from "../fleet";
 import type { HostAgent } from "../host-agent";
 import { discoverWanIp } from "../stun";
@@ -74,7 +74,7 @@ export interface TaskCtx {
     agent: HostAgent | null;
     target: string | null;
     fleet: Fleet;
-    apps: AppStore;
+    stacks: ComposeStackStore;
 }
 
 /** Cooperative sleep — resolves early (without throwing) if the run is aborted,

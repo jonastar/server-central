@@ -253,7 +253,7 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
             </header>
 
             <ExperimentalBanner>
-                The reverse proxy is early-stage — routing, cert automation, and its linkage to Apps
+                The reverse proxy is early-stage — routing, cert automation, and its linkage to compose stacks
                 are still being built out, and it hasn't been runtime-verified against a real Docker host yet.
             </ExperimentalBanner>
 

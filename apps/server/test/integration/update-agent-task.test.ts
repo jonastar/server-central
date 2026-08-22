@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ControlMessage, SystemInfo } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
-import { AppStore } from "../../src/features/apps/apps";
+import { ComposeStackStore } from "../../src/features/compose/store";
 import { Fleet } from "../../src/fleet";
 import { HostAgent } from "../../src/host-agent";
 import { taskHandlers, type TaskCtx } from "../../src/tasks/types";
@@ -57,7 +57,7 @@ function makeInstalledAgent(fleet: Fleet, version: string): HostAgent {
 }
 
 function fakeCtx(fleet: Fleet, agent: HostAgent): TaskCtx {
-    return { signal: new AbortController().signal, agent, target: MACHINE, fleet, apps: new AppStore(fleet), log: () => {} };
+    return { signal: new AbortController().signal, agent, target: MACHINE, fleet, stacks: new ComposeStackStore(fleet), log: () => {} };
 }
 
 test("update_agent does not resolve on ack alone — it waits for a genuine reconnect", async () => {
@@ -109,7 +109,7 @@ test("update_agent times out if the agent never reconnects", async () => {
     // of hanging, and report a clear error rather than a false success.
     const controller = new AbortController();
     controller.abort();
-    const ctx: TaskCtx = { signal: controller.signal, agent: oldAgent, target: MACHINE, fleet, apps: new AppStore(fleet), log: () => {} };
+    const ctx: TaskCtx = { signal: controller.signal, agent: oldAgent, target: MACHINE, fleet, stacks: new ComposeStackStore(fleet), log: () => {} };
 
     await expect(taskHandlers.update_agent({ kind: "update_agent" }, ctx)).rejects.toThrow();
 });

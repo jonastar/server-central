@@ -27,6 +27,15 @@ opens a fresh `## Unreleased` above it.
 
 ### Fixed
 
+- **A compose stack whose directory was deleted reported "down" while its containers were
+  still running.** Every compose command runs as `cd <dir> && docker compose …`, so once the
+  directory is gone they all fail at `cd` — and the status view read that as "no services,
+  nothing running", contradicting the container counts shown right next to it. Status now
+  falls back to plain `docker ps` filtered by the project's own
+  `com.docker.compose.project` label, which survives whatever happened to the directory. In
+  the same pass, containers running under a service the compose file no longer declares are
+  listed too, instead of being silently dropped from the services table.
+
 - **Apps with a compose file that docker rendered as YAML showed no services.** The App
   system asks docker for `config --format json`, but some compose builds print the canonical
   YAML regardless of the flag; the output then failed `JSON.parse`, so Import reported
@@ -36,6 +45,58 @@ opens a fresh `## Unreleased` above it.
   service names, images, named volumes and long-form bind mounts all survive the fallback.
 
 ### Changed
+
+- **Apps became compose stacks, and moved under the host's Docker tab.** What shipped as
+  the "App system" was only ever a UI over one `docker compose` project — a directory, a
+  compose file, and `volumes/` — so it is now named that: `App` is `ComposeStack` end to
+  end (`listComposeStacks`/`createComposeStack`/…, `ComposeStackStore`,
+  `apps/server/src/features/compose/`), and the top-level **Apps** nav item is gone. Stacks
+  live in **Server → Docker → Compose stacks** ("compose" spelled out throughout, so nothing
+  reads as a Swarm stack), which now shows one merged list instead of two disjoint ones:
+  stacks SC *registered* — with a detail page, and actions that work even when every
+  container is down — alongside what's actually running. That merge retires the "orphaned"
+  concept: a registered stack with no containers is just down.
+
+  **Running stacks are adopted automatically.** Opening a host's Compose stacks section
+  registers any compose project running there that SC has no record of, using the compose
+  path from its own containers' `config_files` label. Adoption is control-plane only —
+  nothing is written to the host — and it takes the project name from the label rather than
+  predicting it from the directory, so actions keep addressing the project its containers
+  actually belong to. A project whose containers carry no usable compose path can't be
+  placed and still lists as **no compose path**, without a detail page.
+
+  This is groundwork: `App` is being freed for a layer *above* stacks (identity, routes,
+  backup policy, templates), which is fleet-scoped and doesn't belong on a host tab. The
+  fleet-wide "every stack on every server" list goes away with this change and is expected
+  to return as that layer's list.
+
+  **Removing a stack is now two named outcomes** instead of one action with a checkbox:
+  *Down and unregister* (just *Unregister* when nothing is running) leaves the folder where
+  it is, and *Delete folder* removes the directory outright behind a type-the-name confirm.
+  Both take containers down first when the stack is running — a stack left running with
+  nothing managing it would only be adopted straight back on the next read.
+
+  **The stack detail page lost its Controls tab.** Stack-wide actions
+  (Start / Restart / Stop / Pull & up / Down) are a toolbar on Overview, directly under the
+  Host / Directory / Project chips; per-service actions moved into a "…" menu on each row of
+  the services table; and Remove sits top-right in the header next to the status badge. The
+  services table also links each service to its container's detail page — routed now
+  (`#/server/:id/docker/containers/:containerId`), so a container page can be linked to and
+  survives a reload, with the list behind it scoped to that stack. The stack page's
+  "Run command" box is gone; container exec already lives on the container page, which is
+  where it belongs.
+
+  **The stack detail view's Volumes tab is now Files**, rooted at the stack's own folder
+  next to its compose file rather than a subfolder. New stacks no longer get a scaffolded
+  `volumes/` directory: bind mounts go wherever the compose file points them, and an empty
+  folder SC invented was a convention that existed only to be explained. Existing stacks are
+  unaffected — a `volumes/` folder that's already there is just a folder, and still browsable.
+
+  Migration is automatic and needs no action: `.sc-data/app-registry.json` is read on
+  startup when `.sc-data/compose-stacks.json` doesn't exist yet, and the next write
+  supersedes it — the old file is left in place rather than deleted. On managed hosts the
+  per-directory manifest is now `sc-stack.json`; `sc-app.json` is still recognised on
+  detect/import and replaced when a directory is imported.
 
 - Every feature's `api.ts` is now `feature.ts`, and each opens with its `create<X>Feature`
   factory — the feature's entry point reads first, with the operation slice and task

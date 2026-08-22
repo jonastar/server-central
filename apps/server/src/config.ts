@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import { mkdtempSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentMode, App, SystemInfo, TaskRun } from "@central/shared";
+import type { AgentMode, ComposeStack, SystemInfo, TaskRun } from "@central/shared";
 import { writeFileAtomic } from "./fs-atomic";
 
 /**
@@ -30,10 +30,12 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const AGENT_STATE_FILE = path.join(CONFIG_DIR, "agents.json");
 const AGENT_TOKENS_FILE = path.join(CONFIG_DIR, "agent-tokens.json");
 const TASK_STATE_FILE = path.join(CONFIG_DIR, "tasks.json");
-// Deliberately not "apps.json" — that file already belongs to the OIDC client
-// store (apps/server/src/features/oidc/store.ts), a same-directory naming
-// collision left over from when OIDC clients were briefly called "apps".
-const APP_STATE_FILE = path.join(CONFIG_DIR, "app-registry.json");
+const STACK_STATE_FILE = path.join(CONFIG_DIR, "compose-stacks.json");
+// Pre-rename name for the same registry, read once on startup so an install
+// from before compose stacks were split out of "apps" carries its stacks over.
+// (It was never plain "apps.json" — that name belongs to the OIDC client store,
+// apps/server/src/features/oidc/store.ts.)
+const LEGACY_STACK_STATE_FILE = path.join(CONFIG_DIR, "app-registry.json");
 
 export interface Config {
     domain?: string;
@@ -164,18 +166,21 @@ export async function writeTaskState(runs: TaskRun[]): Promise<void> {
     await writeFileAtomic(TASK_STATE_FILE, JSON.stringify(runs, null, 2));
 }
 
-/** Persisted App registry — the control plane's list of known App directories
- *  across the fleet. See AppStore (apps/server/src/features/apps/apps.ts). */
-export async function readAppState(): Promise<Record<string, App>> {
-    try {
-        const text = await fs.readFile(APP_STATE_FILE, "utf8");
-        return JSON.parse(text) as Record<string, App>;
-    } catch {
-        return {};
+/** Persisted registry of SC-managed compose stacks — the control plane's list
+ *  of known stack directories across the fleet, keyed by stack id. See
+ *  ComposeStackStore (apps/server/src/features/compose/store.ts). Falls back to
+ *  the pre-rename file, which the next write then supersedes; the old file is
+ *  left in place rather than deleted, so downgrading isn't a data-loss event. */
+export async function readComposeStackState(): Promise<Record<string, ComposeStack>> {
+    for (const file of [STACK_STATE_FILE, LEGACY_STACK_STATE_FILE]) {
+        try {
+            return JSON.parse(await fs.readFile(file, "utf8")) as Record<string, ComposeStack>;
+        } catch { /* absent or unparsable — try the next candidate */ }
     }
+    return {};
 }
 
-export async function writeAppState(apps: Record<string, App>): Promise<void> {
+export async function writeComposeStackState(stacks: Record<string, ComposeStack>): Promise<void> {
     await ensureDir();
-    await writeFileAtomic(APP_STATE_FILE, JSON.stringify(apps, null, 2));
+    await writeFileAtomic(STACK_STATE_FILE, JSON.stringify(stacks, null, 2));
 }

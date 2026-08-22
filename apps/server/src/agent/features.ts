@@ -8,7 +8,7 @@ import { zfsAgentFeature } from "../features/zfs/feature";
  * `hostFeatures`.
  *
  * Separate from that registry rather than the same objects because the
- * control-plane factories take `Fleet`/`AuthStore`/`AppStore`, none of which
+ * control-plane factories take `Fleet`/`AuthStore`/`ComposeStackStore`, none of which
  * exist on a managed host (see the AgentFeature docs in feature.ts). Nothing
  * here takes a dependency, so unlike the control-plane registry there's no boot
  * order and no `init` — it's a plain list, constructed at import.

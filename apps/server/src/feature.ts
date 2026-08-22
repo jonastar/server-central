@@ -36,7 +36,7 @@ export type FeatureTaskHandlers<K extends TaskKind> = Pick<TaskHandlers, K>;
 export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = never, TConfig = void> {
     descriptor: FeatureDescriptor;
 
-    /** Mirrors the Fleet/AppStore/ProxyStore load-on-start pattern already used
+    /** Mirrors the Fleet/ComposeStackStore/ProxyStore load-on-start pattern already used
      *  everywhere — a feature owns its own store and persists to its own
      *  `.sc-data/<id>.json`, same as today, just called through one uniform
      *  entry point instead of a bespoke `await x.init()` per feature. */
@@ -57,7 +57,7 @@ export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = n
     ownerOnlyTaskKinds?: readonly TaskKind[];
 
     /** Only present for features with actual settings beyond their own store's
-     *  data (an App list isn't "config" in this sense — it's the feature's
+     *  data (a stack registry isn't "config" in this sense — it's the feature's
      *  data). */
     config?: {
         default: TConfig;
@@ -70,7 +70,7 @@ export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = n
 // A feature's contribution to the *agent*, which runs on a managed host. Kept a
 // separate object from `Feature` rather than more optional members on it, for a
 // blunt reason: every host-feature factory takes control-plane dependencies
-// (`Fleet`, `AuthStore`, `AppStore`) that don't exist on a node — a node has no
+// (`Fleet`, `AuthStore`, `ComposeStackStore`) that don't exist on a node — a node has no
 // fleet, it *is* a host. Building the control-plane registry there would mean
 // passing fakes into constructors just to reach a method that ignores them.
 //

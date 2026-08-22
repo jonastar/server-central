@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { TaskLogLine, TaskRun, TaskSpec, TaskTrigger } from "@central/shared";
-import type { AppStore } from "../features/apps/apps";
+import type { ComposeStackStore } from "../features/compose/store";
 import type { Fleet } from "../fleet";
 import { TaskStore } from "./store";
 import { type TaskCtx, type TaskHandlers, runTaskSpec } from "./types";
@@ -22,7 +22,7 @@ export class TaskRunner {
     constructor(
         private readonly store: TaskStore,
         private readonly fleet: Fleet,
-        private readonly apps: AppStore,
+        private readonly stacks: ComposeStackStore,
         private readonly onUpdate: (run: TaskRun) => void,
         private readonly onLog: (taskId: string, line: TaskLogLine) => void,
         private readonly handlers: TaskHandlers,
@@ -62,7 +62,7 @@ export class TaskRunner {
             agent: null,
             target: run.target,
             fleet: this.fleet,
-            apps: this.apps,
+            stacks: this.stacks,
             log: (text, stream) => {
                 const line: TaskLogLine = { ts: Date.now(), text, stream };
                 const buf = this.logs.get(run.id) ?? [];

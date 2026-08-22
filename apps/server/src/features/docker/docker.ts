@@ -1,7 +1,7 @@
 import type {
-    AppRunStatus,
-    AppServiceStatus,
-    AppStatus,
+    ComposeStackRunStatus,
+    ComposeServiceStatus,
+    ComposeStackStatus,
     ContainerAction,
     ContainerInfo,
     DockerContainerDetail,
@@ -235,7 +235,7 @@ export async function dockerStackAction(
 }
 
 /** Single-quote a string for safe inclusion in a shell command, escaping any
- *  embedded single quotes. Used for App directories/compose paths, which come
+ *  embedded single quotes. Used for stack directories/compose paths, which come
  *  from SC-created or operator-picked (`DirectoryPicker`) locations — real
  *  filesystem paths, not `SAFE_ID_RE`-shaped identifiers. */
 function shQuote(value: string): string {
@@ -245,10 +245,10 @@ function shQuote(value: string): string {
 export type ComposeAction = "up" | "restart" | "stop" | "down";
 
 /**
- * Run a compose verb against an App's compose file directly (`cd <dir> &&
+ * Run a compose verb against a registered stack's compose file directly (`cd <dir> &&
  * docker compose -f <composeFile> -p <project> <verb>`). Unlike
  * `dockerStackAction`, this works even when the project has zero
- * containers — a freshly created App, or one that's been `down`, since it
+ * containers — a freshly created stack, or one that's been `down`, since it
  * drives from the compose file rather than an existing container-id lookup.
  *
  * `service`, when given, scopes the action to one service instead of the
@@ -312,7 +312,7 @@ export interface ComposeConfigResult {
     config: ComposeConfigJson | null;
     /** Set when docker compose config failed or returned unparsable output —
      *  lets callers tell "genuinely no services declared" apart from "couldn't
-     *  ask docker compose" (e.g. `getAppStatus`'s services list vs `AppDetection.composeError`). */
+     *  ask docker compose" (e.g. `getComposeStackStatus`'s services list vs `ComposeStackDetection.composeError`). */
     error?: string;
 }
 
@@ -322,7 +322,7 @@ export interface ComposeConfigResult {
  * works even when the project has never run, since it only parses the compose
  * file on disk. `config` is null if the file is missing, invalid, or docker
  * compose fails for any other reason (the caller treats that as "nothing usable found" —
- * see `AppDetection.composeFound`/`getAppStatus`'s `"down"` fallback); `error`
+ * see `ComposeStackDetection.composeFound`/`getComposeStackStatus`'s `"down"` fallback); `error`
  * carries why. Deliberately doesn't merge stderr into stdout (unlike most other
  * commands in this file) — compose v2 writes deprecation warnings (e.g. the
  * legacy top-level `version:` key) to stderr even on success, and merging them
@@ -362,8 +362,8 @@ function asConfig(parse: () => unknown): ComposeConfigJson | null {
  * Compose's canonical config output, in whichever of the two shapes it came
  * back in. `--format json` is asked for, but not every compose build honours it
  * on `config` — some print the canonical YAML regardless, which used to fail
- * `JSON.parse` and left the whole App looking empty (0 services declared, so
- * `getAppStatus` reported `"down"` even with containers running). The YAML is
+ * `JSON.parse` and left the whole stack looking empty (0 services declared, so
+ * `getComposeStackStatus` reported `"down"` even with containers running). The YAML is
  * the same canonical document with the same long-form volume entries, so
  * parsing it costs nothing beyond the second attempt. Only compose's own output
  * is parsed here, never a raw compose file — interpolation, `env_file` merging
@@ -406,10 +406,13 @@ export async function validateComposeContent(
 }
 
 interface ComposePsEntry {
+    ID?: string;
     Service: string;
     Image?: string;
     State?: string;
     Publishers?: { TargetPort?: number; PublishedPort?: number; Protocol?: string }[];
+    /** Only set by the `docker ps` fallback, which has no `Publishers`. */
+    PsPorts?: string;
 }
 
 /** `docker compose ps`'s `Publishers` has one entry per (host IP, port) bind —
@@ -431,53 +434,117 @@ function formatPorts(entry: ComposePsEntry): string | undefined {
     return unique.length === 0 ? undefined : unique.map((p) => `${p.PublishedPort}→${p.TargetPort}`).join(", ");
 }
 
+/** Published-port pairs out of `docker ps`'s "0.0.0.0:8080->80/tcp, :::8080->80/tcp"
+ *  rendering, in the same "8080→80" shape `formatPorts` produces from compose's
+ *  structured `Publishers`, deduped across the IPv4/IPv6 bind of one mapping. */
+function portsFromPsString(ports: string | undefined): string | undefined {
+    const seen = new Set<string>();
+    for (const part of (ports ?? "").split(",")) {
+        const m = /:(\d+)->(\d+)/.exec(part.trim());
+        if (m) {
+            seen.add(`${m[1]}→${m[2]}`);
+        }
+    }
+    return seen.size === 0 ? undefined : [...seen].join(", ");
+}
+
+/** `docker ps` scoped to one compose project by label, shaped like the entries
+ *  `docker compose ps` would have returned. Only used when the compose CLI
+ *  can't run at all — see the call site. */
+async function psByProjectLabel(server: HostAgent, project: string): Promise<ComposePsEntry[]> {
+    if (!SAFE_ID_RE.test(project)) {
+        return [];
+    }
+    const res = await server.exec(`docker ps -a --filter label=com.docker.compose.project=${project} --format '{{json .}}'`);
+    if (res.code !== 0) {
+        return [];
+    }
+    return parseJsonLines<PsRow>(res.stdout).flatMap((row) => {
+        const service = parseLabel(row.Labels, "com.docker.compose.service");
+        if (!service) {
+            return [];
+        }
+        return [{
+            ID: row.ID,
+            Service: service,
+            Image: row.Image,
+            State: row.State,
+            // Ports come back as a rendered string here, not compose's structured
+            // Publishers, so they're parsed rather than read off fields.
+            PsPorts: portsFromPsString(row.Ports),
+        }];
+    });
+}
+
 /**
  * Merges the compose file's declared services with `docker compose ps`'s view
- * of what's actually running, for the App system's status badge + services
+ * of what's actually running, for the Stacks section's status badge + services
  * table — deliberately simpler than a full running/disk/reconcile merge
  * (doc/idea_stack_registry.md §2): docker's own CLI does the compose-file
  * parsing, so there's no YAML dependency or predicted-name ambiguity to own.
  */
-export async function getAppStatus(
+export async function getComposeStackStatus(
     server: HostAgent,
     dir: string,
     composeFile: string,
     project: string,
-): Promise<AppStatus> {
+): Promise<ComposeStackStatus> {
     const { config } = await composeConfig(server, dir, composeFile, project);
     const declared = config ? Object.keys(config.services ?? {}) : [];
 
     const psRes = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} ps --format json --all 2>&1`);
-    const present = psRes.code === 0 ? parseJsonLines<ComposePsEntry>(psRes.stdout) : [];
+    // Every compose command is run from the stack's directory, so all of them
+    // fail at `cd` if that directory is gone — which says nothing about whether
+    // the containers are still running, and they very often are (a folder
+    // deleted out from under a live stack, or a volume that didn't remount).
+    // The compose *labels* on the containers survive either way, so fall back to
+    // plain `docker ps` and rebuild the service view from those.
+    const present = psRes.code === 0
+        ? parseJsonLines<ComposePsEntry>(psRes.stdout)
+        : await psByProjectLabel(server, project);
     const byService = new Map(present.map((e) => [e.Service, e]));
 
-    const services: AppServiceStatus[] = declared.map((name) => {
+    // Union of what the compose file declares and what's actually running, in
+    // that order. Running-but-undeclared matters more than it sounds: if the
+    // compose file can't be read at all — deleted, moved, or unparsable —
+    // `declared` is empty, and reporting that as "no services, down" would
+    // contradict the containers the host is plainly still running. Falling back
+    // to `ps` keeps the answer true to the host.
+    const names = [...declared];
+    for (const entry of present) {
+        if (entry.Service && !names.includes(entry.Service)) {
+            names.push(entry.Service);
+        }
+    }
+
+    const services: ComposeServiceStatus[] = names.map((name) => {
         const entry = byService.get(name);
         return {
             name,
+            containerId: entry?.ID,
             image: entry?.Image ?? config?.services?.[name]?.image,
             state: entry?.State,
-            ports: entry ? formatPorts(entry) : undefined,
+            ports: entry ? (entry.PsPorts ?? formatPorts(entry)) : undefined,
             up: entry?.State === "running",
         };
     });
 
     const upCount = services.filter((s) => s.up).length;
-    const status: AppRunStatus =
-        declared.length === 0 || present.length === 0 ? "down"
+    const status: ComposeStackRunStatus =
+        services.length === 0 || present.length === 0 ? "down"
             : upCount === 0 ? "stopped"
-                : upCount === declared.length ? "running"
+                : upCount === services.length ? "running"
                     : "partial";
 
     return { status, services };
 }
 
 /** `docker compose logs`, optionally scoped to one service — one-shot, not
- *  streaming (same 30s exec ceiling noted throughout this file's App-facing
+ *  streaming (same 30s exec ceiling noted throughout this file's stack-facing
  *  helpers). Compose's own service-name line prefix does the "which service"
  *  labeling; `--no-color` keeps the output plain since the frontend renders
  *  it through the same ANSI-aware LogViewer as everything else, not raw. */
-export async function getAppLogs(
+export async function getComposeStackLogs(
     server: HostAgent,
     dir: string,
     composeFile: string,
@@ -602,27 +669,6 @@ export function dockerContainerShellCommand(containerId: string): string {
         throw new Error(`Invalid container id: ${containerId}`);
     }
     return `docker exec -it ${containerId} sh -c "command -v bash >/dev/null 2>&1 && exec bash -l; exec sh"`;
-}
-
-/** Same as {@link dockerContainerExec} but targets a compose service by name
- *  (`docker compose exec -T`) instead of a resolved container id — for the
- *  App page, which only knows services, not container ids. `-T` disables PTY
- *  allocation since this isn't an attached interactive session. */
-export async function composeServiceExec(
-    server: HostAgent,
-    dir: string,
-    composeFile: string,
-    project: string,
-    service: string,
-    command: string,
-): Promise<DockerExecResult> {
-    if (!SAFE_ID_RE.test(project)) {
-        throw new Error(`Invalid project name: ${project}`);
-    }
-    if (!SAFE_ID_RE.test(service)) {
-        throw new Error(`Invalid service name: ${service}`);
-    }
-    return server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} exec -T ${service} sh -c ${shQuote(command)}`);
 }
 
 export async function dockerContainerLogs(

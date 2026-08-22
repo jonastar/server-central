@@ -60,14 +60,14 @@ function Row({ children, onRemove }: { children: React.ReactNode; onRemove: () =
  *  Curated field set (image/restart/environment/ports/volumes/depends_on) — see
  *  doc/idea_app_system.md and the compose-editor plan for what's deliberately
  *  deferred to the YAML tab. */
-export function ComposeVisualEditor({ value, onChange, hostId, appDir }: {
+export function ComposeVisualEditor({ value, onChange, hostId, stackDir }: {
     value: string;
     onChange: (next: string) => void;
     hostId: string;
-    /** Absolute path of the App's directory on `hostId` — volume Browse defaults
-     *  into `<appDir>/volumes`, the convention every App directory follows
+    /** Absolute path of the stack's directory on `hostId` — volume Browse
+     *  defaults to this folder, the level the compose file sits at
      *  (doc/idea_app_system.md §3), rather than the filesystem root. */
-    appDir: string;
+    stackDir: string;
 }) {
     const doc = useMemo(() => parseCompose(value), [value]);
     const services = listServiceNames(doc);
@@ -140,7 +140,7 @@ export function ComposeVisualEditor({ value, onChange, hostId, appDir }: {
                         doc={doc}
                         service={activeService}
                         hostId={hostId}
-                        appDir={appDir}
+                        stackDir={stackDir}
                         otherServices={services.filter((s) => s !== activeService)}
                         errors={serviceErrors}
                         commit={commit}
@@ -151,11 +151,11 @@ export function ComposeVisualEditor({ value, onChange, hostId, appDir }: {
     );
 }
 
-function ServiceEditor({ doc, service, hostId, appDir, otherServices, errors, commit }: {
+function ServiceEditor({ doc, service, hostId, stackDir, otherServices, errors, commit }: {
     doc: Document;
     service: string;
     hostId: string;
-    appDir: string;
+    stackDir: string;
     otherServices: string[];
     errors: { path: string; message: string }[];
     commit: (mutate: (doc: Document) => void) => void;
@@ -210,7 +210,7 @@ function ServiceEditor({ doc, service, hostId, appDir, otherServices, errors, co
             </div>
 
             <PortsField doc={doc} service={service} commit={commit} suggestedPorts={defaults.ports} />
-            <VolumesField doc={doc} service={service} hostId={hostId} appDir={appDir} commit={commit} suggestedTargets={defaults.volumes} />
+            <VolumesField doc={doc} service={service} hostId={hostId} stackDir={stackDir} commit={commit} suggestedTargets={defaults.volumes} />
             <EnvironmentField doc={doc} service={service} commit={commit} suggestedEnv={defaults.env} />
             <DependsOnField doc={doc} service={service} otherServices={otherServices} commit={commit} />
         </>
@@ -397,30 +397,30 @@ function PortsField({ doc, service, commit, suggestedPorts }: {
 const EMPTY_VOLUME_ROW: VolumeRow = { kind: "short", source: "", target: "", readOnly: false };
 
 /**
- * Two tabs: "Simple" — a flat list of what's already directly under the App's
- * `volumes/` folder (the convention every App directory follows), plus a
- * one-click "new folder" — and "Custom", the full host tree (files included,
- * for bind-mounting a single existing file, or reaching into a subfolder like
- * `volumes/<service>/config`) for the escape-hatch case. Defaults to Simple:
- * most mounts are either something already there or a fresh top-level folder.
+ * Two tabs: "Simple" — a flat list of what's already directly in the stack's own
+ * folder, next to its compose file, plus a one-click "new folder" — and
+ * "Custom", the full host tree (files included, for bind-mounting a single
+ * existing file, or reaching somewhere else on the host entirely) for the
+ * escape-hatch case. Defaults to Simple: most mounts are either something
+ * already there or a fresh folder beside the compose file.
  */
-function VolumeSourcePicker({ serverId, appDir, value, onChange }: {
+function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
     serverId: string;
-    appDir: string;
+    stackDir: string;
     value: string;
     onChange: (path: string) => void;
 }) {
-    const volumesDir = `${appDir.replace(/\/$/, "")}/volumes`;
+    const stackFolder = stackDir.replace(/\/$/, "");
     const [mode, setMode] = useState<"simple" | "custom">("simple");
     const [entries, setEntries] = useState<DirEntry[] | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const load = useCallback(() => {
         setEntries(null);
-        api("listDir", { serverId, path: volumesDir })
+        api("listDir", { serverId, path: stackFolder })
             .then((d) => setEntries(d.entries))
             .catch(() => setEntries([]));
-    }, [serverId, volumesDir]);
+    }, [serverId, stackFolder]);
 
     useEffect(() => {
         if (mode === "simple") {
@@ -433,7 +433,7 @@ function VolumeSourcePicker({ serverId, appDir, value, onChange }: {
         if (!name) {
             return;
         }
-        const created = `${volumesDir}/${name}`;
+        const created = `${stackFolder}/${name}`;
         try {
             await api("createDir", { serverId, path: created });
             onChange(created);
@@ -451,10 +451,10 @@ function VolumeSourcePicker({ serverId, appDir, value, onChange }: {
             </nav>
 
             {mode === "custom" ? (
-                <DirectoryPicker serverId={serverId} value={looksLikeHostPath(value) ? value : volumesDir} onChange={onChange} selectFiles />
+                <DirectoryPicker serverId={serverId} value={looksLikeHostPath(value) ? value : stackFolder} onChange={onChange} selectFiles />
             ) : (
                 <>
-                    <div className={cx(shared.mono, shared.dim)} style={{ fontSize: 12, marginBottom: 6 }}>{volumesDir}</div>
+                    <div className={cx(shared.mono, shared.dim)} style={{ fontSize: 12, marginBottom: 6 }}>{stackFolder}</div>
                     {error && <ErrorBanner>{error}</ErrorBanner>}
                     <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid var(--border)", borderRadius: 4 }}>
                         {entries === null ? (
@@ -463,7 +463,7 @@ function VolumeSourcePicker({ serverId, appDir, value, onChange }: {
                             <div className={shared.dim} style={{ padding: 8, fontSize: 12 }}>Nothing here yet — create one below.</div>
                         ) : (
                             entries.map((e) => {
-                                const entryPath = `${volumesDir}/${e.name}`;
+                                const entryPath = `${stackFolder}/${e.name}`;
                                 return (
                                     <div
                                         key={e.name}
@@ -486,8 +486,8 @@ function VolumeSourcePicker({ serverId, appDir, value, onChange }: {
     );
 }
 
-function VolumesField({ doc, service, hostId, appDir, commit, suggestedTargets }: {
-    doc: Document; service: string; hostId: string; appDir: string; commit: (mutate: (doc: Document) => void) => void;
+function VolumesField({ doc, service, hostId, stackDir, commit, suggestedTargets }: {
+    doc: Document; service: string; hostId: string; stackDir: string; commit: (mutate: (doc: Document) => void) => void;
     suggestedTargets: string[];
 }) {
     const path = ["services", service, "volumes"];
@@ -500,7 +500,7 @@ function VolumesField({ doc, service, hostId, appDir, commit, suggestedTargets }
 
     async function createSuggested(containerPath: string) {
         const folderName = containerPath.split("/").filter(Boolean).pop() || "data";
-        const hostDir = `${appDir.replace(/\/$/, "")}/volumes/${folderName}`;
+        const hostDir = `${stackDir.replace(/\/$/, "")}/${folderName}`;
         await api("createDir", { serverId: hostId, path: hostDir });
         commit((d) => addSeqItem(d, path, serializeVolumeRow({ kind: "short", source: hostDir, target: containerPath, readOnly: false })));
     }
@@ -550,7 +550,7 @@ function VolumesField({ doc, service, hostId, appDir, commit, suggestedTargets }
                     <Modal title="Choose a volume source" onClose={() => setBrowsing(null)} width={560}>
                         <VolumeSourcePicker
                             serverId={hostId}
-                            appDir={appDir}
+                            stackDir={stackDir}
                             value={row.source}
                             onChange={(v) => onEdit({ source: v })}
                         />
@@ -579,8 +579,8 @@ function VolumesField({ doc, service, hostId, appDir, commit, suggestedTargets }
             {showSuggested && (
                 <Modal title="Suggested volumes" onClose={() => setShowSuggested(false)} width={520}>
                     <p className={shared.dim} style={{ fontSize: 12, marginTop: 0 }}>
-                        Declared by this service's image. "Create" adds a matching folder under
-                        <span className={shared.mono}> volumes/</span> and maps it here.
+                        Declared by this service's image. "Create" adds a matching folder next to
+                        the compose file and maps it here.
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                         {suggestedTargets.map((p) => {

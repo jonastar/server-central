@@ -582,12 +582,13 @@ export interface UserDetail extends UserInfo {
 //
 // A client is a relying party registered by the owner to sign in via Server
 // Central's built-in OpenID Connect provider (no dynamic client registration) —
-// just OIDC credentials (id/secret + redirect URIs). Unrelated to the App entity
-// below (compose stacks on a host), despite the similar name history: this was
-// briefly called `App` as a placeholder ahead of the real App system design,
-// renamed back to `OidcClient` once that system landed. Roles are exposed as a
-// `groups` claim on the ID token. See apps/server/src/features/oidc/ for the provider
-// implementation.
+// just OIDC credentials (id/secret + redirect URIs). Independent of the
+// ComposeStack entity below: an OIDC client is usually something SC does *not*
+// run, and a stack usually has no login to register. (Historical note, since it
+// explains some churn in git: this type was briefly named `App` as a placeholder,
+// and the name later went to the compose-stack concept before that was renamed
+// again to `ComposeStack`.) Roles are exposed as a `groups` claim on the ID
+// token. See apps/server/src/features/oidc/ for the provider implementation.
 
 export interface OidcClient {
     id: string;
@@ -608,17 +609,23 @@ export interface OidcAuthorizeParams {
     nonce?: string;
 }
 
-// ---- Apps ----------------------------------------------------------------------
+// ---- Compose stacks ----------------------------------------------------------
 //
-// An App is a directory on a host containing `sc-app.json` (SC's own metadata),
-// a compose file (source of truth for what runs — no SC-native service format),
-// and a `volumes/` subdirectory holding every bind mount. One compose stack per
-// App. Design: doc/idea_app_system.md. `project` is the `docker compose -p`
-// value, fixed at create/import time so actions always target the same compose
-// project regardless of what the compose file's own `name:`/directory-basename
-// prediction would produce.
+// A ComposeStack is a directory on a host containing a compose file (source of
+// truth for what runs — no SC-native service format) and, for stacks SC created
+// or imported, `sc-stack.json`. Bind mounts are whatever the compose file says;
+// SC doesn't impose a layout. Design: doc/idea_app_system.md.
+//
+// This is what SC *registered*; `DockerStack` above is what SC *observes* from
+// container labels. They're merged by `project` in the host's Docker → Stacks
+// section: a registered stack with no containers is simply down, and an observed
+// stack with no record is one deployed by hand, which can be adopted.
+//
+// `project` is the `docker compose -p` value, fixed at create/import time so
+// actions always target the same compose project regardless of what the compose
+// file's own `name:`/directory-basename prediction would produce.
 
-export interface App {
+export interface ComposeStack {
     id: string;
     name: string;
     hostId: string;
@@ -630,8 +637,11 @@ export interface App {
     createdAt: number;
 }
 
-export interface AppServiceStatus {
+export interface ComposeServiceStatus {
     name: string;
+    /** Container backing this service right now, absent when it has none.
+     *  Lets the services table link straight to the container's detail page. */
+    containerId?: string;
     image?: string;
     /** Raw state string from `docker compose ps` (e.g. "running", "exited (0)"), absent when the service has no container yet. */
     state?: string;
@@ -639,16 +649,37 @@ export interface AppServiceStatus {
     up: boolean;
 }
 
-export type AppRunStatus = "running" | "partial" | "stopped" | "down";
+export type ComposeStackRunStatus = "running" | "partial" | "stopped" | "down";
 
-export interface AppStatus {
-    status: AppRunStatus;
-    services: AppServiceStatus[];
+export interface ComposeStackStatus {
+    status: ComposeStackRunStatus;
+    services: ComposeServiceStatus[];
+}
+
+/**
+ * Everything the host's Compose stacks section renders, in one call.
+ *
+ * Reading this *adopts*: any compose project observed running on the host that
+ * SC has no record of, and whose containers carry a `config_files` label
+ * pointing at a real compose file, is registered on the spot. Adoption is
+ * control-plane only — nothing is written to the host — so it's cheap and
+ * reversible by removing the stack again.
+ *
+ * `observed` is every compose project seen on the host right now, for container
+ * counts and states. A project in `observed` with no matching entry in `stacks`
+ * is one adoption couldn't place (no usable `config_files` label); it still
+ * renders, just without a detail page.
+ */
+export interface HostComposeStacks {
+    available: boolean;
+    error?: string;
+    stacks: ComposeStack[];
+    observed: DockerStack[];
 }
 
 /** Result of probing a candidate host directory before import — step 2 of the
  *  import flow ("Detected"). */
-export interface AppDetection {
+export interface ComposeStackDetection {
     composeFound: boolean;
     manifestFound: boolean;
     /** From the directory's basename — compose's own default project-name rule. */
@@ -659,7 +690,7 @@ export interface AppDetection {
      *  this distinguishes "couldn't ask" from "genuinely no services declared". */
     composeError?: string;
     /** Bind mounts whose source resolves outside `dir` — these stay where they
-     *  are on import; the Volumes tab only ever browses `dir/volumes`. */
+     *  are on import; the Files tab only ever browses `dir` itself. */
     externalBindMounts: { source: string; target: string }[];
     namedVolumeCount: number;
 }
@@ -931,26 +962,30 @@ export type CentralApiOperations = {
     getOidcAuthorizeRequest: { data: OidcAuthorizeParams; response: { appName: string; redirectUri: string } };
     completeOidcAuthorize: { data: OidcAuthorizeParams; response: { redirectUrl: string } };
 
-    // Apps — directory + compose stack on a host. See doc/idea_app_system.md.
-    listApps: { data: void; response: App[] };
+    // SC-managed compose stacks — a directory + compose file on a host.
+    // See doc/idea_app_system.md.
+    listComposeStacks: { data: void; response: ComposeStack[] };
+    // One host's section: registered stacks (adopting observed ones as a side
+    // effect) plus what's running. See HostComposeStacks.
+    listHostComposeStacks: { data: { hostId: string }; response: HostComposeStacks };
     // Always scaffolds an empty compose.yaml + volumes/ under dir.
-    createApp: { data: { name: string; hostId: string; dir: string }; response: App };
+    createComposeStack: { data: { name: string; hostId: string; dir: string }; response: ComposeStack };
     // Probes a candidate directory before import (step 2 of the import flow).
-    detectApp: { data: { hostId: string; dir: string }; response: AppDetection };
-    // Always mints a fresh id, even when dir already has an sc-app.json.
-    importApp: { data: { hostId: string; dir: string; name: string }; response: App };
-    // Unregisters the app. `deleteDir: true` also removes its directory (compose
+    detectComposeStack: { data: { hostId: string; dir: string }; response: ComposeStackDetection };
+    // Always mints a fresh id, even when dir already has a manifest.
+    importComposeStack: { data: { hostId: string; dir: string; name: string }; response: ComposeStack };
+    // Unregisters the stack. `deleteDir: true` also removes its directory (compose
     // file, manifest, and volumes/) from the host; otherwise it's left on disk.
-    deleteApp: { data: { appId: string; deleteDir: boolean }; response: void };
-    getAppStatus: { data: { appId: string }; response: AppStatus };
+    deleteComposeStack: { data: { stackId: string; deleteDir: boolean }; response: void };
+    getComposeStackStatus: { data: { stackId: string }; response: ComposeStackStatus };
     // `docker compose logs`, optionally scoped to one service — one-shot (not
     // streaming), same 30s exec ceiling as everything else pre-streaming-exec.
-    getAppLogs: { data: { appId: string; service?: string; tail?: number }; response: { logs: string } };
+    getComposeStackLogs: { data: { stackId: string; service?: string; tail?: number }; response: { logs: string } };
     // Validates in-editor compose content via `docker compose config`, against a
-    // temp file — never touches the app's real compose.yaml. Used by the Compose
+    // temp file — never touches the stack's real compose.yaml. Used by the Compose
     // tab's visual/YAML editor before Save, on top of client-side schema validation.
     validateComposeContent: {
-        data: { appId: string; content: string };
+        data: { stackId: string; content: string };
         response: { valid: true } | { valid: false; error: string };
     };
 
@@ -984,12 +1019,10 @@ export type CentralApiOperations = {
     dockerList: { data: { serverId: string }; response: DockerState };
     dockerContainerLogs: { data: { serverId: string; containerId: string; timestamps?: boolean } & LogQuery; response: { logs: string } };
     dockerOverview: { data: { serverId: string }; response: DockerOverview };
-    dockerStacks: { data: { serverId: string }; response: DockerStacksState };
     dockerContainerInspect: { data: { serverId: string; containerId: string }; response: DockerContainerDetail };
     // One-shot, non-interactive command run inside a running container/service —
     // `docker exec`/`docker compose exec` under the hood, not an attached shell.
     dockerContainerExec: { data: { serverId: string; containerId: string; command: string }; response: DockerExecResult };
-    appServiceExec: { data: { appId: string; service: string; command: string }; response: DockerExecResult };
     dockerVolumeInspect: { data: { serverId: string; name: string }; response: DockerVolumeDetail };
     dockerVolumeRemove: { data: { serverId: string; name: string }; response: void };
     dockerImageAction: { data: { serverId: string; imageId: string; action: ImageAction }; response: void };

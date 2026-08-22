@@ -77,7 +77,7 @@ export function specSummary(spec: TaskSpec): string {
         case "docker_image_pull":
             return `docker pull ${spec.ref}`;
         case "docker_compose_action": {
-            const target = spec.service ? `service ${spec.service}` : "app";
+            const target = spec.service ? `service ${spec.service}` : "stack";
             return spec.pullFirst ? `pull & ${spec.action} ${target}` : `${spec.action} ${target}`;
         }
         case "update_agent":

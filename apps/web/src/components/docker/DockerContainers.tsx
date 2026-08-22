@@ -22,14 +22,22 @@ function stateStatus(state: string): "ok" | "warn" | "err" {
     return "err";
 }
 
-export function DockerContainers({ serverId, initialFilter }: { serverId: string; initialFilter?: string }) {
+export function DockerContainers({ serverId, initialFilter, containerId, onOpenContainer, onCloseContainer }: {
+    serverId: string;
+    initialFilter?: string;
+    /** Route-carried: which container's detail view is open. Routed rather than
+     *  local state so a container page can be linked to (the stack view's
+     *  services table does) and survive a reload. */
+    containerId?: string;
+    onOpenContainer: (id: string) => void;
+    onCloseContainer: () => void;
+}) {
     const [docker, setDocker] = useState<DockerState | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [filter, setFilter] = useState(initialFilter ?? "");
     const [statusFilter, setStatusFilter] = useState<StatusToken>("all");
     const [logTarget, setLogTarget] = useState<ContainerInfo | null>(null);
-    const [detail, setDetail] = useState<ContainerInfo | null>(null);
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
     const load = useCallback(async () => {
@@ -47,6 +55,10 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
         const timer = setInterval(() => void load(), REFRESH_MS);
         return () => clearInterval(timer);
     }, [load]);
+
+    // Resolved from the loaded list; null while loading, or if the container in
+    // the URL is gone — ContainerDetail surfaces that itself.
+    const detail = containerId ? (docker?.containers.find((c) => c.id === containerId) ?? null) : null;
 
     async function action(container: ContainerInfo, act: ContainerAction) {
         if (act === "remove" && !confirm(`Remove container "${container.name}"?`)) {
@@ -147,7 +159,7 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
                                                         ) : (
                                                             <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyId !== null} onClick={() => void action(c, "start")}>Start</button>
                                                         )}
-                                                        <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => setDetail(c)}>Inspect</button>
+                                                        <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => onOpenContainer(c.id)}>Inspect</button>
                                                         <button className={cx(shared.btn, shared["btn-sm"], shared["btn-danger"])} disabled={busyId !== null} onClick={() => void action(c, "remove")}>Remove</button>
                                                     </div>
                                                     <div className={shared["row-detail-body"]}>
@@ -184,13 +196,13 @@ export function DockerContainers({ serverId, initialFilter }: { serverId: string
                 />
             )}
 
-            {detail && (
+            {containerId && (
                 <ContainerDetail
                     serverId={serverId}
-                    containerId={detail.id}
-                    name={detail.name}
-                    onClose={() => setDetail(null)}
-                    onShowLogs={() => { setLogTarget(detail); setDetail(null); }}
+                    containerId={containerId}
+                    name={detail?.name ?? containerId}
+                    onClose={onCloseContainer}
+                    onShowLogs={() => { if (detail) { setLogTarget(detail); } onCloseContainer(); }}
                 />
             )}
         </section>
