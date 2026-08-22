@@ -4,6 +4,7 @@ import { cx, hostCapability, hostCapabilityUnavailable, isAgentOutdated } from "
 import { SERVER_TABS, type Route } from "../routes";
 import { ExperimentalBadge, StatusDot } from "./ui";
 import { AddNodeModal } from "./AddNodeModal";
+import { BrandLockup } from "./Brand";
 import styles from "./Sidebar.module.css";
 import shared from "../styles/shared.module.css";
 
@@ -21,7 +22,7 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
         <aside className={styles.sidebar}>
             {addingNode && <AddNodeModal servers={servers} onClose={() => setAddingNode(false)} />}
             <div className={styles["sidebar-brand"]} onClick={() => onNavigate({ view: "dashboard" })}>
-                <span className={styles["brand-mark"]}>⬡</span> Server Central
+                <BrandLockup height={20} />
             </div>
 
             <button

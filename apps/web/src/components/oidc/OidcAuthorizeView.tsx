@@ -3,6 +3,7 @@ import type { OidcAuthorizeParams } from "@central/shared";
 import { api } from "../../api";
 import { useAuth } from "../../hooks/useAuth";
 import { LoginView } from "../LoginView";
+import { BrandLockup } from "../Brand";
 import { EmptyState, ErrorBanner } from "../ui";
 import shared from "../../styles/shared.module.css";
 import { colorVars } from "../../styles/colorVars";
@@ -72,7 +73,7 @@ export function OidcAuthorizeView() {
         return (
             <div className={shared["login-screen"]}>
                 <div className={shared["login-card"]}>
-                    <h1 className={shared["login-title"]}>Server Central</h1>
+                    <h1 className={shared["login-title"]}><BrandLockup height={26} /></h1>
                     <ErrorBanner>This sign-in link is invalid or incomplete.</ErrorBanner>
                 </div>
             </div>
@@ -92,7 +93,7 @@ export function OidcAuthorizeView() {
     return (
         <div className={shared["login-screen"]}>
             <div className={shared["login-card"]}>
-                <h1 className={shared["login-title"]}>Server Central</h1>
+                <h1 className={shared["login-title"]}><BrandLockup height={26} /></h1>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
                 {!request ? (
                     <p className={shared["login-subtitle"]}>Loading request…</p>

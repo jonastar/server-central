@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ErrorBanner } from "./ui";
+import { BrandLockup } from "./Brand";
 import shared from "../styles/shared.module.css";
 
 export function LoginView({
@@ -37,7 +38,7 @@ export function LoginView({
     return (
         <div className={shared["login-screen"]}>
             <form className={shared["login-card"]} onSubmit={handleSubmit}>
-                <h1 className={shared["login-title"]}>Server Central</h1>
+                <h1 className={shared["login-title"]}><BrandLockup height={26} /></h1>
                 <p className={shared["login-subtitle"]}>
                     {isSetup ? "Create the owner account to get started." : "Sign in to continue."}
                 </p>

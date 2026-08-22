@@ -656,6 +656,8 @@ tr:hover .row-actions {
     margin: 0;
     font-size: 20px;
     font-weight: 700;
+    display: flex;
+    align-items: center;
 }
 
 .login-subtitle {
