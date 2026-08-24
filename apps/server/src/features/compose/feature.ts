@@ -58,8 +58,8 @@ export function composeStacksApiHandlers(stacks: ComposeStackStore, fleet: Fleet
             };
         },
 
-        async handleCreateComposeStack(data: { name: string; hostId: string; dir: string }): Promise<ComposeStack> {
-            return stacks.create(data.name, data.hostId, data.dir);
+        async handleCreateComposeStack(data: { name: string; hostId: string; dir: string; content?: string }): Promise<ComposeStack> {
+            return stacks.create(data.name, data.hostId, data.dir, data.content);
         },
 
         async handleDetectComposeStack(data: { hostId: string; dir: string }): Promise<ComposeStackDetection> {

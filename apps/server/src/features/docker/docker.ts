@@ -242,7 +242,7 @@ function shQuote(value: string): string {
     return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-export type ComposeAction = "up" | "restart" | "stop" | "down";
+export type ComposeAction = "up" | "restart" | "stop" | "down" | "pull";
 
 /**
  * Run a compose verb against a registered stack's compose file directly (`cd <dir> &&
@@ -256,6 +256,10 @@ export type ComposeAction = "up" | "restart" | "stop" | "down";
  * tears down the whole project — network included); a scoped "down" is
  * approximated as `stop` + `rm -f` on just that service, leaving the network
  * and every other service's container untouched.
+ *
+ * `"pull"` is the pull `pullFirst` performs, on its own: images are fetched and
+ * nothing else runs, so a running stack keeps its current containers until the
+ * next `up`.
  */
 export async function composeStackAction(
     server: HostAgent,
@@ -275,11 +279,14 @@ export async function composeStackAction(
     }
     const svc = service ? ` ${service}` : "";
     const base = `cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project}`;
-    if (pullFirst) {
+    if (pullFirst || action === "pull") {
         const pull = await server.exec(`${base} pull${svc} 2>&1`);
         onLog?.(pull.stdout);
         if (pull.code !== 0) {
             throw new Error(errorText(pull) || "docker compose pull failed");
+        }
+        if (action === "pull") {
+            return;
         }
     }
     if (action === "down" && service) {
@@ -763,7 +770,7 @@ interface ImageConfigJson {
     Volumes?: Record<string, unknown>;
 }
 
-const EMPTY_IMAGE_DEFAULTS: ImageDefaults = { volumes: [], ports: [], env: [] };
+const EMPTY_IMAGE_DEFAULTS: ImageDefaults = { present: false, volumes: [], ports: [], env: [] };
 
 /**
  * What an image's Dockerfile already declared — `VOLUME`, `EXPOSE`, `ENV` —
@@ -800,7 +807,7 @@ export async function imageDefaults(server: HostAgent, image: string): Promise<I
             const i = s.indexOf("=");
             return i === -1 ? { key: s, value: "" } : { key: s.slice(0, i), value: s.slice(i + 1) };
         });
-        return { volumes, ports, env };
+        return { present: true, volumes, ports, env };
     } catch {
         return EMPTY_IMAGE_DEFAULTS;
     }

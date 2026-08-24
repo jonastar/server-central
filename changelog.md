@@ -9,6 +9,28 @@ opens a fresh `## Unreleased` above it.
 
 ### Added
 
+- **Pull without deploying.** A compose stack's toolbar (and each service's action menu) has
+  a plain **Pull** next to **Pull & up**: `docker compose pull` on its own, so images are
+  fetched while the running containers stay exactly as they are until the next `up`. Same
+  task kind as before — `docker_compose_action` gained a `"pull"` action — so it lands in run
+  history with its output, like every other compose verb (and inherits the same 30s
+  non-streaming `exec()` limitation a slow pull already had).
+
+- **New compose stack from pasted YAML.** The new-stack modal's **Paste YAML** choice is
+  wired: the pasted document is written as the stack's `compose.yaml` instead of the bare
+  `services:` scaffold. It isn't validated before creation — `docker compose config` needs
+  the file on the host — but the stack view opens straight onto it and validates there, so a
+  nearly-right paste lands somewhere it can be fixed. **From template…** is still disabled;
+  it waits on a template catalogue, not on this modal.
+
+- **"Pull image to show suggestions" in the compose visual editor.** The suggested
+  ports/volumes/environment pickers read the image's own `EXPOSE`/`VOLUME`/`ENV` via `docker
+  image inspect`, which only answers for an image that's already on the host — so for an
+  unpulled image the buttons simply weren't there, indistinguishable from an image that
+  declares nothing. `ImageDefaults` now reports `present`, and each field offers the pull in
+  place of its suggestions button, re-inspecting when it finishes. The pull is a read here:
+  nothing in the stack is started or recreated.
+
 - **Per-host feature availability.** Agents now probe their own machine for what it can
   actually do — ZFS, systemd, Docker — and report the result on `identify`, so the control
   plane knows before it acknowledges the connection. Probes are native (filesystem and

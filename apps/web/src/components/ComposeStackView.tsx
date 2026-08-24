@@ -85,14 +85,15 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
         return () => clearInterval(timer);
     }, [loadStatus]);
 
-    async function runAction(action: "up" | "restart" | "stop" | "down", opts?: { pullFirst?: boolean; autoOpenModal?: boolean; service?: string }) {
+    async function runAction(action: ComposeVerb, opts?: { pullFirst?: boolean; autoOpenModal?: boolean; service?: string }) {
         if (!stack) {
             return;
         }
         // "Pull & up" is an `up` with pullFirst, but it's a distinct button (and a
         // distinct menu item) — give it its own busy key so only the control that
-        // was actually clicked shows a pending label.
-        const verb = opts?.pullFirst ? "pull" : action;
+        // was actually clicked shows a pending label. It's not "pull" either: that
+        // key belongs to the plain pull button sitting next to it.
+        const verb = opts?.pullFirst ? "pull-up" : action;
         const busyId = opts?.service ? `${opts.service}:${verb}` : verb;
         setBusy(busyId);
         try {
@@ -225,8 +226,10 @@ function PortsCell({ ports, hostIp }: { ports: string | undefined; hostIp: strin
     );
 }
 
+type ComposeVerb = "up" | "restart" | "stop" | "down" | "pull";
+
 type RunAction = (
-    action: "up" | "restart" | "stop" | "down",
+    action: ComposeVerb,
     opts?: { pullFirst?: boolean; autoOpenModal?: boolean; service?: string },
 ) => void;
 
@@ -277,11 +280,19 @@ function OverviewTab({ stack, host, status, tasks, busy, run, onOpenContainer, o
                     {busy === "stop" ? "Stopping…" : "Stop"}
                 </button>
                 <button
+                    className={shared.btn}
+                    disabled={busy !== null}
+                    title="Fetch the stack's images without starting or recreating anything"
+                    onClick={() => run("pull", { autoOpenModal: true })}
+                >
+                    {busy === "pull" ? "Pulling…" : "Pull"}
+                </button>
+                <button
                     className={cx(shared.btn, shared["btn-primary"])}
                     disabled={busy !== null}
                     onClick={() => run("up", { pullFirst: true, autoOpenModal: true })}
                 >
-                    {busy === "pull" ? "Pulling…" : "Pull & up"}
+                    {busy === "pull-up" ? "Pulling…" : "Pull & up"}
                 </button>
                 <button
                     className={cx(shared.btn, shared["btn-danger"])}
@@ -333,6 +344,7 @@ function OverviewTab({ stack, host, status, tasks, busy, run, onOpenContainer, o
                                                     },
                                                     { label: svc.up ? "Restart" : "Start", onSelect: () => run(svc.up ? "restart" : "up", { service: svc.name }) },
                                                     { label: "Stop", disabled: !svc.up, onSelect: () => run("stop", { service: svc.name }) },
+                                                    { label: "Pull", onSelect: () => run("pull", { service: svc.name, autoOpenModal: true }) },
                                                     { label: "Pull & up", onSelect: () => run("up", { pullFirst: true, service: svc.name, autoOpenModal: true }) },
                                                     {
                                                         label: "Down",

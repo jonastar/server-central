@@ -14,10 +14,15 @@ function joinDir(dir: string, name: string): string {
     return dir.endsWith("/") ? `${dir}${name}` : `${dir}/${name}`;
 }
 
-/** Design ref 1k: single modal, path preview as you type. Only "Empty" compose
- *  choice is wired — "From template…"/"Paste YAML" are nice-to-have per
- *  doc/idea_app_system.md, not required for v1. The host isn't a field: this
- *  opens from one host's Docker → Stacks section, and that's the host. */
+/** Design ref 1k: single modal, path preview as you type. "Empty" and "Paste
+ *  YAML" are wired; "From template…" waits on a template catalogue
+ *  (doc/idea_app_system.md), which is a feature of its own, not a mode of this
+ *  modal. The host isn't a field: this opens from one host's Docker → Stacks
+ *  section, and that's the host.
+ *
+ *  Pasted YAML isn't validated before create — `docker compose config` needs the
+ *  file on the host, and the stack view's editor runs exactly that check the
+ *  moment the stack opens, with somewhere to fix it. */
 export function NewComposeStackModal({ host, onClose, onCreated }: {
     host: ServerEntry;
     onClose: () => void;
@@ -28,6 +33,8 @@ export function NewComposeStackModal({ host, onClose, onCreated }: {
     const [baseDir, setBaseDir] = useState("/opt/sc-apps");
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [source, setSource] = useState<"empty" | "yaml">("empty");
+    const [yaml, setYaml] = useState("");
 
     const slug = slugify(name) || "stack";
     const targetDir = joinDir(baseDir, slug);
@@ -39,9 +46,18 @@ export function NewComposeStackModal({ host, onClose, onCreated }: {
             setError("Name is required");
             return;
         }
+        if (source === "yaml" && !yaml.trim()) {
+            setError("Paste a compose file, or switch to Empty");
+            return;
+        }
         setBusy(true);
         try {
-            const stack = await api("createComposeStack", { name, hostId, dir: targetDir });
+            const stack = await api("createComposeStack", {
+                name,
+                hostId,
+                dir: targetDir,
+                content: source === "yaml" ? yaml : undefined,
+            });
             onCreated(stack.id);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -78,18 +94,42 @@ export function NewComposeStackModal({ host, onClose, onCreated }: {
                 <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 6, padding: "10px 12px", marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                     <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--muted)" }}>Will create</span>
                     <pre className={shared.mono} style={{ margin: 0, lineHeight: 1.6 }}>
-                        {targetDir}/{"\n"}  sc-stack.json{"\n"}  compose.yaml
+                        {targetDir}/{"\n"}  sc-stack.json{"\n"}  compose.yaml{source === "yaml" ? " (from the YAML below)" : ""}
                     </pre>
                 </div>
 
                 <label className={shared["login-field"]} style={{ marginTop: 12 }}>
                     <span>Compose file</span>
                     <div style={{ display: "flex", gap: 6 }}>
-                        <button type="button" className={cx(shared.btn, shared["btn-primary"])}>Empty</button>
+                        <button
+                            type="button"
+                            className={cx(shared.btn, source === "empty" && shared["btn-primary"])}
+                            onClick={() => setSource("empty")}
+                        >
+                            Empty
+                        </button>
                         <button type="button" className={shared.btn} disabled title="Coming soon">From template…</button>
-                        <button type="button" className={shared.btn} disabled title="Coming soon">Paste YAML</button>
+                        <button
+                            type="button"
+                            className={cx(shared.btn, source === "yaml" && shared["btn-primary"])}
+                            onClick={() => setSource("yaml")}
+                        >
+                            Paste YAML
+                        </button>
                     </div>
                 </label>
+
+                {source === "yaml" && (
+                    <textarea
+                        className={shared.mono}
+                        value={yaml}
+                        onChange={(e) => setYaml(e.target.value)}
+                        spellCheck={false}
+                        rows={12}
+                        placeholder={"services:\n  app:\n    image: nginx:latest\n    ports:\n      - \"8080:80\""}
+                        style={{ width: "100%", marginTop: 8, fontSize: 12.5, resize: "vertical" }}
+                    />
+                )}
 
                 <div className={shared["modal-actions"]} style={{ marginTop: 16, alignItems: "center" }}>
                     <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>

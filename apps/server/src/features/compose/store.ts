@@ -84,10 +84,15 @@ export class ComposeStackStore {
         await writeComposeStackState(Object.fromEntries(this.stacks));
     }
 
-    /** Scaffolds a fresh stack directory: `sc-stack.json` + an empty `compose.yaml`.
+    /** Scaffolds a fresh stack directory: `sc-stack.json` + a `compose.yaml`.
+     *  `content` seeds that file (pasted YAML); without it, it's the bare
+     *  `services:` an empty stack starts from. The content isn't validated here —
+     *  the stack view's editor validates against `docker compose config`, and
+     *  refusing to create the directory would leave the operator with nowhere to
+     *  fix a paste that's nearly right.
      *  No volumes/ subdirectory — bind mounts go wherever the compose file says,
      *  and an empty folder SC invented was only ever a convention to explain. */
-    async create(name: string, hostId: string, dir: string): Promise<ComposeStack> {
+    async create(name: string, hostId: string, dir: string, content?: string): Promise<ComposeStack> {
         const trimmed = name.trim();
         if (!trimmed) {
             throw new Error("Stack name is required");
@@ -103,7 +108,8 @@ export class ComposeStackStore {
             createdAt: Date.now(),
         };
         await agent.createDir(dir);
-        await agent.writeFile(joinDir(dir, stack.composeFile), "services:\n");
+        const composeContent = content?.trim() ? `${content.replace(/\s+$/, "")}\n` : "services:\n";
+        await agent.writeFile(joinDir(dir, stack.composeFile), composeContent);
         await agent.writeFile(joinDir(dir, MANIFEST), manifestJson(stack));
         this.stacks.set(stack.id, stack);
         await this.persist();

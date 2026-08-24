@@ -24,7 +24,7 @@ import {
     stringifyCompose,
 } from "../../lib/composeDoc";
 import { validateComposeObject } from "../../lib/composeValidate";
-import { api } from "../../api";
+import { api, runTaskAndWait } from "../../api";
 import { cx } from "../../utils";
 import { DirectoryPicker, fileTypeClass } from "../DirectoryPicker";
 import { EmptyState, ErrorBanner, Modal } from "../ui";
@@ -33,7 +33,55 @@ import shared from "../../styles/shared.module.css";
 const SERVICE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
 const RESTART_OPTIONS = ["", "no", "always", "on-failure", "unless-stopped"];
 const PORT_NAME_SUGGESTIONS = ["web", "web-frontend", "web-backend", "api", "admin", "metrics", "other"];
-const EMPTY_IMAGE_DEFAULTS: ImageDefaults = { volumes: [], ports: [], env: [] };
+const EMPTY_IMAGE_DEFAULTS: ImageDefaults = { present: false, volumes: [], ports: [], env: [] };
+
+/** What each field needs to render its suggestions control: either the image's
+ *  own declarations, or — when the image isn't on the host — the pull that
+ *  would produce them. `docker image inspect` can only answer for an image
+ *  that's local, so an unpulled image and one that declares nothing look
+ *  identical from here; `present` is what separates them. */
+interface ImageSuggestions {
+    /** The service's image reference; empty while the field is blank. */
+    ref: string;
+    present: boolean;
+    pulling: boolean;
+    pull: () => void;
+}
+
+/** The header control next to a field's title: the suggestion picker once the
+ *  image is pulled, the pull itself while it isn't. Nothing at all with no
+ *  image typed yet — there's nothing to suggest from or pull. */
+function SuggestionsButton({ image, count, label, onOpen }: {
+    image: ImageSuggestions;
+    count: number;
+    label: string;
+    onOpen: () => void;
+}) {
+    if (!image.ref) {
+        return null;
+    }
+    if (!image.present) {
+        return (
+            <button
+                type="button"
+                className={cx(shared.btn, shared["btn-sm"])}
+                disabled={image.pulling}
+                title={`${image.ref} isn't on this host yet. Suggestions come from the image's own VOLUME/EXPOSE/ENV declarations, which can only be read from a pulled image.`}
+                onClick={image.pull}
+            >
+                {image.pulling ? "Pulling image…" : "Pull image to show suggestions"}
+            </button>
+        );
+    }
+    if (count === 0) {
+        return null;
+    }
+    return (
+        <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={onOpen}>
+            {label} ({count})
+        </button>
+    );
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
     return (
@@ -167,6 +215,9 @@ function ServiceEditor({ doc, service, hostId, stackDir, otherServices, errors, 
     // inspect per image, shared by the three fields below rather than each
     // fetching it separately.
     const [defaults, setDefaults] = useState<ImageDefaults>(EMPTY_IMAGE_DEFAULTS);
+    const [pulling, setPulling] = useState(false);
+    // Bumped after a pull so the inspect re-runs for the same image reference.
+    const [pullCount, setPullCount] = useState(0);
     useEffect(() => {
         if (!image) {
             setDefaults(EMPTY_IMAGE_DEFAULTS);
@@ -177,7 +228,24 @@ function ServiceEditor({ doc, service, hostId, stackDir, otherServices, errors, 
             .then((r) => { if (alive) setDefaults(r); })
             .catch(() => { if (alive) setDefaults(EMPTY_IMAGE_DEFAULTS); });
         return () => { alive = false; };
-    }, [hostId, image]);
+    }, [hostId, image, pullCount]);
+
+    // Pulling here is a read, not a deploy: nothing in the stack is started or
+    // recreated, the image just becomes inspectable so the suggestion pickers
+    // have something to offer.
+    async function pullImage() {
+        if (!image || pulling) {
+            return;
+        }
+        setPulling(true);
+        try {
+            await runTaskAndWait({ kind: "docker_image_pull", ref: image }, hostId, { autoOpenModal: true });
+        } catch { /* the task modal carries the failure; the button just goes idle */ }
+        setPulling(false);
+        setPullCount((n) => n + 1);
+    }
+
+    const suggestions: ImageSuggestions = { ref: image, present: defaults.present, pulling, pull: () => void pullImage() };
 
     return (
         <>
@@ -209,9 +277,9 @@ function ServiceEditor({ doc, service, hostId, stackDir, otherServices, errors, 
                 </Field>
             </div>
 
-            <PortsField doc={doc} service={service} commit={commit} suggestedPorts={defaults.ports} />
-            <VolumesField doc={doc} service={service} hostId={hostId} stackDir={stackDir} commit={commit} suggestedTargets={defaults.volumes} />
-            <EnvironmentField doc={doc} service={service} commit={commit} suggestedEnv={defaults.env} />
+            <PortsField doc={doc} service={service} commit={commit} suggestedPorts={defaults.ports} image={suggestions} />
+            <VolumesField doc={doc} service={service} hostId={hostId} stackDir={stackDir} commit={commit} suggestedTargets={defaults.volumes} image={suggestions} />
+            <EnvironmentField doc={doc} service={service} commit={commit} suggestedEnv={defaults.env} image={suggestions} />
             <DependsOnField doc={doc} service={service} otherServices={otherServices} commit={commit} />
         </>
     );
@@ -221,9 +289,10 @@ function ServiceEditor({ doc, service, hostId, stackDir, otherServices, errors, 
 
 const EMPTY_PORT_ROW: PortRow = { kind: "short", published: "", target: "", protocol: "tcp", name: "" };
 
-function PortsField({ doc, service, commit, suggestedPorts }: {
+function PortsField({ doc, service, commit, suggestedPorts, image }: {
     doc: Document; service: string; commit: (mutate: (doc: Document) => void) => void;
     suggestedPorts: { port: number; protocol: "tcp" | "udp" }[];
+    image: ImageSuggestions;
 }) {
     const path = ["services", service, "ports"];
     const rows = getSeqItems<unknown>(doc, path).map(parsePortEntry);
@@ -302,11 +371,7 @@ function PortsField({ doc, service, commit, suggestedPorts }: {
         <section>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <h3 style={{ fontSize: 13, margin: 0 }}>Ports</h3>
-                {suggestedPorts.length > 0 && (
-                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => setShowSuggested(true)}>
-                        Suggested ports ({suggestedPorts.length})
-                    </button>
-                )}
+                <SuggestionsButton image={image} count={suggestedPorts.length} label="Suggested ports" onOpen={() => setShowSuggested(true)} />
             </div>
             <datalist id="sc-port-name-suggestions">
                 {PORT_NAME_SUGGESTIONS.map((s) => <option key={s} value={s} />)}
@@ -486,9 +551,10 @@ function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
     );
 }
 
-function VolumesField({ doc, service, hostId, stackDir, commit, suggestedTargets }: {
+function VolumesField({ doc, service, hostId, stackDir, commit, suggestedTargets, image }: {
     doc: Document; service: string; hostId: string; stackDir: string; commit: (mutate: (doc: Document) => void) => void;
     suggestedTargets: string[];
+    image: ImageSuggestions;
 }) {
     const path = ["services", service, "volumes"];
     const rows = getSeqItems<unknown>(doc, path).map(parseVolumeEntry);
@@ -567,11 +633,7 @@ function VolumesField({ doc, service, hostId, stackDir, commit, suggestedTargets
         <section>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <h3 style={{ fontSize: 13, margin: 0 }}>Volumes</h3>
-                {suggestedTargets.length > 0 && (
-                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => setShowSuggested(true)}>
-                        Suggested volumes ({suggestedTargets.length})
-                    </button>
-                )}
+                <SuggestionsButton image={image} count={suggestedTargets.length} label="Suggested volumes" onOpen={() => setShowSuggested(true)} />
             </div>
             <datalist id="sc-volume-target-suggestions">
                 {suggestedTargets.map((p) => <option key={p} value={p} />)}
@@ -631,9 +693,10 @@ function VolumesField({ doc, service, hostId, stackDir, commit, suggestedTargets
 
 // ---- environment --------------------------------------------------------------------
 
-function EnvironmentField({ doc, service, commit, suggestedEnv }: {
+function EnvironmentField({ doc, service, commit, suggestedEnv, image }: {
     doc: Document; service: string; commit: (mutate: (doc: Document) => void) => void;
     suggestedEnv: { key: string; value: string }[];
+    image: ImageSuggestions;
 }) {
     const raw = getServiceField<unknown>(doc, service, "environment");
     const { rows, asObject } = parseEnvironment(raw);
@@ -661,11 +724,7 @@ function EnvironmentField({ doc, service, commit, suggestedEnv }: {
         <section>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <h3 style={{ fontSize: 13, margin: 0 }}>Environment</h3>
-                {suggestedEnv.length > 0 && (
-                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => setShowSuggested(true)}>
-                        Suggested variables ({suggestedEnv.length})
-                    </button>
-                )}
+                <SuggestionsButton image={image} count={suggestedEnv.length} label="Suggested variables" onOpen={() => setShowSuggested(true)} />
             </div>
             {showSuggested && (
                 <Modal title="Suggested environment variables" onClose={() => setShowSuggested(false)} width={560}>

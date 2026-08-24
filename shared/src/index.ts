@@ -320,8 +320,14 @@ export interface DockerImageInfo {
 /** What an image's Dockerfile already declares (`VOLUME`/`EXPOSE`/`ENV`) — a
  *  cheap `docker image inspect` away, no pull/run needed. Powers the Compose
  *  visual editor's "suggested volumes/ports/environment" pickers. Only
- *  populated if the image is already present locally; all empty otherwise. */
+ *  populated if the image is already present locally; all empty otherwise —
+ *  `present` is what tells the two cases apart, so the editor can offer a pull
+ *  instead of silently showing no suggestions. */
 export interface ImageDefaults {
+    /** Whether the image is pulled on the host. False means the three lists are
+     *  empty because nothing could be inspected, not because the image declares
+     *  nothing. */
+    present: boolean;
     volumes: string[];
     ports: { port: number; protocol: "tcp" | "udp" }[];
     env: { key: string; value: string }[];
@@ -969,7 +975,9 @@ export type CentralApiOperations = {
     // effect) plus what's running. See HostComposeStacks.
     listHostComposeStacks: { data: { hostId: string }; response: HostComposeStacks };
     // Always scaffolds an empty compose.yaml + volumes/ under dir.
-    createComposeStack: { data: { name: string; hostId: string; dir: string }; response: ComposeStack };
+    // `content` seeds the new stack's compose.yaml (the "Paste YAML" path in the
+    // new-stack modal); omitted, the file is scaffolded with a bare `services:`.
+    createComposeStack: { data: { name: string; hostId: string; dir: string; content?: string }; response: ComposeStack };
     // Probes a candidate directory before import (step 2 of the import flow).
     detectComposeStack: { data: { hostId: string; dir: string }; response: ComposeStackDetection };
     // Always mints a fresh id, even when dir already has a manifest.

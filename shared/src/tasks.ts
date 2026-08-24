@@ -57,13 +57,15 @@ export interface TaskDockerImagePull {
  *  rather than existing container ids — unlike `docker_stack_action`, this
  *  works on a fully-down stack (including one that has never had a container
  *  at all). `action: "up"`
- *  with `pullFirst` is the "Pull & up" control. Runs over the plain (30s,
- *  non-streaming) exec today — see doc/idea_app_system.md §8's streaming-exec
- *  deferral for the known limitation on slow pulls. */
+ *  with `pullFirst` is the "Pull & up" control; `action: "pull"` is the same
+ *  pull on its own, fetching images without touching what's running. Runs over
+ *  the plain (30s, non-streaming) exec today — see doc/idea_app_system.md §8's
+ *  streaming-exec deferral for the known limitation on slow pulls. */
 export interface TaskDockerComposeAction {
     kind: "docker_compose_action";
     stackId: string;
-    action: "up" | "restart" | "stop" | "down";
+    action: "up" | "restart" | "stop" | "down" | "pull";
+    /** Ignored when `action` is already "pull". */
     pullFirst?: boolean;
     /** Scope the action to one service instead of the whole project. */
     service?: string;
