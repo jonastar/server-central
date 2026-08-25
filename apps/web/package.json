@@ -1,6 +1,6 @@
 {
   "name": "@central/web",
-  "version": "0.11.0",
+  "version": "0.12.0-dev",
   "private": true,
   "type": "module",
   "scripts": {
