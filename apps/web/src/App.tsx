@@ -198,3 +198,5 @@ export default function App() {
     }
     return <AuthedApp onLogout={auth.logout} />;
 }
+
+console.log("hello world", import.meta.env);

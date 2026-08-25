@@ -271,6 +271,40 @@ export interface DirEntry {
     permissions: string;
 }
 
+/** How a device node is likely to be used, so the picker can group and explain
+ *  the list instead of showing bare paths. Derived from the path alone — nothing
+ *  here opens the device to ask it what it is. */
+export type HostDeviceKind = "serial" | "gpu" | "video" | "tun" | "other";
+
+/** A device node on a host that could be mapped into a container (compose's
+ *  `devices:`). Produced by scanning a fixed set of `/dev` locations — see
+ *  `features/files/host-devices.ts`; it is not a full `/dev` listing. */
+export interface HostDevice {
+    /** The path to map. The stable `/dev/serial/by-id/...` symlink when the
+     *  device has one — USB serial nodes get renumbered across reboots and
+     *  re-plugs, so the raw `/dev/ttyACM0` is the wrong thing to write into a
+     *  compose file when a by-id name exists. */
+    path: string;
+    /** The device node `path` ultimately points at, e.g. `/dev/ttyACM0`. Equal
+     *  to `path` when it isn't reached through a symlink. */
+    node: string;
+    kind: HostDeviceKind;
+    /** Other paths reaching the same node — the raw node behind a by-id symlink,
+     *  or a second by-id alias for a multi-interface adapter. */
+    aliases: string[];
+    /** Human name recovered from the by-id filename (e.g. "dresden elektronik
+     *  ingenieurtechnik GmbH ConBee II DE2667394"), absent when there's no such
+     *  name to read one from. */
+    label?: string;
+}
+
+export interface HostDevices {
+    devices: HostDevice[];
+    /** Set when the scan itself failed; `devices` is empty then. An empty list
+     *  with no error means the host genuinely has none of the scanned nodes. */
+    error?: string;
+}
+
 export interface FileContent {
     path: string;
     /** Text (utf8) or, for images, the base64-encoded bytes (see `encoding`). */
@@ -1134,6 +1168,9 @@ export type CentralApiOperations = {
 
     // Mounts — every real filesystem currently mounted, and whether it'll survive a reboot.
     getMounts: { data: { serverId: string }; response: MountsState };
+    // Mappable device nodes (`/dev/serial/by-id`, tty, dri, video, tun) — what the
+    // compose editor's `devices:` picker offers, not a full /dev listing.
+    listHostDevices: { data: { serverId: string }; response: HostDevices };
 
     // Tasks — the uniform envelope (history, typed last-result, run-now).
     // (Cancellation and schedules are deferred until a task kind needs them;

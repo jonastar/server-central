@@ -9,6 +9,19 @@ opens a fresh `## Unreleased` above it.
 
 ### Added
 
+- **Device passthrough in the compose editor.** Services now have a **Devices** field
+  (compose's `devices:`), with a picker fed by a scan of the host's own `/dev` — USB serial
+  adapters, GPU render nodes, V4L capture devices and `/dev/net/tun`, via the new
+  `listHostDevices` op. A serial adapter is offered under its `/dev/serial/by-id/…` name with
+  the product string read out of it ("dresden elektronik … ConBee II DE2667394") and the
+  `/dev/ttyACM0` it currently resolves to shown underneath: the stable path is the one that
+  belongs in a compose file, and it's exactly the one nobody can type from memory. Devices
+  already mapped are marked as such under any of their names, so the same hardware can't be
+  added twice through a symlink and its node. Short and long compose syntax both round-trip;
+  anything the editor can't decompose stays untouched for the YAML tab. Zigbee/Z-Wave sticks
+  and hardware transcoding were the two things a stack couldn't express here before —
+  Home Assistant with a ConBee II now comes up from the visual editor alone.
+
 - **Pull without deploying.** A compose stack's toolbar (and each service's action menu) has
   a plain **Pull** next to **Pull & up**: `docker compose pull` on its own, so images are
   fetched while the running containers stay exactly as they are until the next `up`. Same

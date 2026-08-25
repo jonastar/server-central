@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Document } from "yaml";
-import type { DirEntry, ImageDefaults } from "@central/shared";
+import type { DirEntry, HostDevice, HostDeviceKind, HostDevices, ImageDefaults } from "@central/shared";
 import {
+    type DeviceRow,
     type EnvRow,
     type PortRow,
     type VolumeRow,
@@ -12,10 +13,12 @@ import {
     listServiceNames,
     looksLikeHostPath,
     parseCompose,
+    parseDeviceEntry,
     parseEnvironment,
     parsePortEntry,
     parseVolumeEntry,
     removeSeqItem,
+    serializeDeviceRow,
     serializeEnvironment,
     serializePortRow,
     serializeVolumeRow,
@@ -279,6 +282,7 @@ function ServiceEditor({ doc, service, hostId, stackDir, otherServices, errors, 
 
             <PortsField doc={doc} service={service} commit={commit} suggestedPorts={defaults.ports} image={suggestions} />
             <VolumesField doc={doc} service={service} hostId={hostId} stackDir={stackDir} commit={commit} suggestedTargets={defaults.volumes} image={suggestions} />
+            <DevicesField doc={doc} service={service} hostId={hostId} commit={commit} />
             <EnvironmentField doc={doc} service={service} commit={commit} suggestedEnv={defaults.env} image={suggestions} />
             <DependsOnField doc={doc} service={service} otherServices={otherServices} commit={commit} />
         </>
@@ -688,6 +692,230 @@ function VolumesField({ doc, service, hostId, stackDir, commit, suggestedTargets
                 </button>
             </div>
         </section>
+    );
+}
+
+// ---- devices ------------------------------------------------------------------------
+
+const EMPTY_DEVICE_ROW: DeviceRow = { kind: "short", source: "", target: "", permissions: "" };
+
+const DEVICE_KIND_LABEL: Record<HostDeviceKind, string> = {
+    serial: "Serial adapters",
+    gpu: "GPU",
+    video: "Video capture",
+    tun: "Network tunnel",
+    other: "Other",
+};
+
+const DEVICE_KIND_ORDER: HostDeviceKind[] = ["serial", "gpu", "video", "tun", "other"];
+
+/** Maps host device nodes into the container (compose `devices:`) — the field a
+ *  Zigbee/Z-Wave stick or a GPU passthrough needs. The picker is fed by the
+ *  host's own `/dev` scan rather than free text, because the path that belongs in
+ *  a compose file (`/dev/serial/by-id/usb-…`) is exactly the one nobody can type
+ *  from memory, and the one that's obvious (`/dev/ttyACM0`) is the one that
+ *  silently moves between reboots. */
+function DevicesField({ doc, service, hostId, commit }: {
+    doc: Document; service: string; hostId: string; commit: (mutate: (doc: Document) => void) => void;
+}) {
+    const path = ["services", service, "devices"];
+    const rows = getSeqItems<unknown>(doc, path).map(parseDeviceEntry);
+    // Same reasoning as PortsField's `pending`: a row with no host path yet isn't
+    // a device mapping, and writing it would produce a bare `- ` compose rejects.
+    const [pending, setPending] = useState<DeviceRow | null>(null);
+    const [picking, setPicking] = useState<"pending" | "browse" | number | null>(null);
+    const [hostDevices, setHostDevices] = useState<HostDevices | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        api("listHostDevices", { serverId: hostId })
+            .then((r) => { if (alive) setHostDevices(r); })
+            .catch((err) => { if (alive) setHostDevices({ devices: [], error: err instanceof Error ? err.message : String(err) }); });
+        return () => { alive = false; };
+    }, [hostId]);
+
+    const available = hostDevices?.devices ?? [];
+    // A device counts as mapped under any of its names — picking the by-id path
+    // and then the raw node it resolves to would map the same hardware twice.
+    const mappedPaths = new Set(rows.filter((r) => r.kind !== "raw").map((r) => r.source));
+    function isMapped(dev: HostDevice): boolean {
+        return mappedPaths.has(dev.path) || mappedPaths.has(dev.node) || dev.aliases.some((a) => mappedPaths.has(a));
+    }
+
+    function update(i: number, patch: Partial<DeviceRow>) {
+        commit((d) => setSeqItem(d, path, i, serializeDeviceRow({ ...rows[i], ...patch })));
+    }
+
+    function updatePending(patch: Partial<DeviceRow>) {
+        const next = { ...(pending ?? EMPTY_DEVICE_ROW), ...patch };
+        if (next.source.trim()) {
+            commit((d) => addSeqItem(d, path, serializeDeviceRow(next)));
+            setPending(null);
+        } else {
+            setPending(next);
+        }
+    }
+
+    function addDevice(dev: HostDevice) {
+        commit((d) => addSeqItem(d, path, serializeDeviceRow({ ...EMPTY_DEVICE_ROW, source: dev.path })));
+        setPicking(null);
+    }
+
+    function deviceRowFields(row: DeviceRow, onEdit: (patch: Partial<DeviceRow>) => void, onRemove: () => void, pickKey: "pending" | number) {
+        return (
+            <Row onRemove={onRemove}>
+                <input
+                    style={{ flex: 1 }}
+                    className={shared.mono}
+                    list="sc-host-device-paths"
+                    placeholder="/dev/serial/by-id/…"
+                    value={row.source}
+                    onChange={(e) => onEdit({ source: e.target.value })}
+                />
+                <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => setPicking(pickKey)}>
+                    Pick…
+                </button>
+                <span className={shared.dim}>→</span>
+                <input
+                    style={{ flex: 1 }}
+                    className={shared.mono}
+                    placeholder={row.source || "same path in container"}
+                    value={row.target}
+                    onChange={(e) => onEdit({ target: e.target.value })}
+                />
+                <input
+                    style={{ width: 64 }}
+                    className={shared.mono}
+                    placeholder="rwm"
+                    title="Cgroup permissions: read, write, mknod. Blank means compose's default, rwm."
+                    value={row.permissions}
+                    onChange={(e) => onEdit({ permissions: e.target.value })}
+                />
+                {picking === pickKey && (
+                    <Modal title="Host devices" onClose={() => setPicking(null)} width={620}>
+                        <DevicePicker
+                            state={hostDevices}
+                            isMapped={isMapped}
+                            onPick={(dev) => { onEdit({ source: dev.path }); setPicking(null); }}
+                        />
+                        <div className={shared["modal-actions"]} style={{ marginTop: 12 }}>
+                            <button type="button" className={shared.btn} onClick={() => setPicking(null)}>Cancel</button>
+                        </div>
+                    </Modal>
+                )}
+            </Row>
+        );
+    }
+
+    return (
+        <section>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <h3 style={{ fontSize: 13, margin: 0 }}>Devices</h3>
+                {available.length > 0 && (
+                    <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => setPicking("browse")}>
+                        Host devices ({available.length})
+                    </button>
+                )}
+            </div>
+            <datalist id="sc-host-device-paths">
+                {available.map((d) => <option key={d.path} value={d.path} />)}
+            </datalist>
+            {picking === "browse" && (
+                <Modal title="Host devices" onClose={() => setPicking(null)} width={620}>
+                    <DevicePicker state={hostDevices} isMapped={isMapped} onPick={addDevice} addLabel />
+                    <div className={shared["modal-actions"]} style={{ marginTop: 12 }}>
+                        <button type="button" className={shared.btn} onClick={() => setPicking(null)}>Close</button>
+                    </div>
+                </Modal>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {rows.map((row, i) => row.kind === "raw" ? (
+                    <Row key={i} onRemove={() => commit((d) => removeSeqItem(d, path, i))}>
+                        <span className={cx(shared.mono, shared.dim)} style={{ fontSize: 12, flex: 1 }}>
+                            {typeof row.raw === "string" ? row.raw : JSON.stringify(row.raw)} — advanced syntax, edit in YAML tab
+                        </span>
+                    </Row>
+                ) : (
+                    <div key={i}>{deviceRowFields(row, (patch) => update(i, patch), () => commit((d) => removeSeqItem(d, path, i)), i)}</div>
+                ))}
+                {pending && deviceRowFields(pending, updatePending, () => { setPending(null); setPicking(null); }, "pending")}
+                <button
+                    type="button"
+                    className={cx(shared.btn, shared["btn-sm"])}
+                    style={{ alignSelf: "flex-start" }}
+                    onClick={() => setPending(EMPTY_DEVICE_ROW)}
+                    disabled={pending !== null}
+                >
+                    + Add device
+                </button>
+            </div>
+        </section>
+    );
+}
+
+/** The host's scanned `/dev` shortlist, grouped by kind. `null` state is the scan
+ *  still running — distinct from a completed scan that found nothing, which is a
+ *  real answer about the host and says so. */
+function DevicePicker({ state, isMapped, onPick, addLabel }: {
+    state: HostDevices | null;
+    isMapped: (dev: HostDevice) => boolean;
+    onPick: (dev: HostDevice) => void;
+    /** Label the action "+ Add" (adds a row) rather than "Use" (fills the row
+     *  the picker was opened from). */
+    addLabel?: boolean;
+}) {
+    if (!state) {
+        return <EmptyState>Scanning /dev…</EmptyState>;
+    }
+    if (state.error) {
+        return <ErrorBanner>{state.error}</ErrorBanner>;
+    }
+    if (state.devices.length === 0) {
+        return <EmptyState>No serial, GPU, video or tunnel devices found on this host.</EmptyState>;
+    }
+    return (
+        <>
+            <p className={shared.dim} style={{ fontSize: 12, marginTop: 0 }}>
+                Prefer a <span className={shared.mono}>/dev/serial/by-id/…</span> path where one exists — it
+                survives reboots and re-plugs, unlike the <span className={shared.mono}>/dev/ttyACM0</span> it
+                points at. Set a container path on the row if the app expects a fixed name.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 380, overflowY: "auto" }}>
+                {DEVICE_KIND_ORDER.map((kind) => {
+                    const group = state.devices.filter((d) => d.kind === kind);
+                    if (group.length === 0) {
+                        return null;
+                    }
+                    return (
+                        <div key={kind} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--muted)" }}>
+                                {DEVICE_KIND_LABEL[kind]}
+                            </span>
+                            {group.map((dev) => (
+                                <div key={dev.path} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                                        {dev.label && <span style={{ fontSize: 12.5, fontWeight: 600 }}>{dev.label}</span>}
+                                        <span className={shared.mono} style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {dev.path}
+                                        </span>
+                                        {dev.node !== dev.path && (
+                                            <span className={cx(shared.dim, shared.mono)} style={{ fontSize: 11 }}>→ {dev.node}</span>
+                                        )}
+                                    </div>
+                                    {isMapped(dev) ? (
+                                        <span className={cx(shared.badge, shared["badge-ok"])}>mapped</span>
+                                    ) : (
+                                        <button type="button" className={cx(shared.btn, shared["btn-sm"])} onClick={() => onPick(dev)}>
+                                            {addLabel ? "+ Add" : "Use"}
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })}
+            </div>
+        </>
     );
 }
 

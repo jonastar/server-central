@@ -236,6 +236,70 @@ export function serializeVolumeRow(row: VolumeRow): unknown {
     return flags ? `${row.source}:${row.target}:${flags}` : `${row.source}:${row.target}`;
 }
 
+// ---- devices ----------------------------------------------------------------------
+
+export interface DeviceRow {
+    kind: "short" | "long" | "raw";
+    /** Host path, e.g. `/dev/serial/by-id/usb-…-if00`. */
+    source: string;
+    /** Path inside the container. Empty means "same as source" — compose's own
+     *  default for a one-part short entry. */
+    target: string;
+    /** Cgroup permissions: r(ead) w(rite) m(knod). Empty means compose's default
+     *  of `rwm`, which is what nearly every mapping wants. */
+    permissions: string;
+    /** Entry couldn't be decomposed (an unexpected long-form key, a non-string
+     *  scalar) — shown read-only, edit via the YAML tab. */
+    raw?: unknown;
+}
+
+export function parseDeviceEntry(entry: unknown): DeviceRow {
+    if (typeof entry === "string") {
+        const parts = entry.split(":");
+        if (parts.length < 1 || parts.length > 3 || !parts[0]) {
+            return { kind: "raw", source: "", target: "", permissions: "", raw: entry };
+        }
+        return { kind: "short", source: parts[0], target: parts[1] ?? "", permissions: parts[2] ?? "" };
+    }
+    if (entry && typeof entry === "object") {
+        const o = entry as Record<string, unknown>;
+        const extraKeys = Object.keys(o).some((k) => !["source", "target", "permissions"].includes(k));
+        if (extraKeys || typeof o.source !== "string") {
+            return { kind: "raw", source: "", target: "", permissions: "", raw: o };
+        }
+        return {
+            kind: "long",
+            source: o.source,
+            target: (o.target as string | undefined) ?? "",
+            permissions: (o.permissions as string | undefined) ?? "",
+        };
+    }
+    return { kind: "raw", source: "", target: "", permissions: "", raw: entry };
+}
+
+export function serializeDeviceRow(row: DeviceRow): unknown {
+    if (row.kind === "raw") {
+        return row.raw;
+    }
+    if (row.kind === "long") {
+        const o: Record<string, unknown> = { source: row.source };
+        if (row.target) {
+            o.target = row.target;
+        }
+        if (row.permissions) {
+            o.permissions = row.permissions;
+        }
+        return o;
+    }
+    // Permissions are positional in short form, so they can't be written without
+    // a target — fall back to repeating the source, which is what compose would
+    // have defaulted the target to anyway.
+    if (row.permissions) {
+        return `${row.source}:${row.target || row.source}:${row.permissions}`;
+    }
+    return row.target ? `${row.source}:${row.target}` : row.source;
+}
+
 // ---- environment (list_or_dict) ----------------------------------------------------
 
 export interface EnvRow {

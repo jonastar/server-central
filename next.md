@@ -14,6 +14,7 @@ re-document finished work here, and delete an item from this file once it lands.
 - Better process list? Or is it better to just jump into `htop` in the terminal at that point?
 - Host user authorized keys mangement
   - Option to sync authorized keys across all mapped users?
+- Default stack location
 
 ### RBAC gap
 

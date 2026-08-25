@@ -1,19 +1,23 @@
 {
-  "name": "server-central",
-  "private": true,
-  "workspaces": ["apps/*", "shared"],
-  "scripts": {
-    "postinstall": "bun run scripts/write-generated-stubs.ts",
-    "dev": "bun run dev:server & bun run dev:web",
-    "dev:server": "bun run --filter @central/server dev",
-    "dev:web": "bun run --filter @central/web dev",
-    "build": "bun run --filter @central/web build",
-    "build:agent:linux": "bash scripts/build-agent.sh linux",
-    "build:agent:mac": "bash scripts/build-agent.sh mac",
-    "build:agent:windows": "bash scripts/build-agent.sh windows",
-    "build:agent": "bash scripts/build-agent.sh",
-    "release": "bun run scripts/release.ts",
-    "bump": "bun run scripts/release.ts bump",
-    "typecheck": "bun run --filter @central/shared typecheck && bun run --filter @central/server typecheck && bun run --filter @central/web typecheck"
-  }
+    "name": "server-central",
+    "private": true,
+    "workspaces": [
+        "apps/*",
+        "shared"
+    ],
+    "scripts": {
+        "postinstall": "bun run scripts/write-generated-stubs.ts",
+        "dev": "bun run dev:server & bun run dev:web",
+        "dev:server": "bun run --filter @central/server dev",
+        "dev:web": "bun run --filter @central/web dev",
+        "build": "bun run --filter @central/web build",
+        "build:agent:linux": "bash scripts/build-agent.sh linux",
+        "build:agent:mac": "bash scripts/build-agent.sh mac",
+        "build:agent:windows": "bash scripts/build-agent.sh windows",
+        "build:agent": "bash scripts/build-agent.sh",
+        "release": "bun run scripts/release.ts",
+        "bump": "bun run scripts/release.ts bump",
+        "typecheck": "bun run --filter @central/shared typecheck && bun run --filter @central/server typecheck && bun run --filter @central/web typecheck",
+        "lab": "bun apps/server/test/e2e/lab-cli.ts"
+    }
 }

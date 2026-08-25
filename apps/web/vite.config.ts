@@ -4,7 +4,9 @@ import react from "@vitejs/plugin-react";
 const config: UserConfig = {
     plugins: [react()],
     server: {
-        port: 5151,
+        // SC_WEB_PORT lets a second dev server run alongside the usual one — the
+        // e2e lab starts one on 5251 so it doesn't fight `bun run dev:web`.
+        port: Number(process.env.SC_WEB_PORT) || 5151,
     },
 };
 

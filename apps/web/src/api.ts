@@ -1,8 +1,15 @@
 import type { CentralApiOperations, TaskRun, TaskSpec } from "@central/shared";
 import { taskModalManager } from "./taskModal";
 
-/** Backend host — same machine that serves the UI, port 4141. */
-export const API_HOST = `${location.hostname}:4141`;
+/**
+ * Backend host — same machine that serves the UI, port 4141.
+ *
+ * `VITE_API_PORT` points a dev server at a control plane on another port, so you
+ * can develop against the e2e lab (which publishes one on 4241) without stopping
+ * your own. Unset everywhere else, including production builds, where it comes
+ * out undefined and the default stands.
+ */
+export const API_HOST = `${location.hostname}:${import.meta.env.VITE_API_PORT ?? 4141}`;
 const API_BASE = `http://${API_HOST}`;
 
 const TOKEN_KEY = "sc-auth-token";

@@ -1,14 +1,15 @@
-import type { DirEntry, FileContent, MountsState } from "@central/shared";
+import type { DirEntry, FileContent, HostDevices, MountsState } from "@central/shared";
 import type { Feature, FeatureApiHandlers } from "../../feature";
 import type { Fleet } from "../../fleet";
 import { getMounts } from "./host-mounts";
+import { listHostDevices } from "./host-devices";
 
 export function createFilesFeature(fleet: Fleet): Feature<FilesOps> {
     return {
         descriptor: {
             id: "files",
             name: "Files",
-            description: "Remote filesystem browsing/editing and mount info on a host.",
+            description: "Remote filesystem browsing/editing, mount info, and device inventory on a host.",
             experimental: false,
         },
         apiHandlers() {
@@ -17,7 +18,7 @@ export function createFilesFeature(fleet: Fleet): Feature<FilesOps> {
     };
 }
 
-export type FilesOps = "listDir" | "readFile" | "writeFile" | "uploadFile" | "createDir" | "deletePath" | "renamePath" | "getMounts";
+export type FilesOps = "listDir" | "readFile" | "writeFile" | "uploadFile" | "createDir" | "deletePath" | "renamePath" | "getMounts" | "listHostDevices";
 
 export function filesApiHandlers(fleet: Fleet): FeatureApiHandlers<FilesOps> {
     return {
@@ -51,6 +52,13 @@ export function filesApiHandlers(fleet: Fleet): FeatureApiHandlers<FilesOps> {
 
         async handleGetMounts(data: { serverId: string }): Promise<MountsState> {
             return getMounts(fleet.get(data.serverId));
+        },
+
+        /** Lives here rather than under Docker: it's host hardware inventory, the
+         *  same shelf as `getMounts`, and works on a host with no Docker at all.
+         *  The compose editor's `devices:` picker is just its first caller. */
+        async handleListHostDevices(data: { serverId: string }): Promise<HostDevices> {
+            return listHostDevices(fleet.get(data.serverId));
         },
     };
 }
