@@ -1,14 +1,19 @@
-**Prototype stage**
+**Alpha stage**
 
-This project is in the prototyping stage, it's not meant to be used by end users and is very experimental.
+This project is in a very early stage, I would not rely on it for anythign mission critical (or rely on it at all).
 
 # Server-central (working title)
 
 Server central is a project of mine to create a all in one server/Cluster management tool targetting home servers/homelabs/smaller businesses.
 
-There's a lot of similar services and tools out there, but i'm not satisfied with what i've tried so far (granted i haven't tried everything) so here is my attempt at seeing how far i can making my own.
+Pictures says more than words, so have some screnshots, then ill go into more details below:
 
-<img width="3062" height="1203" alt="bilde" src="https://github.com/user-attachments/assets/3b0e905f-a2fe-47b5-b920-23b6f83164e5" />
+<img width="1640" height="657" alt="Screenshot 2026-08-25 232214" src="https://github.com/user-attachments/assets/37237675-a460-40b2-aa81-980e029cd133" />
+
+<img width="1612" height="957" alt="Screenshot 2026-08-25 232301" src="https://github.com/user-attachments/assets/dee4dade-7c24-4d3f-8269-1e8740d388bb" />
+
+<img width="2872" height="1007" alt="Screenshot 2026-08-25 231537" src="https://github.com/user-attachments/assets/6ab38bc2-b72b-4737-b33c-08e07de3bd89" />
+
 
 # Features
 
