@@ -5,6 +5,14 @@ export function cx(...parts: Array<string | false | null | undefined>): string {
 }
 
 /**
+ * The four status colours the UI speaks, shared by badges, table row accents and
+ * detailed-list dots: `ok` healthy, `warn` in between, `err` broken, `muted`
+ * nothing there. Lives here rather than in a feature module so the generic
+ * components in `ui.tsx` can take one without importing a feature.
+ */
+export type Tone = "ok" | "warn" | "err" | "muted";
+
+/**
  * An installed, online agent whose reported version trails the control plane's
  * AGENT_VERSION can be updated in place. Live agents are ephemeral (re-run from
  * the latest binary), so they're never flagged.

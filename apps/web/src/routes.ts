@@ -42,6 +42,11 @@ export type Route =
           /** Docker tab, containers section only: initial name/image/stack
            *  filter — lets other views deep-link to a specific container. */
           filter?: string;
+          /** Docker tab, containers section only: compose project the list is
+           *  scoped to. Set when drilling in from a stack, and shown there as a
+           *  removable chip — distinct from `filter`, which is free text the
+           *  operator typed. */
+          stack?: string;
           /** Docker tab, containers section only: container whose detail view is
            *  open. Routed so a container page can be linked to and reloaded —
            *  the stack's services table links here. */
@@ -116,11 +121,21 @@ export function routeToHash(route: Route): string {
                 if (route.section === "stacks" && route.stackId) {
                     hash += `/${encodeURIComponent(route.stackId)}/${route.stackTab ?? "overview"}`;
                 }
-                if (route.section === "containers" && route.containerId) {
-                    hash += `/${encodeURIComponent(route.containerId)}`;
-                }
-                if (route.section === "containers" && route.filter) {
-                    hash += `?q=${encodeURIComponent(route.filter)}`;
+                if (route.section === "containers") {
+                    if (route.containerId) {
+                        hash += `/${encodeURIComponent(route.containerId)}`;
+                    }
+                    const query = new URLSearchParams();
+                    if (route.stack) {
+                        query.set("s", route.stack);
+                    }
+                    if (route.filter) {
+                        query.set("q", route.filter);
+                    }
+                    const encoded = query.toString();
+                    if (encoded) {
+                        hash += `?${encoded}`;
+                    }
                 }
                 if (route.section === "volumes" && route.volume) {
                     hash += `/${encodeURIComponent(route.volume)}`;
@@ -185,9 +200,11 @@ export function hashToRoute(hash: string): Route {
                 return { view: "server", serverId, tab, section, stackId, stackTab };
             }
             if (section === "containers") {
-                const filter = new URLSearchParams(queryPart).get("q") ?? undefined;
+                const params = new URLSearchParams(queryPart);
+                const filter = params.get("q") ?? undefined;
+                const stack = params.get("s") ?? undefined;
                 const containerId = segs[4] ? decodeURIComponent(segs[4]) : undefined;
-                return { view: "server", serverId, tab, section, filter, containerId };
+                return { view: "server", serverId, tab, section, filter, stack, containerId };
             }
             return { view: "server", serverId, tab, section };
         }

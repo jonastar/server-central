@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { ServerEntry } from "@central/shared";
 import type { ComposeStackTab, DockerSection } from "../routes";
 import { cx } from "../utils";
@@ -20,6 +19,7 @@ export interface DockerNav {
     file?: string;
     containerId?: string;
     filter?: string;
+    stack?: string;
     stackId?: string;
     stackTab?: ComposeStackTab;
 }
@@ -32,7 +32,7 @@ const SECTIONS: Array<{ id: DockerSection; label: string }> = [
     { id: "images", label: "Images" },
 ];
 
-export function DockerView({ serverId, section, volume, path, file, filter, containerId, stackId, stackTab, servers, onNavigate }: {
+export function DockerView({ serverId, section, volume, path, file, filter, stack, containerId, stackId, stackTab, servers, onNavigate }: {
     serverId: string;
     section: DockerSection;
     volume?: string;
@@ -40,6 +40,8 @@ export function DockerView({ serverId, section, volume, path, file, filter, cont
     file: string | null;
     /** Route-carried containers filter (deep links from other views). */
     filter?: string;
+    /** Containers section: compose project the list is scoped to. */
+    stack?: string;
     /** Containers section: the container whose detail view is open. */
     containerId?: string;
     /** Stacks section: the registered stack being viewed, if any. */
@@ -48,16 +50,6 @@ export function DockerView({ serverId, section, volume, path, file, filter, cont
     servers: ServerEntry[];
     onNavigate: (next: DockerNav) => void;
 }) {
-    // Filter handed from the Stacks section to the Containers section on drill-in.
-    const [containerFilter, setContainerFilter] = useState("");
-
-    function go(next: DockerSection) {
-        if (next === "containers") {
-            setContainerFilter("");
-        }
-        onNavigate({ section: next });
-    }
-
     if (section === "stacks" && stackId) {
         return (
             <ComposeStackView
@@ -66,7 +58,7 @@ export function DockerView({ serverId, section, volume, path, file, filter, cont
                 servers={servers}
                 onNavigate={(next) => onNavigate({ section: "stacks", stackId, stackTab: next })}
                 onBack={() => onNavigate({ section: "stacks" })}
-                onOpenContainer={(id, q) => onNavigate({ section: "containers", containerId: id, filter: q })}
+                onOpenContainers={(project, id) => onNavigate({ section: "containers", stack: project, containerId: id })}
             />
         );
     }
@@ -81,7 +73,7 @@ export function DockerView({ serverId, section, volume, path, file, filter, cont
                     <button
                         key={s.id}
                         className={cx(shared["sub-tab"], section === s.id && shared.active)}
-                        onClick={() => go(s.id)}
+                        onClick={() => onNavigate({ section: s.id })}
                     >
                         {s.label}
                     </button>
@@ -93,10 +85,7 @@ export function DockerView({ serverId, section, volume, path, file, filter, cont
                 <DockerStacks
                     serverId={serverId}
                     servers={servers}
-                    onViewContainers={(project) => {
-                        setContainerFilter(project);
-                        onNavigate({ section: "containers" });
-                    }}
+                    onViewContainers={(project) => onNavigate({ section: "containers", stack: project })}
                     onOpenStack={(id) => onNavigate({ section: "stacks", stackId: id, stackTab: "overview" })}
                 />
             )}
@@ -104,10 +93,13 @@ export function DockerView({ serverId, section, volume, path, file, filter, cont
             {section === "containers" && (
                 <DockerContainers
                     serverId={serverId}
-                    initialFilter={filter ?? containerFilter}
+                    hostIp={servers.find((s) => s.id === serverId)?.status.info?.primaryIp}
+                    stack={stack}
+                    initialFilter={filter}
                     containerId={containerId}
-                    onOpenContainer={(id) => onNavigate({ section: "containers", filter, containerId: id })}
-                    onCloseContainer={() => onNavigate({ section: "containers", filter })}
+                    onOpenContainer={(id) => onNavigate({ section: "containers", filter, stack, containerId: id })}
+                    onCloseContainer={() => onNavigate({ section: "containers", filter, stack })}
+                    onClearStack={() => onNavigate({ section: "containers", filter, containerId })}
                 />
             )}
             {section === "volumes" && !volume && (

@@ -81,6 +81,17 @@ opens a fresh `## Unreleased` above it.
 
 ### Changed
 
+- **Container detail moved into a drawer beside the list.** Docker → Containers lists
+  containers as two-line cards instead of a table, and clicking one opens its detail next to
+  the list rather than in a modal over it, so the list stays put. The open container is in the
+  URL; below 1400px the list steps aside and the drawer takes the page. New **Logs** and
+  **Volumes** tabs — Volumes browses the container's mounts with the host file browser.
+
+- **One status vocabulary and one action pattern across the Docker section.** A state reads
+  the same everywhere: a stopped stack now matches the stopped containers inside it. Rows
+  carry one contextual primary action plus an overflow menu instead of four buttons, with
+  destructive actions menu-only.
+
 - **Apps became compose stacks, and moved under the host's Docker tab.** What shipped as
   the "App system" was only ever a UI over one `docker compose` project — a directory, a
   compose file, and `volumes/` — so it is now named that: `App` is `ComposeStack` end to

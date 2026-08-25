@@ -227,3 +227,220 @@
         transform: rotate(360deg);
     }
 }
+
+/* ---- Drawer ---------------------------------------------------------------------- */
+
+/* Row wrapper for "list + detail beside it": the list flexes, the drawer keeps
+   its width. Replaces the centred modal so the list is never covered. */
+.drawer-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+.drawer-layout > :first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Sticks to the top of <main>, the app's scroll container, so scrolling a long
+   list keeps the drawer in view. */
+.drawer {
+    flex: none;
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    max-width: 100%;
+    max-height: calc(100vh - 36px);
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: -6px 0 24px rgba(20, 30, 60, 0.08);
+    overflow: hidden;
+}
+
+.drawer-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+}
+
+.drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Fill-height body for the log/terminal tabs, which manage their own scrolling. */
+.drawer-body-fill {
+    overflow: hidden;
+    padding: 10px;
+}
+
+/* Back out of the detail to the list. Only earns its place once the list is
+   hidden — above the breakpoint the list is right there to click. */
+.drawer-back {
+    display: none;
+    margin-bottom: 8px;
+}
+
+/* Side by side needs more than "it technically fits" — a squeezed list next to a
+   squeezed drawer is worse than either at full width, so they swap well before
+   the geometry forces it: the list steps aside and the drawer becomes the page.
+   It already is one — the open row is in the URL — so browser back works and
+   nothing needs a second component to render it. */
+@media (max-width: 1400px) {
+    .drawer-layout:has(> .drawer) > :first-child {
+        display: none;
+    }
+
+    .drawer {
+        position: static;
+        /* Beats the inline width the caller sets. */
+        width: 100% !important;
+        /* Definite, not max-: the logs and terminal tabs size themselves against
+           it, and would collapse to nothing in an auto-height box. */
+        height: calc(100vh - 36px);
+        max-height: none;
+    }
+
+    .drawer-back {
+        display: inline-flex;
+    }
+}
+
+/* ---- Tone dot ---------------------------------------------------------------------- */
+
+/* The compact form of a status badge: colour only, for where a word won't fit. */
+.tone-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.tone-dot-ok {
+    background: var(--ok);
+}
+
+.tone-dot-warn {
+    background: var(--warn);
+}
+
+.tone-dot-err {
+    background: var(--err);
+}
+
+.tone-dot-muted {
+    background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+/* ---- Detailed list ------------------------------------------------------------------ */
+
+/*
+ * A list that trades columns for lines: each item is a card carrying two lines of
+ * information instead of one row of many columns.
+ *
+ * Use it wherever a table would have to give something up — a list beside an open
+ * drawer, a narrow panel, a sidebar. A row gets taller so the list can get
+ * narrower, which is the better trade there: dropping columns loses the data
+ * outright, and squeezing them wraps every cell into mush.
+ */
+.detailed-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.detailed-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-align: left;
+}
+
+.detailed-row-clickable {
+    cursor: pointer;
+}
+
+.detailed-row-clickable:hover {
+    background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+/* The row whose drawer is open — has to stay obvious while you're looking away
+   from it, so it beats hover. */
+.detailed-row-selected,
+.detailed-row-selected:hover {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.detailed-row-busy {
+    opacity: 0.5;
+}
+
+/* Sits against the first line rather than centred on both — it belongs to the
+   title, not to the row as a whole. */
+.detailed-row-dot {
+    align-self: flex-start;
+    margin-top: 5px;
+}
+
+.detailed-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.detailed-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.detailed-title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.detailed-meta {
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* Second line: the detail a table would have spent columns on. */
+.detailed-secondary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    margin-top: 2px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.detailed-actions {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}

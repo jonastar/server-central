@@ -30,13 +30,14 @@ const PRIORITY_OPTS = [
 ];
 
 /**
- * Log modal that owns the fetch controls (limit, time window, order, and the
+ * Log viewer that owns the fetch controls (limit, time window, order, and the
  * source-specific severity/timestamps toggles) and refetches whenever they change.
- * The caller supplies `fetchLogs`; the same modal serves docker and journald.
+ * The caller supplies `fetchLogs`; the same pane serves docker and journald.
+ *
+ * Chrome-free so it drops into whatever surface needs it — {@link LogViewerModal}
+ * for a standalone viewer, the container drawer's Logs tab for detail-in-place.
  */
-export function LogViewerModal({ title, onClose, fetchLogs, caps }: {
-    title: string;
-    onClose: () => void;
+export function LogViewerPane({ fetchLogs, caps }: {
     fetchLogs: (q: LogQueryFull) => Promise<string>;
     caps?: { priority?: boolean; timestamps?: boolean };
 }) {
@@ -95,9 +96,23 @@ export function LogViewerModal({ title, onClose, fetchLogs, caps }: {
     );
 
     return (
-        <Modal title={title} onClose={onClose} large>
+        <>
             {error && <ErrorBanner>{error}</ErrorBanner>}
             <LogViewer text={text} order={order} loading={loading} onRefresh={() => void refresh()} controls={controls} />
+        </>
+    );
+}
+
+/** {@link LogViewerPane} in a near-fullscreen modal — the standalone log viewer. */
+export function LogViewerModal({ title, onClose, fetchLogs, caps }: {
+    title: string;
+    onClose: () => void;
+    fetchLogs: (q: LogQueryFull) => Promise<string>;
+    caps?: { priority?: boolean; timestamps?: boolean };
+}) {
+    return (
+        <Modal title={title} onClose={onClose} large>
+            <LogViewerPane fetchLogs={fetchLogs} caps={caps} />
         </Modal>
     );
 }

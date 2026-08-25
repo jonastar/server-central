@@ -6,6 +6,8 @@ import { useConnection } from "../hooks/useConnection";
 import { fmtDateTime, fmtRelative, cx } from "../utils";
 import { fmtDuration, specSummary, statusTone } from "../taskFormat";
 import { CodeEditor } from "./CodeEditor";
+import { PortLinks } from "./docker/ports";
+import { serviceState, serviceTone, stackTone, StatusBadge } from "./docker/status";
 import { ComposeVisualEditor } from "./compose/ComposeVisualEditor";
 import { DeleteComposeStackModal } from "./DeleteComposeStackModal";
 import { FilesView } from "./FilesView";
@@ -14,13 +16,6 @@ import { ActionMenu, EmptyState, ErrorBanner } from "./ui";
 import shared from "../styles/shared.module.css";
 
 const REFRESH_MS = 10_000;
-
-const STATUS_BADGE: Record<ComposeStackStatus["status"], "badge-ok" | "badge-warn" | "badge-muted"> = {
-    running: "badge-ok",
-    partial: "badge-warn",
-    stopped: "badge-muted",
-    down: "badge-muted",
-};
 
 function InfoChip({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
     return (
@@ -34,17 +29,18 @@ function InfoChip({ label, value, mono }: { label: string; value: string; mono?:
 /** Tabbed detail for one SC-managed compose stack — design refs 1d (Overview)
  *  - 1h (Logs), the `ServerOverview` + sub-tabs pattern. Reached from the host's
  *  Docker → Stacks section, whose page shell it replaces. */
-export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, onOpenContainer }: {
+export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, onOpenContainers }: {
     stackId: string;
     tab: ComposeStackTab;
     servers: ServerEntry[];
     onNavigate: (tab: ComposeStackTab) => void;
     onBack: () => void;
-    /** Jump to a service's container on the host's Docker → Containers page,
-     *  where inspect/exec/logs for that one container live. The filter scopes
-     *  the list behind it to this stack, so closing the detail leaves you
-     *  somewhere sensible rather than in the host's full container list. */
-    onOpenContainer: (containerId: string, filter: string) => void;
+    /** Jump to the host's Docker → Containers page with the list scoped to this
+     *  stack. Passing a containerId opens its drawer there as well — the same
+     *  drawer either way, so a service row and a container row lead to one
+     *  surface, and closing it leaves you in this stack's containers rather than
+     *  the host's full list. */
+    onOpenContainers: (project: string, containerId?: string) => void;
 }) {
     const conn = useConnection();
     const [stack, setStack] = useState<ComposeStack | null | undefined>(undefined);
@@ -118,25 +114,57 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
     }
 
     const host = servers.find((s) => s.id === stack.hostId);
-    const badge = status ? STATUS_BADGE[status.status] : "badge-muted";
+    const up = (status?.services ?? []).some((s) => s.up);
 
     return (
         <div className={shared.view}>
+            {/* The stack's actions live in the header, not on the Overview tab: they
+                apply to the stack whichever tab you're reading, and it's the same
+                primary + overflow shape every row in the Docker section now uses. */}
             <header className={shared["view-header"]}>
                 <button onClick={onBack} style={{ color: "var(--muted)", background: "none", border: "none", cursor: "pointer", font: "inherit", padding: 0 }}>
                     Docker / Compose stacks /
                 </button>
                 <h1 style={{ marginRight: 0 }}>{stack.name}</h1>
-                <span className={cx(shared.badge, shared[badge])} style={{ marginRight: "auto" }}>
-                    {status ? status.status : "unknown"}
+                <span style={{ marginRight: "auto" }}>
+                    {status
+                        ? <StatusBadge tone={stackTone(status.status)}>{status.status}</StatusBadge>
+                        : <StatusBadge tone="muted">unknown</StatusBadge>}
                 </span>
                 <button
-                    className={cx(shared.btn, shared["btn-sm"], shared["btn-danger"])}
+                    className={cx(shared.btn, shared["btn-sm"], shared["btn-primary"])}
                     disabled={busy !== null}
-                    onClick={() => setDeleting(true)}
+                    onClick={() => void runAction("up", { pullFirst: true, autoOpenModal: true })}
                 >
-                    Remove…
+                    {busy === "pull-up" ? "Pulling…" : "Pull & up"}
                 </button>
+                <button
+                    className={cx(shared.btn, shared["btn-sm"])}
+                    disabled={busy !== null}
+                    onClick={() => void runAction(up ? "restart" : "up")}
+                >
+                    {busy === "restart" ? "Restarting…" : busy === "up" ? "Starting…" : up ? "Restart" : "Start"}
+                </button>
+                <ActionMenu
+                    disabled={busy !== null}
+                    title={`Actions for ${stack.name}`}
+                    items={[
+                        { label: "Start", disabled: up, onSelect: () => void runAction("up") },
+                        { label: "Stop", disabled: !up, onSelect: () => void runAction("stop") },
+                        { label: "Pull", onSelect: () => void runAction("pull", { autoOpenModal: true }) },
+                        { label: "View containers", onSelect: () => onOpenContainers(stack.project) },
+                        {
+                            label: "Down",
+                            danger: true,
+                            onSelect: () => {
+                                if (confirm(`Take down "${stack.name}"? Containers are removed; the stack's files are untouched.`)) {
+                                    void runAction("down");
+                                }
+                            },
+                        },
+                        { label: "Remove…", danger: true, onSelect: () => setDeleting(true) },
+                    ]}
+                />
             </header>
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -166,7 +194,7 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
                     tasks={conn.tasks}
                     busy={busy}
                     run={(action, opts) => runAction(action, opts)}
-                    onOpenContainer={onOpenContainer}
+                    onOpenContainers={onOpenContainers}
                     onBrowseEntry={(entry) => {
                         const fullPath = `${stack.dir}/${entry.name}`;
                         setFilesInitial(entry.type === "dir"
@@ -195,37 +223,6 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
 
 // ---- Overview -------------------------------------------------------------------
 
-/** `s.ports` is `formatPorts()`'s "8080→80, 9000→9000" — split back into
- *  published/target pairs so published ports can link straight to the host. */
-function portPairs(ports: string): { published: string; target: string }[] {
-    return ports.split(",").map((p) => p.trim()).filter(Boolean).map((p) => {
-        const [published, target] = p.split("→");
-        return { published: published ?? p, target: target ?? "" };
-    });
-}
-
-function PortsCell({ ports, hostIp }: { ports: string | undefined; hostIp: string | undefined }) {
-    if (!ports) {
-        return <>—</>;
-    }
-    if (!hostIp) {
-        return <>{ports}</>;
-    }
-    const pairs = portPairs(ports);
-    return (
-        <>
-            {pairs.map((p, i) => (
-                <span key={i}>
-                    {i > 0 && ", "}
-                    <a href={`http://${hostIp}:${p.published}`} target="_blank" rel="noreferrer">
-                        {p.published}{p.target ? `→${p.target}` : ""}
-                    </a>
-                </span>
-            ))}
-        </>
-    );
-}
-
 type ComposeVerb = "up" | "restart" | "stop" | "down" | "pull";
 
 type RunAction = (
@@ -233,14 +230,14 @@ type RunAction = (
     opts?: { pullFirst?: boolean; autoOpenModal?: boolean; service?: string },
 ) => void;
 
-function OverviewTab({ stack, host, status, tasks, busy, run, onOpenContainer, onBrowseEntry }: {
+function OverviewTab({ stack, host, status, tasks, busy, run, onOpenContainers, onBrowseEntry }: {
     stack: ComposeStack;
     host: ServerEntry | undefined;
     status: ComposeStackStatus | null;
     tasks: import("@central/shared").TaskRun[];
     busy: string | null;
     run: RunAction;
-    onOpenContainer: (containerId: string, filter: string) => void;
+    onOpenContainers: (project: string, containerId?: string) => void;
     onBrowseEntry: (entry: DirEntry) => void;
 }) {
     const [dirEntries, setDirEntries] = useState<DirEntry[] | null>(null);
@@ -269,44 +266,19 @@ function OverviewTab({ stack, host, status, tasks, busy, run, onOpenContainer, o
                 <InfoChip label="Manifest" value="sc-stack.json" mono />
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <button className={shared.btn} disabled={busy !== null} onClick={() => run("up")}>
-                    {busy === "up" ? "Starting…" : "Start"}
-                </button>
-                <button className={shared.btn} disabled={busy !== null} onClick={() => run("restart")}>
-                    {busy === "restart" ? "Restarting…" : "Restart"}
-                </button>
-                <button className={shared.btn} disabled={busy !== null} onClick={() => run("stop")}>
-                    {busy === "stop" ? "Stopping…" : "Stop"}
-                </button>
-                <button
-                    className={shared.btn}
-                    disabled={busy !== null}
-                    title="Fetch the stack's images without starting or recreating anything"
-                    onClick={() => run("pull", { autoOpenModal: true })}
-                >
-                    {busy === "pull" ? "Pulling…" : "Pull"}
-                </button>
-                <button
-                    className={cx(shared.btn, shared["btn-primary"])}
-                    disabled={busy !== null}
-                    onClick={() => run("up", { pullFirst: true, autoOpenModal: true })}
-                >
-                    {busy === "pull-up" ? "Pulling…" : "Pull & up"}
-                </button>
-                <button
-                    className={cx(shared.btn, shared["btn-danger"])}
-                    disabled={busy !== null}
-                    style={{ marginLeft: "auto" }}
-                    onClick={() => { if (confirm(`Take down "${stack.name}"? Containers are removed; the stack's files are untouched.`)) run("down"); }}
-                >
-                    {busy === "down" ? "Taking down…" : "Down"}
-                </button>
-            </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "minmax(340px, 1.6fr) minmax(320px, 1fr)", gap: 14, alignItems: "start" }}>
                 <section className={shared.panel}>
-                    <h3>Services ({status?.services.length ?? 0})</h3>
+                    <div className={shared["panel-head"]}>
+                        <h3>Services · containers ({status?.services.length ?? 0})</h3>
+                        <button
+                            type="button"
+                            className={cx(shared.btn, shared["btn-sm"])}
+                            title="This stack's containers in the host's container list"
+                            onClick={() => onOpenContainers(stack.project)}
+                        >
+                            Open in Containers ↗
+                        </button>
+                    </div>
                     {!status || status.services.length === 0 ? (
                         <EmptyState>No services declared yet.</EmptyState>
                     ) : (
@@ -323,25 +295,31 @@ function OverviewTab({ stack, host, status, tasks, busy, run, onOpenContainer, o
                                                     type="button"
                                                     style={{ border: "none", background: "none", padding: 0, font: "inherit", fontWeight: 600, color: "var(--accent)", cursor: "pointer", textAlign: "left" }}
                                                     title="Open this service's container"
-                                                    onClick={() => onOpenContainer(svc.containerId!, stack.project)}
+                                                    onClick={() => onOpenContainers(stack.project, svc.containerId!)}
                                                 >
                                                     {svc.name}
                                                 </button>
                                             ) : svc.name}
                                         </td>
                                         <td className={cx(shared.dim, shared.mono)} style={{ fontSize: 12 }}>{svc.image ?? "—"}</td>
-                                        <td><span className={cx(shared.badge, svc.up ? shared["badge-ok"] : shared["badge-muted"])}>{svc.state ?? "down"}</span></td>
-                                        <td className={shared.dim}><PortsCell ports={svc.ports} hostIp={host?.status.info?.primaryIp} /></td>
-                                        <td style={{ textAlign: "right" }}>
+                                        <td><StatusBadge tone={serviceTone(svc)}>{serviceState(svc)}</StatusBadge></td>
+                                        <td className={shared.dim}><PortLinks ports={svc.ports} hostIp={host?.status.info?.primaryIp} /></td>
+                                        <td className={shared["row-actions-always"]}>
+                                            {/* A service row and a container row are the same row —
+                                                Inspect opens the same drawer the Containers list does. */}
+                                            <button
+                                                type="button"
+                                                className={cx(shared.btn, shared["btn-sm"])}
+                                                disabled={!svc.containerId}
+                                                title={svc.containerId ? "Open this service's container" : "This service has no container right now"}
+                                                onClick={() => svc.containerId && onOpenContainers(stack.project, svc.containerId)}
+                                            >
+                                                Inspect →
+                                            </button>
                                             <ActionMenu
                                                 disabled={busy !== null}
                                                 title={`Actions for ${svc.name}`}
                                                 items={[
-                                                    {
-                                                        label: "Open container",
-                                                        disabled: !svc.containerId,
-                                                        onSelect: () => svc.containerId && onOpenContainer(svc.containerId, stack.project),
-                                                    },
                                                     { label: svc.up ? "Restart" : "Start", onSelect: () => run(svc.up ? "restart" : "up", { service: svc.name }) },
                                                     { label: "Stop", disabled: !svc.up, onSelect: () => run("stop", { service: svc.name }) },
                                                     { label: "Pull", onSelect: () => run("pull", { service: svc.name, autoOpenModal: true }) },

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DockerExecResult, ServerConnState } from "@central/shared";
-import { cx, copyToClipboard } from "../utils";
+import { cx, copyToClipboard, type Tone } from "../utils";
 import styles from "./ui.module.css";
 import shared from "../styles/shared.module.css";
 
@@ -49,6 +49,125 @@ export function Modal({ title, onClose, children, width, large, tone }: {
                 </div>
                 <div className={cx(styles["modal-body"], large && styles["modal-body-fill"])}>{children}</div>
             </div>
+        </div>
+    );
+}
+
+/**
+ * Right-hand detail panel that sits *beside* a list instead of over it.
+ *
+ * A modal for row detail meant losing the list behind a scrim, and closing it to
+ * look at the next row. The drawer is a plain flex child of {@link DrawerLayout}
+ * that sticks to the top of the scroll container, so the list keeps its scroll
+ * position and stays clickable — picking another row swaps the drawer's contents
+ * rather than closing and reopening a dialog.
+ *
+ * `header` is the pinned part (breadcrumb, title, actions, tabs); `children` is
+ * the scrolling body. Set `fill` for tabs that scroll internally (logs, terminal).
+ *
+ * `width` is any CSS length — prefer a `clamp()` over a pixel constant, so the
+ * drawer takes a real share of a wide display instead of a fixed sliver of it.
+ * Below the layout's breakpoint the list steps aside and the drawer takes the
+ * whole page; `backLabel` is the way back, and shows only at that size.
+ */
+export function Drawer({ onClose, header, children, width = "clamp(380px, 30vw, 560px)", fill, backLabel }: {
+    onClose: () => void;
+    header: ReactNode;
+    children: ReactNode;
+    width?: number | string;
+    fill?: boolean;
+    backLabel?: string;
+}) {
+    const ref = useRef<HTMLElement | null>(null);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            // Escape belongs to whatever's focused inside the drawer first — the
+            // terminal tab needs it — so only close when focus is elsewhere.
+            if (e.key === "Escape" && !ref.current?.contains(document.activeElement)) {
+                onClose();
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    return (
+        <aside ref={ref} className={styles.drawer} style={{ width }} role="complementary">
+            <div className={styles["drawer-header"]}>
+                {backLabel && (
+                    <button type="button" className={cx(shared.btn, shared["btn-sm"], styles["drawer-back"])} onClick={onClose}>
+                        {backLabel}
+                    </button>
+                )}
+                {header}
+            </div>
+            <div className={cx(styles["drawer-body"], fill && styles["drawer-body-fill"])}>{children}</div>
+        </aside>
+    );
+}
+
+/** Wraps a list and its {@link Drawer} — list first, drawer second. */
+export function DrawerLayout({ children }: { children: ReactNode }) {
+    return <div className={styles["drawer-layout"]}>{children}</div>;
+}
+
+/** Colour-only status marker, for where a badge's word won't fit. */
+export function ToneDot({ tone, className, title }: { tone: Tone; className?: string; title?: string }) {
+    return <span className={cx(styles["tone-dot"], styles[`tone-dot-${tone}`], className)} title={title} />;
+}
+
+/**
+ * A list whose items are small cards of two lines, rather than table rows of many
+ * columns — see `.detailed-list` in the stylesheet for when to reach for it.
+ *
+ * The slots exist so every list built this way keeps the same rhythm: line one is
+ * identity (dot, name, badge, a trailing scrap of dim context), line two is the
+ * detail a table would have spent columns on, actions sit right and vertically
+ * centred against both lines.
+ */
+export function DetailedList({ children }: { children: ReactNode }) {
+    return <div className={styles["detailed-list"]}>{children}</div>;
+}
+
+export function DetailedRow({ tone, title, badge, meta, secondary, actions, selected, busy, onClick }: {
+    tone?: Tone;
+    title: ReactNode;
+    badge?: ReactNode;
+    /** Dim trailing context on line one — an uptime, a size, a count. */
+    meta?: ReactNode;
+    secondary?: ReactNode;
+    actions?: ReactNode;
+    selected?: boolean;
+    busy?: boolean;
+    onClick?: () => void;
+}) {
+    return (
+        <div
+            className={cx(
+                styles["detailed-row"],
+                onClick && styles["detailed-row-clickable"],
+                selected && styles["detailed-row-selected"],
+                busy && styles["detailed-row-busy"],
+            )}
+            onClick={onClick}
+        >
+            {tone && <ToneDot tone={tone} className={styles["detailed-row-dot"]} />}
+            <div className={styles["detailed-main"]}>
+                <div className={styles["detailed-line"]}>
+                    <span className={styles["detailed-title"]}>{title}</span>
+                    {badge}
+                    {meta && <span className={styles["detailed-meta"]}>{meta}</span>}
+                </div>
+                {secondary && <div className={styles["detailed-secondary"]}>{secondary}</div>}
+            </div>
+            {/* Actions are their own click target — hitting Restart shouldn't also
+                select the row out from under the pointer. */}
+            {actions && (
+                <div className={styles["detailed-actions"]} onClick={(e) => e.stopPropagation()}>
+                    {actions}
+                </div>
+            )}
         </div>
     );
 }

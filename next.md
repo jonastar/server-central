@@ -16,6 +16,27 @@ re-document finished work here, and delete an item from this file once it lands.
   - Option to sync authorized keys across all mapped users?
 - Default stack location
 
+### Container filesystem access
+
+The container drawer's Volumes tab (2026-08-25) browses a container's *mounts* by reusing the
+host `FilesView` rooted at each mount's host-side `source` — every bind and named volume that
+`docker inspect` reports carries an absolute host path, so it needed no new agent primitive.
+
+What it can't reach is anything the container writes **outside** a mount: it lives in the
+overlay layer, which the agent has no path to. That's exactly where the interesting stuff often
+is — debug logs, crash dumps, an app's log dir nobody thought to mount. Exec/Terminal are the
+only way in today, which is fine for `cat` and useless for browsing.
+
+Two ways to close it, roughly in order of preference:
+
+- `listDir`/`readFile` variants that shell out to `docker exec` (`ls`-parse, `cat`). Works on
+  any driver, works for a stopped container only if you're willing to `docker cp` instead.
+  Costs a new node-protocol request pair plus agent handlers — and a decision about what the
+  path root is, since `FilesView` assumes host paths throughout.
+- Resolve `GraphDriver.Data.MergedDir` from inspect and browse it as a host path (free — it's
+  the same trick the Volumes tab already plays). But it's overlay2-only and only valid while
+  the container runs, so it's a shortcut, not the answer.
+
 ### RBAC gap
 
 Only the Users/OIDC-client admin endpoints (`requireOwner` in `handler.ts`) have any permission

@@ -1,22 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ComposeStack, ComposeStackStatus, DockerStack, HostComposeStacks, ServerEntry, StackAction } from "@central/shared";
+import type { ComposeStack, ComposeStackRunStatus, ComposeStackStatus, DockerStack, HostComposeStacks, ServerEntry, StackAction } from "@central/shared";
 import { api, runTaskAndWait } from "../../api";
 import { cx } from "../../utils";
-import { EmptyState, ErrorBanner, ExperimentalBanner } from "../ui";
+import { ActionMenu, EmptyState, ErrorBanner, ExperimentalBanner } from "../ui";
 import { NewComposeStackModal } from "../NewComposeStackModal";
 import { ImportComposeStackModal } from "../ImportComposeStackModal";
 import { DeleteComposeStackModal } from "../DeleteComposeStackModal";
+import { observedStatus, stackTone, StatusBadge } from "./status";
 import styles from "./DockerStacks.module.css";
 import shared from "../../styles/shared.module.css";
 
 const REFRESH_MS = 10_000;
 
-const STATUS_BADGE: Record<ComposeStackStatus["status"], "badge-ok" | "badge-warn" | "badge-muted"> = {
-    running: "badge-ok",
-    partial: "badge-warn",
-    stopped: "badge-muted",
-    down: "badge-muted",
-};
+/** Compose verbs a *registered* stack can be driven with — it acts through its
+ *  own compose file, so these work even when it's fully down. */
+type ComposeVerb = "up" | "restart" | "stop" | "down";
 
 /**
  * One row of the merged list. A stack is *registered* when SC has a record for
@@ -37,14 +35,20 @@ interface Row {
     observed?: DockerStack;
 }
 
-function observedBadge(stack: DockerStack): "badge-ok" | "badge-err" | "badge-warn" {
-    if (stack.running === stack.containers) {
-        return "badge-ok";
+/** The row's state in the shared vocabulary, whichever side it came from. */
+function rowStatus(row: Row): ComposeStackRunStatus {
+    if (row.registered) {
+        return row.status?.status ?? (row.observed ? observedStatus(row.observed) : "down");
     }
-    if (stack.running === 0) {
-        return "badge-err";
+    return row.observed ? observedStatus(row.observed) : "down";
+}
+
+/** Running / total containers, from whichever side of the merge knows. */
+function rowCounts(row: Row): { running: number; total: number } {
+    if (row.observed) {
+        return { running: row.observed.running, total: row.observed.containers };
     }
-    return "badge-warn";
+    return { running: 0, total: row.status?.services.length ?? 0 };
 }
 
 export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack }: {
@@ -92,8 +96,11 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
 
     /** Registered stacks act through their own compose file, so they work even
      *  fully down; unregistered ones only have running containers to act on. */
-    async function registeredAction(stack: ComposeStack, act: "restart" | "stop") {
+    async function registeredAction(stack: ComposeStack, act: ComposeVerb) {
         if (act === "stop" && !confirm(`Stop "${stack.name}"?`)) {
+            return;
+        }
+        if (act === "down" && !confirm(`Take down "${stack.name}"? Containers are removed; the stack's files are untouched.`)) {
             return;
         }
         setBusy(stack.project);
@@ -175,15 +182,20 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
             ) : (
                 <table className={shared["data-table"]}>
                     <thead>
-                        <tr><th>Stack</th><th>Status</th><th>Containers</th><th>Location</th><th /></tr>
+                        <tr><th>Stack</th><th>State</th><th>Containers</th><th>Location</th><th /></tr>
                     </thead>
                     <tbody>
                         {rows.map((row) => {
-                            const { registered: reg, observed: obs, status } = row;
-                            const services = status?.services ?? [];
+                            const { registered: reg, observed: obs } = row;
                             const location = reg ? reg.dir : (obs?.configFiles ?? "");
+                            const runState = rowStatus(row);
+                            const { running, total } = rowCounts(row);
+                            const up = running > 0;
                             return (
-                                <tr key={row.project} className={cx(busy === row.project && shared["row-busy"])}>
+                                <tr
+                                    key={row.project}
+                                    className={cx(shared[`row-status-${stackTone(runState)}`], busy === row.project && shared["row-busy"])}
+                                >
                                     <td>
                                         {reg ? (
                                             <button className={styles["link-btn"]} onClick={() => onOpenStack(reg.id)}><b>{row.label}</b></button>
@@ -197,37 +209,67 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
                                         )}
                                     </td>
                                     <td>
-                                        {reg ? (
-                                            <span className={cx(shared.badge, shared[status ? STATUS_BADGE[status.status] : "badge-muted"])}>
-                                                {status ? status.status : "unknown"}
-                                            </span>
-                                        ) : obs ? (
-                                            <span className={cx(shared.badge, shared[observedBadge(obs)])}>
-                                                {obs.running === obs.containers ? "running" : obs.running === 0 ? "stopped" : "partial"}
-                                            </span>
-                                        ) : null}
+                                        <StatusBadge tone={stackTone(runState)} title={obs ? obs.states.join(", ") : undefined}>
+                                            {runState}
+                                        </StatusBadge>
                                     </td>
                                     <td className={shared.dim}>
-                                        {obs
-                                            ? `${obs.running}/${obs.containers} · ${obs.states.join(", ")}`
-                                            : reg
-                                                ? `0/${services.length} · no containers`
-                                                : "—"}
+                                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                                            <span className={shared["count-bar"]}>
+                                                <span
+                                                    className={shared["count-bar-fill"]}
+                                                    style={{ width: total === 0 ? "0%" : `${(running / total) * 100}%` }}
+                                                />
+                                            </span>
+                                            <span className={shared.mono}>{running}/{total}</span>
+                                        </span>
                                     </td>
                                     <td className={cx(shared.dim, shared.mono, shared["cmd-cell"])} title={location}>{location || "—"}</td>
+                                    {/* One contextual primary, everything else — destructive included —
+                                        behind the menu. This used to be four buttons per row shouting
+                                        over the data they belonged to. */}
                                     <td className={shared["row-actions-always"]}>
                                         {reg ? (
                                             <>
-                                                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy !== null} onClick={() => void registeredAction(reg, "restart")}>Restart</button>
-                                                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy !== null} onClick={() => void registeredAction(reg, "stop")}>Stop</button>
-                                                <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => onOpenStack(reg.id)}>Open</button>
-                                                <button className={cx(shared.btn, shared["btn-sm"], shared["btn-danger"])} onClick={() => setDeleting(reg)}>Remove</button>
+                                                <button
+                                                    className={cx(shared.btn, shared["btn-sm"])}
+                                                    disabled={busy !== null}
+                                                    onClick={() => void registeredAction(reg, up ? "restart" : "up")}
+                                                >
+                                                    {up ? "Restart" : "Start"}
+                                                </button>
+                                                <ActionMenu
+                                                    disabled={busy !== null}
+                                                    title={`Actions for ${row.label}`}
+                                                    items={[
+                                                        { label: "Open", onSelect: () => onOpenStack(reg.id) },
+                                                        { label: "View containers", onSelect: () => onViewContainers(row.project) },
+                                                        { label: "Start", disabled: up, onSelect: () => void registeredAction(reg, "up") },
+                                                        { label: "Stop", disabled: !up, onSelect: () => void registeredAction(reg, "stop") },
+                                                        { label: "Down", danger: true, disabled: total === 0, onSelect: () => void registeredAction(reg, "down") },
+                                                        { label: "Remove…", danger: true, onSelect: () => setDeleting(reg) },
+                                                    ]}
+                                                />
                                             </>
                                         ) : (
                                             <>
-                                                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy !== null} onClick={() => void observedAction(obs!, "start")}>Start</button>
-                                                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy !== null} onClick={() => void observedAction(obs!, "restart")}>Restart</button>
-                                                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy !== null} onClick={() => void observedAction(obs!, "stop")}>Stop</button>
+                                                <button
+                                                    className={cx(shared.btn, shared["btn-sm"])}
+                                                    disabled={busy !== null}
+                                                    onClick={() => void observedAction(obs!, up ? "restart" : "start")}
+                                                >
+                                                    {up ? "Restart" : "Start"}
+                                                </button>
+                                                <ActionMenu
+                                                    disabled={busy !== null}
+                                                    title={`Actions for ${row.label}`}
+                                                    items={[
+                                                        { label: "View containers", onSelect: () => onViewContainers(row.project) },
+                                                        { label: "Start", disabled: up, onSelect: () => void observedAction(obs!, "start") },
+                                                        { label: "Stop", disabled: !up, onSelect: () => void observedAction(obs!, "stop") },
+                                                        { label: "Down", danger: true, onSelect: () => void observedAction(obs!, "down") },
+                                                    ]}
+                                                />
                                             </>
                                         )}
                                     </td>

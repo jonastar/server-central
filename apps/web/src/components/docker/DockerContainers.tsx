@@ -1,44 +1,37 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ContainerAction, ContainerInfo, DockerState } from "@central/shared";
 import { api, runTaskAndWait } from "../../api";
-import { cx } from "../../utils";
-import { DetailPair, EmptyState, ErrorBanner } from "../ui";
-import { LogViewerModal } from "../LogViewerModal";
-import { LogPreview } from "../LogPreview";
+import { DetailedList, DetailedRow, DrawerLayout, EmptyState, ErrorBanner } from "../ui";
 import { StatusFilter, type StatusToken } from "../StatusFilter";
-import { ContainerDetail } from "./ContainerDetail";
+import { ContainerDrawer } from "./ContainerDrawer";
+import { PortLinks } from "./ports";
+import { containerTone, StatusBadge } from "./status";
 import shared from "../../styles/shared.module.css";
 
 const REFRESH_MS = 10_000;
 
-/** Maps a container state to a status token used for both the badge and the row accent. */
-function stateStatus(state: string): "ok" | "warn" | "err" {
-    if (state === "running") {
-        return "ok";
-    }
-    if (state === "paused" || state === "restarting") {
-        return "warn";
-    }
-    return "err";
-}
-
-export function DockerContainers({ serverId, initialFilter, containerId, onOpenContainer, onCloseContainer }: {
+export function DockerContainers({ serverId, hostIp, stack, initialFilter, containerId, onOpenContainer, onCloseContainer, onClearStack }: {
     serverId: string;
+    /** The host's address, so published ports can link straight to what's behind them. */
+    hostIp?: string;
+    /** Route-carried compose project the list is scoped to — set when you drill
+     *  in from a stack. Shown as a removable chip, not as text in the search box:
+     *  it's a scope you arrived with, not something you typed. */
+    stack?: string;
     initialFilter?: string;
-    /** Route-carried: which container's detail view is open. Routed rather than
-     *  local state so a container page can be linked to (the stack view's
-     *  services table does) and survive a reload. */
+    /** Route-carried: which container's drawer is open. Routed rather than local
+     *  state so a container can be linked to (the stack view's services table
+     *  does) and survive a reload. */
     containerId?: string;
     onOpenContainer: (id: string) => void;
     onCloseContainer: () => void;
+    onClearStack: () => void;
 }) {
     const [docker, setDocker] = useState<DockerState | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [filter, setFilter] = useState(initialFilter ?? "");
     const [statusFilter, setStatusFilter] = useState<StatusToken>("all");
-    const [logTarget, setLogTarget] = useState<ContainerInfo | null>(null);
-    const [expandedId, setExpandedId] = useState<string | null>(null);
 
     const load = useCallback(async () => {
         try {
@@ -57,8 +50,8 @@ export function DockerContainers({ serverId, initialFilter, containerId, onOpenC
     }, [load]);
 
     // Resolved from the loaded list; null while loading, or if the container in
-    // the URL is gone — ContainerDetail surfaces that itself.
-    const detail = containerId ? (docker?.containers.find((c) => c.id === containerId) ?? null) : null;
+    // the URL is gone — ContainerDrawer surfaces that itself.
+    const selected = containerId ? (docker?.containers.find((c) => c.id === containerId) ?? null) : null;
 
     async function action(container: ContainerInfo, act: ContainerAction) {
         if (act === "remove" && !confirm(`Remove container "${container.name}"?`)) {
@@ -68,6 +61,9 @@ export function DockerContainers({ serverId, initialFilter, containerId, onOpenC
         try {
             await runTaskAndWait({ kind: "docker_container_action", containerId: container.id, action: act }, serverId);
             await load();
+            if (act === "remove" && container.id === containerId) {
+                onCloseContainer();
+            }
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -75,7 +71,8 @@ export function DockerContainers({ serverId, initialFilter, containerId, onOpenC
         }
     }
 
-    const textFiltered = (docker?.containers ?? []).filter((c) => {
+    const scoped = (docker?.containers ?? []).filter((c) => !stack || c.project === stack);
+    const textFiltered = scoped.filter((c) => {
         if (!filter) {
             return true;
         }
@@ -86,125 +83,96 @@ export function DockerContainers({ serverId, initialFilter, containerId, onOpenC
     });
     const counts = { all: textFiltered.length, ok: 0, warn: 0, err: 0 };
     for (const c of textFiltered) {
-        counts[stateStatus(c.state)]++;
+        counts[containerTone(c.state) as "ok" | "warn" | "err"]++;
     }
-    const shown = textFiltered.filter((c) => statusFilter === "all" || stateStatus(c.state) === statusFilter);
+    const shown = textFiltered.filter((c) => statusFilter === "all" || containerTone(c.state) === statusFilter);
 
     return (
-        <section className={shared.panel}>
-            <div className={shared["panel-head"]}>
-                <h3>Containers ({shown.length})</h3>
-                <input
-                    className={shared["filter-input"]}
-                    placeholder="Filter by name, image or stack…"
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                />
-                <StatusFilter
-                    value={statusFilter}
-                    onChange={setStatusFilter}
-                    options={[
-                        { value: "all", label: "All", count: counts.all },
-                        { value: "ok", label: "Running", count: counts.ok },
-                        { value: "warn", label: "Paused", count: counts.warn },
-                        { value: "err", label: "Stopped", count: counts.err },
-                    ]}
-                />
-            </div>
+        <DrawerLayout>
+            <section className={shared.panel}>
+                <div className={shared["panel-head"]}>
+                    <h3>Containers ({shown.length})</h3>
+                    <input
+                        className={shared["filter-input"]}
+                        placeholder="Filter by name, image or stack…"
+                        value={filter}
+                        onChange={(e) => setFilter(e.target.value)}
+                    />
+                    <StatusFilter
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        options={[
+                            { value: "all", label: "All", count: counts.all },
+                            { value: "ok", label: "Running", count: counts.ok },
+                            { value: "warn", label: "Paused", count: counts.warn },
+                            { value: "err", label: "Stopped", count: counts.err },
+                        ]}
+                    />
+                </div>
 
-            {error && <ErrorBanner>{error}</ErrorBanner>}
-            {docker === null && !error && <EmptyState>Loading…</EmptyState>}
-            {docker && !docker.available && (
-                <EmptyState>Docker is not available on this server{docker.error ? `: ${docker.error}` : "."}</EmptyState>
-            )}
+                {stack && (
+                    <div className={shared["scope-row"]}>
+                        <button
+                            type="button"
+                            className={shared["scope-chip"]}
+                            title="Show every container on this host"
+                            onClick={onClearStack}
+                        >
+                            stack: <b>{stack}</b><span aria-hidden> ✕</span>
+                        </button>
+                        <span className={shared.dim}>filtered from the stack you came from</span>
+                    </div>
+                )}
 
-            {docker?.available && (shown.length === 0 ? (
-                <EmptyState>No matching containers.</EmptyState>
-            ) : (
-                <table className={shared["data-table"]}>
-                    <thead>
-                        <tr><th className={shared["col-expander"]} /><th>Name</th><th>Stack</th><th>Image</th><th>State</th><th>Status</th><th>Ports</th></tr>
-                    </thead>
-                    <tbody>
+                {error && <ErrorBanner>{error}</ErrorBanner>}
+                {docker === null && !error && <EmptyState>Loading…</EmptyState>}
+                {docker && !docker.available && (
+                    <EmptyState>Docker is not available on this server{docker.error ? `: ${docker.error}` : "."}</EmptyState>
+                )}
+
+                {docker?.available && (shown.length === 0 ? (
+                    <EmptyState>No matching containers.</EmptyState>
+                ) : (
+                    <DetailedList>
                         {shown.map((c) => {
-                            const expanded = expandedId === c.id;
+                            const tone = containerTone(c.state);
+                            const isOpen = containerId === c.id;
                             return (
-                                <Fragment key={c.id}>
-                                    <tr
-                                        className={cx(shared["row-clickable"], shared[`row-status-${stateStatus(c.state)}`], busyId === c.id && shared["row-busy"], expanded && shared["row-active"])}
-                                        onClick={() => setExpandedId(expanded ? null : c.id)}
-                                    >
-                                        <td className={shared["col-expander"]}><span className={cx(shared["row-expander"], expanded && shared.open)}>▸</span></td>
-                                        <td><b>{c.name}</b></td>
-                                        <td className={shared.dim}>{c.project ?? "—"}</td>
-                                        <td className={shared.dim}>{c.image}</td>
-                                        <td><span className={cx(shared.badge, shared[`badge-${stateStatus(c.state)}`])}>{c.state}</span></td>
-                                        <td className={shared.dim}>{c.status}</td>
-                                        <td className={cx(shared.dim, shared.mono, shared["ports-cell"])} title={c.ports}>{c.ports}</td>
-                                    </tr>
-                                    {expanded && (
-                                        <tr className={shared["row-detail-tr"]}>
-                                            <td />
-                                            <td colSpan={6}>
-                                                <div className={shared["row-detail-wrap"]}><div className={shared["row-detail"]}>
-                                                    <div className={shared["row-detail-actions"]}>
-                                                        {c.state === "running" ? (
-                                                            <>
-                                                                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyId !== null} onClick={() => void action(c, "stop")}>Stop</button>
-                                                                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyId !== null} onClick={() => void action(c, "restart")}>Restart</button>
-                                                                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyId !== null} onClick={() => void action(c, "pause")}>Pause</button>
-                                                            </>
-                                                        ) : c.state === "paused" ? (
-                                                            <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyId !== null} onClick={() => void action(c, "unpause")}>Unpause</button>
-                                                        ) : (
-                                                            <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyId !== null} onClick={() => void action(c, "start")}>Start</button>
-                                                        )}
-                                                        <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => onOpenContainer(c.id)}>Inspect</button>
-                                                        <button className={cx(shared.btn, shared["btn-sm"], shared["btn-danger"])} disabled={busyId !== null} onClick={() => void action(c, "remove")}>Remove</button>
-                                                    </div>
-                                                    <div className={shared["row-detail-body"]}>
-                                                        <div className={shared["row-detail-meta"]}>
-                                                            <DetailPair label="Image"><span className={shared.mono}>{c.image}</span></DetailPair>
-                                                            <DetailPair label="Stack">{c.project ?? "—"}{c.service ? ` / ${c.service}` : ""}</DetailPair>
-                                                            <DetailPair label="Status">{c.status}</DetailPair>
-                                                            <DetailPair label="Ports"><span className={shared.mono}>{c.ports || "—"}</span></DetailPair>
-                                                            <DetailPair label="Created">{c.createdAt}</DetailPair>
-                                                            <DetailPair label="ID"><span className={shared.mono}>{c.id.slice(0, 12)}</span></DetailPair>
-                                                        </div>
-                                                        <LogPreview
-                                                            fetchLogs={(q) => api("dockerContainerLogs", { serverId, containerId: c.id, ...q }).then((r) => r.logs)}
-                                                            onOpenFull={() => setLogTarget(c)}
-                                                        />
-                                                    </div>
-                                                </div></div>
-                                            </td>
-                                        </tr>
+                                <DetailedRow
+                                    key={c.id}
+                                    tone={tone}
+                                    selected={isOpen}
+                                    busy={busyId === c.id}
+                                    // The row only selects; every action lives in the drawer,
+                                    // so there's one place a container is acted on.
+                                    onClick={() => (isOpen ? onCloseContainer() : onOpenContainer(c.id))}
+                                    title={c.name}
+                                    badge={<StatusBadge tone={tone}>{c.state}</StatusBadge>}
+                                    meta={c.status}
+                                    secondary={(
+                                        <>
+                                            <span className={shared.mono}>{c.image}</span>
+                                            <PortLinks ports={c.ports} hostIp={hostIp} />
+                                            {!stack && c.project && <span>{c.project}</span>}
+                                        </>
                                     )}
-                                </Fragment>
+                                />
                             );
                         })}
-                    </tbody>
-                </table>
-            ))}
-
-            {logTarget && (
-                <LogViewerModal
-                    title={`Logs — ${logTarget.name}`}
-                    onClose={() => setLogTarget(null)}
-                    caps={{ timestamps: true }}
-                    fetchLogs={(q) => api("dockerContainerLogs", { serverId, containerId: logTarget.id, ...q }).then((r) => r.logs)}
-                />
-            )}
+                    </DetailedList>
+                ))}
+            </section>
 
             {containerId && (
-                <ContainerDetail
+                <ContainerDrawer
                     serverId={serverId}
                     containerId={containerId}
-                    name={detail?.name ?? containerId}
+                    container={selected}
+                    busy={busyId !== null}
+                    onAction={(container, act) => void action(container, act)}
                     onClose={onCloseContainer}
-                    onShowLogs={() => { if (detail) { setLogTarget(detail); } onCloseContainer(); }}
                 />
             )}
-        </section>
+        </DrawerLayout>
     );
 }

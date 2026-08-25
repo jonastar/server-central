@@ -732,3 +732,52 @@ tr:hover .row-actions {
     background: none;
     font-family: var(--mono, monospace);
 }
+
+/* ---- Scope chip -------------------------------------------------------------------- */
+
+/* "You got here from X" scope, above a list: a removable chip rather than text
+   dropped into the search box, so it's obvious it can be taken off. */
+.scope-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 12px;
+}
+
+.scope-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.scope-chip:hover {
+    background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+}
+
+/* ---- Count bar ---------------------------------------------------------------------- */
+
+/* Tiny "n of m up" meter — the running share of a stack, readable at a glance
+   before you read the numbers next to it. */
+.count-bar {
+    width: 44px;
+    height: 5px;
+    flex: none;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--muted) 22%, transparent);
+    overflow: hidden;
+}
+
+.count-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--ok);
+}

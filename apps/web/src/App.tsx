@@ -128,6 +128,7 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                         path={route.path}
                         file={route.file ?? null}
                         filter={route.filter}
+                        stack={route.stack}
                         containerId={route.containerId}
                         stackId={route.stackId}
                         stackTab={route.stackTab ?? "overview"}
