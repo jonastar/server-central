@@ -1,12 +1,12 @@
 **Alpha stage**
 
-This project is in a very early stage, I would not rely on it for anythign mission critical (or rely on it at all).
+This project is in a very early stage, I would not rely on it for anything mission critical (or rely on it at all).
 
-# Server-central (working title)
+# Server Central
 
-Server central is a project of mine to create a all in one server/Cluster management tool targetting home servers/homelabs/smaller businesses.
+Server central is a project of mine that aims to be an all in one server/Cluster management tool targeting home servers/homelabs/smaller businesses.
 
-Pictures says more than words, so have some screnshots, then ill go into more details below:
+Pictures says more than words, so have some screenshots, then ill go into more details below:
 
 <img width="1640" height="657" alt="Screenshot 2026-08-25 232214" src="https://github.com/user-attachments/assets/37237675-a460-40b2-aa81-980e029cd133" />
 
@@ -14,35 +14,67 @@ Pictures says more than words, so have some screnshots, then ill go into more de
 
 <img width="2872" height="1007" alt="Screenshot 2026-08-25 231537" src="https://github.com/user-attachments/assets/6ab38bc2-b72b-4737-b33c-08e07de3bd89" />
 
-
 # Features
 
-- Multi server management (implemented)
-  - This is a core feature
-  - Nodes install a node agent that self installs by downloading the agent from the control plane and installing a systemd service on linux
-  - Node - control plane communication happens over https through custom CA and self signed cert, no domain setup required with lets encrypt or something, yet secure and encrypted.
-    - (node install command you copy has the pubkey)
-- System management
-  - Networking (WIP)
-  - Wireguard overlay network (Unimplemented)
-  - Users (Unimplemented)
-    - Mapping server central users to system users
-- Users (unimplemented)
-  - RBAC permission based system
-  - SSO provider, with scoped access
-- File manager (basic implementation)
-  - Text editor (implemented, monaco)
-  - Basic file management (rename, move, delete, upload)
-  - Download (unimplemented)
-- Docker management (WIP)
-  - Currently only has basic container, volume, networks, stacks views, with basic start/stop controls and logs
-  - Docker compose management to be implemented
-- Systemd management (WIP)
-  - Services view with basic start/stop controls
-  - Logs
-- Reverse Proxy integration (unimplemented)
+**implemented** = I use it, **WIP** = works with known gaps, **experimental** = shipped but barely
+proven, **unimplemented** = a plan. Full log in [changelog.md](changelog.md), open work in [next.md](next.md).
 
-As you can see im still a bit away from just the prototype being done, there's still some concepts and things im gonna have to figure out.
+- **Multi server management** (implemented)
+  - This is a core feature
+  - Nodes run an agent that self-installs: it downloads itself from the control plane and sets
+    up a systemd service on linux
+  - Node ↔ control plane traffic is https over a custom CA and self-signed cert — no domain or
+    lets encrypt setup needed, still encrypted (the install command you copy carries the pubkey)
+  - Agents self-update, and probe their host for what it can actually do (docker, systemd, zfs)
+    so unusable tabs grey out instead of erroring
+- **Docker management** (implemented, the most built-out part)
+  - Containers, images, volumes, logs, inspect, exec, and an interactive shell into a container
+  - **Compose stacks**: create, import, or adopt what's already running; up/down/restart/pull,
+    stack-wide or per service
+  - **Visual compose editor** validated against the Compose Specification and `docker compose
+config`, with port/volume/env suggestions read from the image and a device picker for
+    passthrough. Anything it can't model falls back to YAML — the compose file is the truth
+  - Gap: no streaming exec yet, so `up`/`pull` are capped at 30s
+- **ZFS management** (implemented)
+  - Pools: health/vdev tree, scrub, import/export, guided create/add-vdev/replace wizards that
+    only offer `/dev/disk/by-id/*` paths and refuse disks already in use elsewhere
+  - Datasets and snapshots: full lifecycle incl. rollback and clone, plus property editing
+  - No silent `-f`, and destructive actions want the exact name typed out
+- **Systemd management** (basics implemented)
+  - Services list, start/stop/restart/enable/disable, unit file, logs
+- **File manager** (implemented)
+  - Browse, monaco editor, rename/move/delete/upload/download
+  - A **Mounts** view cross-referencing `findmnt`, `/etc/fstab` and ZFS `canmount`, so it can
+    tell you a mount won't survive a reboot
+- **Terminal** (implemented) — real PTY per host, running as the caller's mapped system user
+- **Reverse proxy** (experimental) — SC deploys and manages a Caddy container on one node and
+  renders routes (`host → node + port`) into it. Internal CA or ACME
+- **Users** (WIP)
+  - Owner setup, login, sessions, user CRUD
+  - Roles exist (owner/admin/operator/viewer) but **aren't enforced** outside user admin and
+    terminals — the biggest hole in the project right now
+- **SSO provider** (experimental) — built-in OIDC provider so other apps can sign in against SC, roles as
+  a `groups` claim. Largely untested
+- **System users** (WIP) — mapping SC users to system users, per-host creation and groups.
+  Pending: consistent UIDs across hosts, SSH keys
+- **System management**
+  - Live and historical metrics, and a process list, per host
+  - Networking (WIP) — interfaces, routes, per-node STUN check for the WAN IP
+  - Wireguard overlay network (unimplemented)
+- **Backups, config tracking & secrets** (unimplemented)
+- **An app layer above compose stacks** (unimplemented) — identity, routes, backup policy and
+  templates, fleet-scoped rather than per-host
+
+So: running docker and ZFS on a handful of boxes is genuinely usable now; the things that make
+it a platform rather than a dashboard — real RBAC, backups, the overlay network — are ahead of me.
+
+# Development
+
+Tests run under `bun test`. Beyond the unit/integration suites there's **the lab**
+([apps/server/test/e2e](apps/server/test/e2e)): a throwaway fleet of container "hosts", each
+with systemd as PID 1 and its own dockerd, enrolled into an in-process control plane by the
+real compiled agent binary. It boots three nodes in about 8 seconds and can be driven by hand,
+which makes anything that depends on _which host ran the command_ actually testable.
 
 # Install (control plane)
 
