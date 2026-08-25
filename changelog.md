@@ -7,6 +7,8 @@ opens a fresh `## Unreleased` above it.
 
 ## Unreleased
 
+## [0.11.0] - 2026-08-25
+
 ### Added
 
 - **Device passthrough in the compose editor.** Services now have a **Devices** field
