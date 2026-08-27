@@ -3,7 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalClientMessage, TerminalServerMessage } from "@central/shared";
-import { API_HOST, getToken } from "../api";
+import { getToken, wsUrl } from "../api";
 import { copyToClipboard, cx } from "../utils";
 import { markTerminalClosed, markTerminalOpened, terminalNeedsLeaveConfirm } from "../terminalSession";
 import styles from "./TerminalView.module.css";
@@ -35,10 +35,11 @@ export function TerminalView({ serverId, containerId }: { serverId: string; cont
         // clipped once the real font swaps in — refit once it's ready.
         void document.fonts?.ready?.then(() => fit.fit());
 
-        const containerParam = containerId ? `&containerId=${encodeURIComponent(containerId)}` : "";
-        const ws = new WebSocket(
-            `ws://${API_HOST}/terminal?serverId=${encodeURIComponent(serverId)}&token=${encodeURIComponent(getToken() ?? "")}${containerParam}`,
-        );
+        const ws = new WebSocket(wsUrl("/terminal", {
+            serverId,
+            token: getToken() ?? "",
+            ...(containerId ? { containerId } : {}),
+        }));
         const send = (msg: TerminalClientMessage) => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(msg));

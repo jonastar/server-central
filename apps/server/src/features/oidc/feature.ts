@@ -41,8 +41,8 @@ export function oidcApiHandlers(oidc: OidcStore): FeatureApiHandlers<OidcOps> {
         async handleCreateOidcClient(data: { name: string; redirectUris: string[] }, ctx?: AuthContext): Promise<{ client: OidcClient; clientSecret: string }> {
             requireOwner(ctx);
             const config = await readConfig();
-            if (!config.issuerUrl) {
-                throw new Error("Set an Issuer URL in Settings before registering OIDC clients");
+            if (!config.primaryUrl) {
+                throw new Error("Set a Primary URL in Settings before registering OIDC clients");
             }
             return oidc.createClient(data.name, data.redirectUris);
         },

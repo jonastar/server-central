@@ -80,8 +80,11 @@ Nodes 2 and 3 enroll with tokens minted through the real
 Everything about a lab session sits beside your own rather than on top of it: the
 API is published on **4241** (not 4141) and its dev server runs on **5251** (not
 5151), so `bun run dev` and a lab can be up at the same time. `lab up` and `lab
-web` set `VITE_API_PORT`, which [api.ts](../../../web/src/api.ts) reads, and
-`SC_WEB_PORT`, which vite.config.ts reads.
+web` set `VITE_API_PORT` and `SC_WEB_PORT`. `SC_WEB_PORT` is the dev server's own
+port; `VITE_API_PORT` is the lab control plane, read in two places — vite.config.ts
+forwards `/api` there, and [api.ts](../../../web/src/api.ts) sends websockets there
+directly, since Vite can't proxy an upgrade under Bun (the comment on `DEV_WS_PORT`
+has the details). The app's own URLs are same-origin and relative either way.
 
 Log in as `lab` / `labpassword`. Override with `SC_LAB_USER` / `SC_LAB_PASS`,
 `SC_LAB_PORT` for the API, and `SC_LAB_WEB_PORT` for the dev server.

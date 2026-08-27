@@ -1,0 +1,1 @@
+- stop down etc button does not work on compose stacks

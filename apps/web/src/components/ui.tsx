@@ -310,6 +310,7 @@ export function ActionMenu({ items, disabled, label = "…", title }: {
     title?: string;
 }) {
     const btnRef = useRef<HTMLButtonElement | null>(null);
+    const menuRef = useRef<HTMLDivElement | null>(null);
     const [at, setAt] = useState<{ top: number; right: number } | null>(null);
 
     useEffect(() => {
@@ -319,13 +320,25 @@ export function ActionMenu({ items, disabled, label = "…", title }: {
         const close = () => setAt(null);
         const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { close(); } };
         // `true` (capture) so a click anywhere closes before the target's own
-        // handler runs — including a click on another row's trigger.
-        window.addEventListener("mousedown", close, true);
+        // handler runs — including a click on another row's trigger. That makes
+        // the inside/outside test a native `contains` check on the real target:
+        // a React `stopPropagation` on the popup can't stop a window-level
+        // capture listener that has already run, and closing here would unmount
+        // the item under the pointer before its `click` ever fired — which is
+        // to say every menu item would silently do nothing.
+        const onDown = (e: MouseEvent) => {
+            const target = e.target as Node | null;
+            if (target && (menuRef.current?.contains(target) || btnRef.current?.contains(target))) {
+                return;
+            }
+            close();
+        };
+        window.addEventListener("mousedown", onDown, true);
         window.addEventListener("keydown", onKey);
         window.addEventListener("scroll", close, true);
         window.addEventListener("resize", close);
         return () => {
-            window.removeEventListener("mousedown", close, true);
+            window.removeEventListener("mousedown", onDown, true);
             window.removeEventListener("keydown", onKey);
             window.removeEventListener("scroll", close, true);
             window.removeEventListener("resize", close);
@@ -358,6 +371,7 @@ export function ActionMenu({ items, disabled, label = "…", title }: {
             </button>
             {at && (
                 <div
+                    ref={menuRef}
                     role="menu"
                     onMouseDown={(e) => e.stopPropagation()}
                     style={{

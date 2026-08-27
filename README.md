@@ -94,4 +94,6 @@ Windows: download `sc-agent-windows-x64.exe` from the [release](https://github.c
 
 This installs a `sc-central` systemd service (binary in `/usr/local/bin`, state in `/var/lib/sc-central`) and serves the web UI + API on `:4141`. Override locations with `--install-dir` / `--data-dir`.
 
+That port is plain HTTP. To put SC on a real hostname with a real certificate, front it with a TLS-terminating reverse proxy — see [docs/reverse-proxy.md](docs/reverse-proxy.md), which also covers the settings you want when there's a proxy in the path (bind address, trusted proxies, and how host agents reach the control plane).
+
 You only download the **one** binary for the control plane's own platform. When an agent of another platform enrolls, the control plane fetches that platform's binary from the release source on demand (checksum-verified) and caches it — so agents still install/update by downloading from the control plane, never directly from GitHub. The control plane updates itself from **Settings → Control plane** when a newer release is available.

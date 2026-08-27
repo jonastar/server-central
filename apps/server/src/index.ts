@@ -1,7 +1,9 @@
 import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
 import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
-import { MAX_UPLOAD_BYTES } from "@central/shared";
+import { API_PREFIX, MAX_UPLOAD_BYTES } from "@central/shared";
+import { DEFAULT_FORWARDED_HEADER, headerForPeer, parseTrustedProxies, parseTrustedProxiesEnv, resolveClientIp, type TrustedProxyEntry } from "./client-ip";
+import { corsHeaders as buildCorsHeaders, resolveAllowedOrigins } from "./cors";
 import type { ShellSession } from "./host-agent";
 import { ComposeStackStore } from "./features/compose/store";
 import { createComposeStacksFeature } from "./features/compose/feature";
@@ -66,12 +68,6 @@ type WsData =
     // containerId, when set, opens a terminal into that container (`docker exec
     // -it`) instead of a host shell — see openTerminal().
     | { channel: "terminal"; serverId: string; containerId: string | null; user: UserInfo; shell: ShellSession | null };
-
-const corsHeaders = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
 
 const eventSockets = new Set<ServerWebSocket<WsData>>();
 
@@ -158,6 +154,31 @@ const taskRunner = new TaskRunner(
     allTaskHandlers,
 );
 
+/**
+ * Proxies whose forwarded header we believe, and the header each one writes.
+ *
+ * Editable from Settings and applied live, like the CORS allowlist — but the
+ * environment wins outright when set, and `trustedProxiesLocked` tells the UI to
+ * present it read-only rather than accepting a save the env would override.
+ */
+const envTrustedProxies = process.env.SC_TRUSTED_PROXIES
+    ? parseTrustedProxiesEnv(process.env.SC_TRUSTED_PROXIES)
+    : null;
+export const trustedProxiesLocked = envTrustedProxies !== null;
+
+/** Header used for a proxy whose entry doesn't name one of its own. */
+const forwardedHeader = (process.env.SC_FORWARDED_HEADER || startupConfig.forwardedHeader || DEFAULT_FORWARDED_HEADER).trim().toLowerCase();
+
+let trustedProxies = parseTrustedProxies([]);
+
+function applyTrustedProxies(configured: TrustedProxyEntry[]): void {
+    trustedProxies = parseTrustedProxies(envTrustedProxies ?? configured);
+    console.log(trustedProxies.length > 0
+        ? `Trusting forwarded headers from ${trustedProxies.length} configured proxy range(s); default header ${forwardedHeader}`
+        : "Not trusting any forwarded headers (client IP is the direct peer)");
+}
+applyTrustedProxies(startupConfig.trustedProxies ?? []);
+
 const oidcStore = new OidcStore();
 const proxyStore = new ProxyStore();
 const proxyManager = new ProxyManager(fleet, proxyStore);
@@ -168,7 +189,7 @@ const features = defineFeatures(
     createOidcFeature(oidcStore),
     createProxyFeature(proxyManager, proxyStore),
     createServersFeature(fleet, nodeServer),
-    createSettingsFeature(nodeServer),
+    createSettingsFeature(nodeServer, oidcStore, applyAllowedOrigins, applyTrustedProxies, trustedProxiesLocked),
     createTasksFeature(taskRunner, taskStore, featureTasks.ownerOnlyKinds),
 );
 for (const f of features) await f.init?.({ configDir: CONFIG_DIR, broadcast });
@@ -180,6 +201,41 @@ const handler: ApiHandlerPrefixed<CentralApiOperations> = composeApiHandlers(fea
 
 /** Commands callable without a session (first-run setup + login). */
 const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]);
+
+/**
+ * Origins allowed to read API responses cross-origin.
+ *
+ * Unlike bindHost/trustedProxies above this is *not* frozen at startup: it's
+ * editable from Settings, and a control that only takes effect after a restart is
+ * a control that looks broken. `applyAllowedOrigins` is handed to the settings
+ * feature, which calls it after persisting.
+ *
+ * `SC_ALLOWED_ORIGINS` still wins when set — an install configured by unit file or
+ * container env shouldn't have that quietly overwritten from the web UI.
+ */
+const envAllowedOrigins = process.env.SC_ALLOWED_ORIGINS?.split(",");
+let allowedOrigins: string[] = [];
+
+function applyAllowedOrigins(configured: string[], primaryUrl: string | null): void {
+    allowedOrigins = resolveAllowedOrigins(envAllowedOrigins ?? configured, primaryUrl);
+    console.log(allowedOrigins.length > 0
+        ? `CORS restricted to: ${allowedOrigins.join(", ")}`
+        : "CORS: allowing any origin (no allowed origins configured)");
+}
+applyAllowedOrigins(startupConfig.allowedOrigins ?? [], startupConfig.primaryUrl ?? null);
+
+/** `Access-Control-*` headers for this request — see cors.ts. */
+function corsFor(req: Request): Record<string, string> {
+    return buildCorsHeaders(req.headers.get("origin"), allowedOrigins);
+}
+
+/** The address to attribute a request to — see client-ip.ts. The header is chosen
+ *  per peer, so two front ends writing different headers both resolve correctly. */
+function clientIp(req: Request, serverCtx: { requestIP(req: Request): { address: string } | null }): string | null {
+    const peer = serverCtx.requestIP(req)?.address ?? null;
+    const header = headerForPeer(peer, trustedProxies, forwardedHeader);
+    return resolveClientIp(peer, req.headers.get(header), trustedProxies, header);
+}
 
 function bearerToken(req: Request): string | null {
     const header = req.headers.get("Authorization");
@@ -213,6 +269,7 @@ function clientCredentials(req: Request, body: URLSearchParams): { clientId: str
 }
 
 async function handleOidcToken(req: Request): Promise<Response> {
+    const corsHeaders = corsFor(req);
     const body = new URLSearchParams(await req.text());
     if (body.get("grant_type") !== "authorization_code") {
         return Response.json({ error: "unsupported_grant_type" }, { status: 400, headers: corsHeaders });
@@ -241,13 +298,13 @@ async function handleOidcToken(req: Request): Promise<Response> {
         return Response.json({ error: "invalid_grant", error_description: "User no longer exists" }, { status: 400, headers: corsHeaders });
     }
     const config = await readConfig();
-    if (!config.issuerUrl) {
-        return Response.json({ error: "server_error", error_description: "Issuer URL is not configured" }, { status: 500, headers: corsHeaders });
+    if (!config.primaryUrl) {
+        return Response.json({ error: "server_error", error_description: "Primary URL is not configured" }, { status: 500, headers: corsHeaders });
     }
 
     const key = oidcStore.key;
-    const idToken = buildIdToken(user, { issuer: config.issuerUrl, clientId: client.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000) }, key);
-    const accessToken = buildAccessToken(user, { issuer: config.issuerUrl, clientId: client.id, scope: grant.scope }, key);
+    const idToken = buildIdToken(user, { issuer: config.primaryUrl, clientId: client.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000) }, key);
+    const accessToken = buildAccessToken(user, { issuer: config.primaryUrl, clientId: client.id, scope: grant.scope }, key);
     return Response.json({
         access_token: accessToken,
         id_token: idToken,
@@ -288,11 +345,17 @@ async function openTerminal(ws: ServerWebSocket<WsData>): Promise<void> {
 // the request even reaches the handler to enforce the real limit itself.
 const MAX_REQUEST_BODY_BYTES = Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 16 * 1024 * 1024;
 
+// Unset binds every interface. Behind a TLS-terminating proxy on the same host,
+// setting this to 127.0.0.1 keeps the plaintext port off the network entirely.
+const bindHost = process.env.SC_BIND || startupConfig.bindHost;
+
 const server = Bun.serve<WsData>({
     port: Number(process.env.PORT) || 4141,
+    ...(bindHost ? { hostname: bindHost } : {}),
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     async fetch(req, serverCtx) {
         const url = new URL(req.url);
+        const corsHeaders = corsFor(req);
 
         if (req.method === "OPTIONS") {
             return new Response(null, { status: 204, headers: corsHeaders });
@@ -304,10 +367,10 @@ const server = Bun.serve<WsData>({
         // SPA-shell fallback below; the React app itself recognizes the path.
         if (url.pathname === "/.well-known/openid-configuration" || url.pathname === "/.well-known/jwks.json") {
             const config = await readConfig();
-            if (!config.issuerUrl) {
-                return Response.json({ error: "OIDC issuer URL is not configured" }, { status: 404, headers: corsHeaders });
+            if (!config.primaryUrl) {
+                return Response.json({ error: "Primary URL is not configured" }, { status: 404, headers: corsHeaders });
             }
-            const body = url.pathname === "/.well-known/jwks.json" ? jwks(oidcStore.key) : discoveryDocument(config.issuerUrl);
+            const body = url.pathname === "/.well-known/jwks.json" ? jwks(oidcStore.key) : discoveryDocument(config.primaryUrl);
             return Response.json(body, { headers: corsHeaders });
         }
 
@@ -328,13 +391,13 @@ const server = Bun.serve<WsData>({
 
         // WebSocket channels carry the bearer token as a query param, since
         // browsers can't set Authorization headers on WS upgrades.
-        if (url.pathname === "/events" || url.pathname === "/terminal") {
+        if (url.pathname === `${API_PREFIX}/events` || url.pathname === `${API_PREFIX}/terminal`) {
             const user = await auth.authenticate(url.searchParams.get("token"));
             if (!user) {
                 return new Response("Unauthorized", { status: 401, headers: corsHeaders });
             }
 
-            if (url.pathname === "/events") {
+            if (url.pathname === `${API_PREFIX}/events`) {
                 if (serverCtx.upgrade(req, { data: { channel: "events" } satisfies WsData })) {
                     return undefined as unknown as Response;
                 }
@@ -352,8 +415,45 @@ const server = Bun.serve<WsData>({
             return new Response("Upgrade failed", { status: 400, headers: corsHeaders });
         }
 
+        // Everything under /api/ is the JSON-RPC surface. It's matched before the
+        // static handler and never falls through to it, so an unknown command reads
+        // as a 404 to the caller instead of being answered with the SPA shell.
+        if (url.pathname === API_PREFIX || url.pathname.startsWith(`${API_PREFIX}/`)) {
+            if (req.method !== "POST") {
+                return Response.json({ error: "Use POST" }, { status: 405, headers: corsHeaders });
+            }
+
+            const command = url.pathname.slice(API_PREFIX.length + 1) as Command;
+            // Dispatch only ever reaches `handle*` methods — never an arbitrary property
+            // off the handler (constructor, toString, …) — by prefixing the derived name.
+            const method = `handle${command.charAt(0).toUpperCase()}${command.slice(1)}` as keyof ApiHandlerPrefixed<CentralApiOperations>;
+            const fn = (handler[method] as ((data: unknown, ctx: AuthContext) => Promise<unknown>) | undefined)?.bind(handler);
+            if (!fn) {
+                return Response.json({ error: `Unknown command: ${command}` }, { status: 404, headers: corsHeaders });
+            }
+
+            const token = bearerToken(req);
+            const user = await auth.authenticate(token);
+            if (!PUBLIC_COMMANDS.has(command) && !user) {
+                return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+            }
+
+            const ip = clientIp(req, serverCtx);
+            const userAgent = req.headers.get("user-agent");
+            const data = await req.json().catch(() => null);
+            try {
+                const result = await fn(data ?? undefined, { token, user, ip, userAgent });
+                return new Response(result === undefined ? "null" : JSON.stringify(result), {
+                    headers: { ...corsHeaders, "Content-Type": "application/json" },
+                });
+            } catch (err) {
+                const message = err instanceof Error ? err.message : "Unexpected server error";
+                return Response.json({ error: message }, { status: 500, headers: corsHeaders });
+            }
+        }
+
         // Serve the embedded SPA for browser GETs. Returns null in dev (UI comes from
-        // Vite), so we fall through to the API's POST-only contract below.
+        // Vite), so we fall through to the 404 below.
         if (req.method === "GET" || req.method === "HEAD") {
             const asset = serveStatic(url.pathname);
             if (asset) {
@@ -361,37 +461,7 @@ const server = Bun.serve<WsData>({
             }
         }
 
-        if (req.method !== "POST") {
-            return Response.json({ error: "Use POST" }, { status: 405, headers: corsHeaders });
-        }
-
-        const command = url.pathname.replace(/^\//, "") as Command;
-        // Dispatch only ever reaches `handle*` methods — never an arbitrary property
-        // off the handler (constructor, toString, …) — by prefixing the derived name.
-        const method = `handle${command.charAt(0).toUpperCase()}${command.slice(1)}` as keyof ApiHandlerPrefixed<CentralApiOperations>;
-        const fn = (handler[method] as ((data: unknown, ctx: AuthContext) => Promise<unknown>) | undefined)?.bind(handler);
-        if (!fn) {
-            return Response.json({ error: `Unknown command: ${command}` }, { status: 404, headers: corsHeaders });
-        }
-
-        const token = bearerToken(req);
-        const user = await auth.authenticate(token);
-        if (!PUBLIC_COMMANDS.has(command) && !user) {
-            return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
-        }
-
-        const ip = serverCtx.requestIP(req)?.address ?? null;
-        const userAgent = req.headers.get("user-agent");
-        const data = await req.json().catch(() => null);
-        try {
-            const result = await fn(data ?? undefined, { token, user, ip, userAgent });
-            return new Response(result === undefined ? "null" : JSON.stringify(result), {
-                headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : "Unexpected server error";
-            return Response.json({ error: message }, { status: 500, headers: corsHeaders });
-        }
+        return Response.json({ error: "Not found" }, { status: 404, headers: corsHeaders });
     },
     websocket: {
         open(ws) {
@@ -430,4 +500,4 @@ const server = Bun.serve<WsData>({
     },
 });
 
-console.log(`Server Central backend running at http://localhost:${server.port}`);
+console.log(`Server Central backend running at http://${bindHost ?? "localhost"}:${server.port}`);

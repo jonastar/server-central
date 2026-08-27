@@ -131,6 +131,19 @@ export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "he
 export const CONTROL_PLANE_TLS_SERVERNAME = "control-plane";
 
 /**
+ * Path prefix every JSON-RPC command and websocket channel on the web/API port
+ * lives under (`POST /api/getAuthState`, `WS /api/events`). Prefixed rather than
+ * sitting at the root so the surface is separable from the SPA's own routes: a
+ * reverse proxy can forward it by prefix, and the Vite dev server proxies exactly
+ * this one path back to the control plane instead of guessing which root paths
+ * are the API's and which are the app's.
+ *
+ * The OIDC routes are deliberately *not* under here — `/.well-known/*` and
+ * `/oidc/*` are fixed by spec relative to the issuer root.
+ */
+export const API_PREFIX = "/api";
+
+/**
  * How many metrics snapshots to keep in memory per host (agent-side history and the
  * control plane's `HostAgent.history` both trim to this). At the 5s metrics interval,
  * 720 samples is an hour.
@@ -1134,12 +1147,42 @@ export type CentralApiOperations = {
     updateControlPlane: { data: void; response: void };
 
     // Config
-    getConfig: { data: void; response: { domain: string | null; issuerUrl: string | null } };
+    getConfig: {
+        data: void;
+        response: {
+            /** Agents' address for the node server (:4142) — not a browser-facing URL. */
+            domain: string | null;
+            /** Canonical public URL of this control plane; also the OIDC issuer. */
+            primaryUrl: string | null;
+            /** Other origins allowed to call the API cross-origin. */
+            allowedOrigins: string[];
+            /** Proxies whose forwarded client-address header is believed, and the
+             *  header each writes ("" = use forwardedHeader). */
+            trustedProxies: { address: string; header: string }[];
+            /** Header used for trusted proxies that don't name one of their own. */
+            forwardedHeader: string;
+            /** True when SC_TRUSTED_PROXIES is set: the env wins, so the UI must
+             *  show the list read-only rather than accept a save it would override. */
+            trustedProxiesLocked: boolean;
+            /** OIDC clients trusting the current primaryUrl as their `iss`. Non-zero
+             *  means changing it breaks them, so the UI warns and `force` is required. */
+            oidcClientCount: number;
+        };
+    };
     setDomain: { data: { domain: string | null }; response: void };
-    // Absolute base URL (e.g. "https://central.example.com") OIDC uses as the
-    // token `iss` claim and discovery-document base. Required before any OIDC
-    // client can be created, since it must stay stable once clients trust it.
-    setIssuerUrl: { data: { issuerUrl: string | null }; response: void };
+    // The canonical public URL browsers reach this control plane at (e.g.
+    // "https://central.example.com"). Doubles as the OIDC `iss` claim and
+    // discovery-document base, so it must stay stable once a client trusts it:
+    // changing it while OIDC clients exist is refused unless `force` is set.
+    setPrimaryUrl: { data: { primaryUrl: string | null; force?: boolean }; response: void };
+    // Origins permitted to read API responses cross-origin. This is for *other*
+    // apps calling the API — the web UI is same-origin and needs no entry. Empty
+    // keeps the permissive `Access-Control-Allow-Origin: *` default.
+    setAllowedOrigins: { data: { allowedOrigins: string[] }; response: void };
+    // Proxies whose forwarded header is believed when resolving a client IP, each
+    // optionally naming the header it writes (empty = the configured default).
+    // Refused while SC_TRUSTED_PROXIES is set, since the environment overrides it.
+    setTrustedProxies: { data: { trustedProxies: { address: string; header: string }[] }; response: void };
 
     // Reverse proxy (owner-only). Route mutations re-apply the rendered config
     // immediately; the result lands in ProxyState.lastApply.

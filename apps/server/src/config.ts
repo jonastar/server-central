@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentMode, ComposeStack, SystemInfo, TaskRun } from "@central/shared";
+import type { TrustedProxyEntry } from "./client-ip";
 import { writeFileAtomic } from "./fs-atomic";
 
 /**
@@ -38,11 +39,94 @@ const STACK_STATE_FILE = path.join(CONFIG_DIR, "compose-stacks.json");
 const LEGACY_STACK_STATE_FILE = path.join(CONFIG_DIR, "app-registry.json");
 
 export interface Config {
+    /**
+     * External hostname **agents** use to reach this control plane: it goes into
+     * the node server's TLS leaf as a SAN and becomes the off-LAN endpoint in
+     * enrollment commands (`wss://<domain>:4142/node`). Optional; the discovered
+     * WAN IP is used when it's unset.
+     *
+     * Not the address the web UI is served at, which is worth stating because a
+     * reverse-proxy setup makes the two look like the same thing. They're only the
+     * same when the proxy runs on this host and `:4142` is reachable under the same
+     * name; if the proxy is a separate machine, this must stay the name that
+     * resolves to *this* host, or agents get an endpoint that doesn't answer.
+     * Nothing the browser talks to reads this — see docs/reverse-proxy.md.
+     */
     domain?: string;
     /**
-     * Absolute base URL (e.g. "https://central.example.com") used as the OIDC
-     * `iss` claim and discovery-document base. Must stay stable once any OIDC
-     * client trusts it, so it's set explicitly rather than derived per-request.
+     * Address the web/API listener binds to. Unset means every interface, which
+     * is right for direct exposure. Behind a TLS-terminating reverse proxy on the
+     * same host, set "127.0.0.1" so the plaintext port isn't reachable from the
+     * network at all. Read once at startup — changing it needs a restart.
+     * `SC_BIND` overrides it, for installs configured by unit file or container
+     * env rather than by config.json.
+     */
+    bindHost?: string;
+    /**
+     * Reverse proxies this control plane will believe `X-Forwarded-For` from, as
+     * bare IPs or CIDRs ("127.0.0.1", "10.42.0.0/16"). Empty/unset means the
+     * header is ignored and the direct peer is the client — the correct default
+     * for direct exposure, since anyone can send the header.
+     *
+     * Set this when running behind a proxy: sessions record the real client IP,
+     * and the login throttle stops treating the whole company as one address.
+     *
+     * An entry may be a bare address, or `{ address, header }` naming the header
+     * that particular proxy writes — for a control plane reachable through two
+     * different front ends at once. Entries without one use `forwardedHeader`.
+     *
+     * Editable from Settings, and applied live. `SC_TRUSTED_PROXIES` overrides it
+     * and makes it read-only there: comma-separated, each entry optionally
+     * `address=header` ("127.0.0.1,10.42.0.0/16=X-Real-IP"). See client-ip.ts.
+     */
+    trustedProxies?: TrustedProxyEntry[];
+    /**
+     * Which header carries the real client address, when `trustedProxies` says to
+     * believe one. Defaults to `X-Forwarded-For`; case-insensitive.
+     *
+     * Set it to whatever your proxy actually writes — `X-Real-IP` (nginx's
+     * single-address convention), `CF-Connecting-IP`, `True-Client-IP`, or
+     * `Forwarded` for RFC 7239, which is parsed in its own `for=` syntax rather
+     * than as a plain list. Deliberately one header, not a list of candidates to
+     * try: falling back to a second header means an address the proxy didn't set
+     * can win whenever the expected one is absent.
+     *
+     * Read once at startup; `SC_FORWARDED_HEADER` overrides it. See client-ip.ts.
+     */
+    forwardedHeader?: string;
+    /**
+     * Origins allowed to read API responses cross-origin, as full URLs or bare
+     * origins ("https://app.example.com"). The OIDC issuer URL's origin is added
+     * implicitly, so a proxied install that has set it needn't repeat the hostname.
+     *
+     * Unset (or containing "*") keeps the historical `Access-Control-Allow-Origin: *`.
+     * The web UI is same-origin and needs none of this. Read once at startup;
+     * `SC_ALLOWED_ORIGINS` (comma-separated) overrides it. See cors.ts — and note it
+     * governs reading responses, not whether a request is delivered.
+     */
+    allowedOrigins?: string[];
+    /**
+     * The canonical public URL browsers reach this control plane at, e.g.
+     * "https://central.example.com" — one value for "where does SC live", rather
+     * than the same hostname retyped per feature.
+     *
+     * It is the OIDC `iss` claim and discovery-document base, and is what future
+     * link-generating features (emails, third-party integrations) should use. Set
+     * explicitly rather than derived per-request, because `iss` must stay stable
+     * once an OIDC client trusts it — hence the guard on changing it while clients
+     * exist (features/settings/feature.ts).
+     *
+     * Distinct from {@link Config.domain}, which is the agents' address, and from
+     * {@link Config.allowedOrigins}, which is about *other* origins calling the API.
+     */
+    primaryUrl?: string;
+    /**
+     * Pre-rename name for {@link Config.primaryUrl}, read once as a fallback so an
+     * install configured before the rename keeps working. Left in place on write
+     * rather than deleted, so downgrading isn't a data-loss event — the same
+     * approach as the compose-stack registry's legacy file below.
+     *
+     * @deprecated Use primaryUrl.
      */
     issuerUrl?: string;
     /**
@@ -83,7 +167,13 @@ export { writeFileAtomic };
 export async function readConfig(): Promise<Config> {
     try {
         const text = await fs.readFile(CONFIG_FILE, "utf8");
-        return JSON.parse(text) as Config;
+        const config = JSON.parse(text) as Config;
+        // Carry a pre-rename issuerUrl forward, so every caller can just read
+        // primaryUrl without each one remembering the old name.
+        if (!config.primaryUrl && config.issuerUrl) {
+            config.primaryUrl = config.issuerUrl;
+        }
+        return config;
     } catch {
         return {};
     }
@@ -104,12 +194,35 @@ export async function setDomain(domain: string | null): Promise<void> {
     await writeConfig(current);
 }
 
-export async function setIssuerUrl(issuerUrl: string | null): Promise<void> {
+export async function setPrimaryUrl(primaryUrl: string | null): Promise<void> {
     const current = await readConfig();
-    if (issuerUrl) {
-        current.issuerUrl = issuerUrl.replace(/\/+$/, "");
+    if (primaryUrl) {
+        current.primaryUrl = primaryUrl.replace(/\/+$/, "");
     } else {
-        delete current.issuerUrl;
+        delete current.primaryUrl;
+    }
+    // The legacy key would otherwise be resurrected by readConfig's fallback on the
+    // next load, silently undoing a clear or an edit.
+    delete current.issuerUrl;
+    await writeConfig(current);
+}
+
+export async function setTrustedProxies(trustedProxies: TrustedProxyEntry[]): Promise<void> {
+    const current = await readConfig();
+    if (trustedProxies.length > 0) {
+        current.trustedProxies = trustedProxies;
+    } else {
+        delete current.trustedProxies;
+    }
+    await writeConfig(current);
+}
+
+export async function setAllowedOrigins(allowedOrigins: string[]): Promise<void> {
+    const current = await readConfig();
+    if (allowedOrigins.length > 0) {
+        current.allowedOrigins = allowedOrigins;
+    } else {
+        delete current.allowedOrigins;
     }
     await writeConfig(current);
 }

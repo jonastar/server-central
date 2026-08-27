@@ -1,5 +1,5 @@
 import type { ApiEvent, MetricsSnapshot, ServerEntry, TaskLogLine, TaskRun } from "@central/shared";
-import { api, API_HOST, getToken } from "./api";
+import { api, getToken, wsUrl } from "./api";
 
 const METRICS_CLIENT_MAX = 720;
 /** Client-side mirror of the server's per-run log cap (TaskRunner.MAX_LOG_LINES). */
@@ -75,7 +75,7 @@ class ConnectionManager {
         if (!token) {
             return;
         }
-        const ws = new WebSocket(`ws://${API_HOST}/events?token=${encodeURIComponent(token)}`);
+        const ws = new WebSocket(wsUrl("/events", { token }));
         this.ws = ws;
         // Guard every handler against `this.ws` having moved on (belt-and-braces
         // alongside stop()'s handler-stripping above) so a stale socket can never

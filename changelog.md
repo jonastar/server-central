@@ -5,7 +5,38 @@ newest first. There are Keep-a-Changelog sections (Added / Changed / Removed / F
 nested under each. `bun run release` renames `## Unreleased` to the cut version and
 opens a fresh `## Unreleased` above it.
 
+**Keep entries short.** One line, roughly 20 words / 150 characters: what changed, and why a
+reader would care. Reasoning, mechanism and caveats belong in the code comment, the doc, or the
+commit message — not here. Prefer several small bullets over one long one. A genuinely large
+feature may run longer; most don't earn it.
+
 ## Unreleased
+
+### Added
+
+- **Reverse proxy support.** The web UI works behind a TLS-terminating proxy; API calls and
+  websockets are same-origin and relative. [docs/reverse-proxy.md](docs/reverse-proxy.md)
+- **`bindHost`** (`SC_BIND`) sets the web listener's address, to keep the plaintext port on
+  loopback behind a proxy.
+- **`trustedProxies`** (`SC_TRUSTED_PROXIES`) honours a forwarded client address from listed
+  proxies, so the login throttle and sessions see real client IPs.
+- **`forwardedHeader`** (`SC_FORWARDED_HEADER`) picks which header that is — `X-Real-IP`,
+  `CF-Connecting-IP`, RFC 7239 `Forwarded`. Defaults to `X-Forwarded-For`.
+- **Trusted proxies are editable in Settings**, each entry optionally naming the header that
+  proxy writes, for a server reachable through two front ends at once.
+- **`allowedOrigins`** (`SC_ALLOWED_ORIGINS`) narrows CORS from `*`; the primary URL's origin is
+  allowed automatically. Unset keeps today's behaviour. Editable in Settings, add/remove per entry.
+- **Primary URL** replaces the OIDC issuer field as one canonical public URL for SC, reused as the
+  `iss` claim. Changing it with SSO clients registered needs confirming.
+
+### Changed
+
+- **API moved under `/api/`.** Ops are `POST /api/<op>`; websockets are `/api/events` and
+  `/api/terminal`. OIDC routes unchanged. An open tab needs a reload.
+- **Dev websockets skip the Vite proxy**, which can't forward upgrades under Bun. Release
+  builds are served from one origin and unaffected.
+- **External domain** renamed "External domain for agents" — it's the address agents dial on
+  `:4142`, which differs from the UI's hostname when the proxy is a separate machine.
 
 ## [0.11.0] - 2026-08-25
 

@@ -42,6 +42,8 @@ const PORT = Number(process.env.SC_LAB_PORT ?? 4241);
 /** Same idea for the dev server: 5151 belongs to `bun run dev:web`. */
 const WEB_PORT = Number(process.env.SC_LAB_WEB_PORT ?? 5251);
 const API = `http://127.0.0.1:${PORT}`;
+/** The control plane's JSON-RPC surface lives under /api (shared API_PREFIX). */
+const API_RPC = `${API}/api`;
 
 function fail(message: string): never {
     console.error(message);
@@ -53,7 +55,7 @@ function fail(message: string): never {
 let bearer: string | null = null;
 
 async function api<T>(op: string, data: unknown): Promise<T> {
-    const res = await fetch(`${API}/${op}`, {
+    const res = await fetch(`${API_RPC}/${op}`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -72,7 +74,7 @@ async function api<T>(op: string, data: unknown): Promise<T> {
 async function authenticate(): Promise<void> {
     let state: { needsSetup: boolean } | null = null;
     for (let i = 0; i < 120; i++) {
-        state = await fetch(`${API}/getAuthState`, {
+        state = await fetch(`${API_RPC}/getAuthState`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: "null",

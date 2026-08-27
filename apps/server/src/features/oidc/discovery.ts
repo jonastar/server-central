@@ -1,5 +1,5 @@
 /** Builds the `/.well-known/openid-configuration` document. `issuer` is the
- *  admin-configured, stable base URL (see config.ts `issuerUrl`) — not derived
+ *  admin-configured, stable base URL (see config.ts `primaryUrl`) — not derived
  *  from the incoming request, since it must stay fixed once clients trust it. */
 export function discoveryDocument(issuer: string): Record<string, unknown> {
     return {

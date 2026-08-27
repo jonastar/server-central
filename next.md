@@ -6,7 +6,6 @@ re-document finished work here, and delete an item from this file once it lands.
 ## Smaller items
 
 - View agent config in the agents section
-- Prefix API endpoints with `/api/`
 - Shortcut to `sc` logs
 - base64-encoding the blob to send it manually in the body is not ideal — can we support
   multipart somehow?
@@ -36,6 +35,20 @@ Two ways to close it, roughly in order of preference:
 - Resolve `GraphDriver.Data.MergedDir` from inspect and browse it as a host path (free — it's
   the same trick the Volumes tab already plays). But it's overlay2-only and only valid while
   the container runs, so it's a shortcut, not the answer.
+
+### Public endpoints accept cross-origin writes
+
+`setupOwner` is in `PUBLIC_COMMANDS` (`apps/server/src/index.ts`), and a cross-origin POST
+reaches it: with `Content-Type: text/plain` the request is CORS-"simple", so no preflight
+happens and `req.json()` parses the body regardless of the declared type. Confirmed against a
+fresh instance — any page a user visits can claim ownership of an un-setup control plane
+reachable from their browser (a LAN address, typically).
+
+`allowedOrigins` does **not** close this: CORS governs whether the response can be *read*, not
+whether the request is *delivered*. The fix is a request-level check — reject a state-changing
+request whose `Origin` is present and matches neither the host it arrived on
+(`Host`/`X-Forwarded-Host`) nor `allowedOrigins`. Browsers always send `Origin` cross-origin and
+page JS can't forge it. Cheap, and worth doing before anyone runs this anywhere exposed.
 
 ### RBAC gap
 

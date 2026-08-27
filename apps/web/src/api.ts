@@ -1,16 +1,56 @@
 import type { CentralApiOperations, TaskRun, TaskSpec } from "@central/shared";
+import { API_PREFIX } from "@central/shared";
 import { taskModalManager } from "./taskModal";
 
 /**
- * Backend host — same machine that serves the UI, port 4141.
+ * Every request goes to the page's own origin, under {@link API_PREFIX}.
  *
- * `VITE_API_PORT` points a dev server at a control plane on another port, so you
- * can develop against the e2e lab (which publishes one on 4241) without stopping
- * your own. Unset everywhere else, including production builds, where it comes
- * out undefined and the default stands.
+ * Nothing here names a scheme, host or port. That's what lets the control plane
+ * sit behind a TLS-terminating reverse proxy: served from
+ * `https://sc.example.com/`, the UI calls `https://sc.example.com/api/...` and
+ * the websockets below come out `wss:`, with no configuration to keep in sync.
+ * Hardcoding `http://host:4141` — as this did — instead produced a mixed-content
+ * block on the first call.
+ *
+ * In dev the UI is served by Vite on another port; it proxies `/api` back to the
+ * control plane (see apps/web/vite.config.ts), so these same relative paths work
+ * there too.
  */
-export const API_HOST = `${location.hostname}:${import.meta.env.VITE_API_PORT ?? 4141}`;
-const API_BASE = `http://${API_HOST}`;
+const API_BASE = API_PREFIX;
+
+/**
+ * Port to send websockets to in dev, or null in a release build (where they go to
+ * the page's own origin, like everything else).
+ *
+ * HTTP goes through the Vite dev server's `/api` proxy, but websockets can't: Vite
+ * 5 proxies through `http-proxy`, whose upgrade handling doesn't work under Bun.
+ * The upgrade reaches the control plane and it answers 101, but the response never
+ * makes it back to the browser — writes to the socket Node's `upgrade` event hands
+ * over report success and deliver nothing — so the socket sits in CONNECTING and
+ * the UI reads "connecting" forever. Handling the upgrade in a custom plugin hits
+ * the same wall, so in dev the sockets skip the dev server and go straight to the
+ * control plane. `VITE_API_PORT` points that at the e2e lab's control plane, the
+ * same as it does for the proxy target.
+ *
+ * Only dev is affected. A release build is served by the control plane itself, so
+ * there's one origin and nothing to bypass.
+ */
+const DEV_WS_PORT: string | null = import.meta.env.DEV
+    ? String(import.meta.env.VITE_API_PORT ?? 4141)
+    : null;
+
+/** `ws:`/`wss:` matching the page — a proxied (https) UI needs a secure socket. */
+export function wsUrl(path: string, params: Record<string, string>): string {
+    const url = new URL(`${API_PREFIX}${path}`, location.href);
+    url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    if (DEV_WS_PORT) {
+        url.port = DEV_WS_PORT;
+    }
+    for (const [key, value] of Object.entries(params)) {
+        url.searchParams.set(key, value);
+    }
+    return url.toString();
+}
 
 const TOKEN_KEY = "sc-auth-token";
 
