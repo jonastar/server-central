@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ComposeStack, ComposeStackRunStatus, ComposeStackStatus, DockerStack, HostComposeStacks, ServerEntry, StackAction } from "@central/shared";
 import { api, runTaskAndWait } from "../../api";
 import { cx } from "../../utils";
-import { ActionMenu, EmptyState, ErrorBanner, ExperimentalBanner } from "../ui";
+import { ActionMenu, DetailedList, DetailedRow, EmptyState, ErrorBanner, ExperimentalBanner } from "../ui";
 import { NewComposeStackModal } from "../NewComposeStackModal";
 import { ImportComposeStackModal } from "../ImportComposeStackModal";
 import { DeleteComposeStackModal } from "../DeleteComposeStackModal";
@@ -180,104 +180,99 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
             {rows.length === 0 ? (
                 <EmptyState>No compose stacks yet — create one, or import a directory that already has a compose file.</EmptyState>
             ) : (
-                <table className={shared["data-table"]}>
-                    <thead>
-                        <tr><th>Stack</th><th>State</th><th>Containers</th><th>Location</th><th /></tr>
-                    </thead>
-                    <tbody>
-                        {rows.map((row) => {
-                            const { registered: reg, observed: obs } = row;
-                            const location = reg ? reg.dir : (obs?.configFiles ?? "");
-                            const runState = rowStatus(row);
-                            const { running, total } = rowCounts(row);
-                            const up = running > 0;
-                            return (
-                                <tr
-                                    key={row.project}
-                                    className={cx(shared[`row-status-${stackTone(runState)}`], busy === row.project && shared["row-busy"])}
-                                >
-                                    <td>
-                                        {reg ? (
-                                            <button className={styles["link-btn"]} onClick={() => onOpenStack(reg.id)}><b>{row.label}</b></button>
-                                        ) : (
-                                            <button className={styles["link-btn"]} onClick={() => onViewContainers(row.project)}><b>{row.label}</b></button>
-                                        )}
-                                        {!reg && (
-                                            <span className={cx(shared.badge, shared["badge-muted"])} style={{ marginLeft: 8 }} title="Running on this host, but its containers carry no compose-file path to register it from">
-                                                no compose path
-                                            </span>
-                                        )}
-                                    </td>
-                                    <td>
+                <DetailedList>
+                    {rows.map((row) => {
+                        const { registered: reg, observed: obs } = row;
+                        const location = reg ? reg.dir : (obs?.configFiles ?? "");
+                        const runState = rowStatus(row);
+                        const { running, total } = rowCounts(row);
+                        const up = running > 0;
+                        return (
+                            <DetailedRow
+                                key={row.project}
+                                tone={stackTone(runState)}
+                                busy={busy === row.project}
+                                // A registered stack has a detail page to open; an adopted one
+                                // only has its running containers to look at.
+                                onClick={() => (reg ? onOpenStack(reg.id) : onViewContainers(row.project))}
+                                title={row.label}
+                                badge={(
+                                    <>
                                         <StatusBadge tone={stackTone(runState)} title={obs ? obs.states.join(", ") : undefined}>
                                             {runState}
                                         </StatusBadge>
-                                    </td>
-                                    <td className={shared.dim}>
-                                        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                                            <span className={shared["count-bar"]}>
-                                                <span
-                                                    className={shared["count-bar-fill"]}
-                                                    style={{ width: total === 0 ? "0%" : `${(running / total) * 100}%` }}
-                                                />
+                                        {!reg && (
+                                            <span
+                                                className={cx(shared.badge, shared["badge-muted"])}
+                                                title="Running on this host, but its containers carry no compose-file path to register it from"
+                                            >
+                                                no compose path
                                             </span>
-                                            <span className={shared.mono}>{running}/{total}</span>
-                                        </span>
-                                    </td>
-                                    <td className={cx(shared.dim, shared.mono, shared["cmd-cell"])} title={location}>{location || "—"}</td>
-                                    {/* One contextual primary, everything else — destructive included —
-                                        behind the menu. This used to be four buttons per row shouting
-                                        over the data they belonged to. */}
-                                    <td className={shared["row-actions-always"]}>
-                                        {reg ? (
-                                            <>
-                                                <button
-                                                    className={cx(shared.btn, shared["btn-sm"])}
-                                                    disabled={busy !== null}
-                                                    onClick={() => void registeredAction(reg, up ? "restart" : "up")}
-                                                >
-                                                    {up ? "Restart" : "Start"}
-                                                </button>
-                                                <ActionMenu
-                                                    disabled={busy !== null}
-                                                    title={`Actions for ${row.label}`}
-                                                    items={[
-                                                        { label: "Open", onSelect: () => onOpenStack(reg.id) },
-                                                        { label: "View containers", onSelect: () => onViewContainers(row.project) },
-                                                        { label: "Start", disabled: up, onSelect: () => void registeredAction(reg, "up") },
-                                                        { label: "Stop", disabled: !up, onSelect: () => void registeredAction(reg, "stop") },
-                                                        { label: "Down", danger: true, disabled: total === 0, onSelect: () => void registeredAction(reg, "down") },
-                                                        { label: "Remove…", danger: true, onSelect: () => setDeleting(reg) },
-                                                    ]}
-                                                />
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button
-                                                    className={cx(shared.btn, shared["btn-sm"])}
-                                                    disabled={busy !== null}
-                                                    onClick={() => void observedAction(obs!, up ? "restart" : "start")}
-                                                >
-                                                    {up ? "Restart" : "Start"}
-                                                </button>
-                                                <ActionMenu
-                                                    disabled={busy !== null}
-                                                    title={`Actions for ${row.label}`}
-                                                    items={[
-                                                        { label: "View containers", onSelect: () => onViewContainers(row.project) },
-                                                        { label: "Start", disabled: up, onSelect: () => void observedAction(obs!, "start") },
-                                                        { label: "Stop", disabled: !up, onSelect: () => void observedAction(obs!, "stop") },
-                                                        { label: "Down", danger: true, onSelect: () => void observedAction(obs!, "down") },
-                                                    ]}
-                                                />
-                                            </>
                                         )}
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
+                                    </>
+                                )}
+                                meta={(
+                                    <span className={styles["count-meta"]}>
+                                        <span className={shared["count-bar"]}>
+                                            <span
+                                                className={shared["count-bar-fill"]}
+                                                style={{ width: total === 0 ? "0%" : `${(running / total) * 100}%` }}
+                                            />
+                                        </span>
+                                        <span className={shared.mono}>{running}/{total}</span>
+                                    </span>
+                                )}
+                                secondary={<span className={shared.mono} title={location}>{location || "—"}</span>}
+                                // One contextual primary, everything else — destructive included —
+                                // behind the menu. This used to be four buttons per row shouting
+                                // over the data they belonged to.
+                                actions={reg ? (
+                                    <>
+                                        <button
+                                            className={cx(shared.btn, shared["btn-sm"])}
+                                            disabled={busy !== null}
+                                            onClick={() => void registeredAction(reg, up ? "restart" : "up")}
+                                        >
+                                            {up ? "Restart" : "Start"}
+                                        </button>
+                                        <ActionMenu
+                                            disabled={busy !== null}
+                                            title={`Actions for ${row.label}`}
+                                            items={[
+                                                { label: "Open", onSelect: () => onOpenStack(reg.id) },
+                                                { label: "View containers", onSelect: () => onViewContainers(row.project) },
+                                                { label: "Start", disabled: up, onSelect: () => void registeredAction(reg, "up") },
+                                                { label: "Stop", disabled: !up, onSelect: () => void registeredAction(reg, "stop") },
+                                                { label: "Down", danger: true, disabled: total === 0, onSelect: () => void registeredAction(reg, "down") },
+                                                { label: "Remove…", danger: true, onSelect: () => setDeleting(reg) },
+                                            ]}
+                                        />
+                                    </>
+                                ) : (
+                                    <>
+                                        <button
+                                            className={cx(shared.btn, shared["btn-sm"])}
+                                            disabled={busy !== null}
+                                            onClick={() => void observedAction(obs!, up ? "restart" : "start")}
+                                        >
+                                            {up ? "Restart" : "Start"}
+                                        </button>
+                                        <ActionMenu
+                                            disabled={busy !== null}
+                                            title={`Actions for ${row.label}`}
+                                            items={[
+                                                { label: "View containers", onSelect: () => onViewContainers(row.project) },
+                                                { label: "Start", disabled: up, onSelect: () => void observedAction(obs!, "start") },
+                                                { label: "Stop", disabled: !up, onSelect: () => void observedAction(obs!, "stop") },
+                                                { label: "Down", danger: true, onSelect: () => void observedAction(obs!, "down") },
+                                            ]}
+                                        />
+                                    </>
+                                )}
+                            />
+                        );
+                    })}
+                </DetailedList>
             )}
 
             {creating && host && (

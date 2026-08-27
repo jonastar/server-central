@@ -1,14 +1,7 @@
-.link-btn {
-    border: none;
-    background: none;
-    padding: 0;
-    color: var(--text);
-    font: inherit;
-    cursor: pointer;
-    text-align: left;
-}
-
-.link-btn:hover {
-    color: var(--accent);
-    text-decoration: underline;
+/* Container count: the bar and its "running/total" read as one unit, so they
+   sit in their own inline flex row inside the row's meta slot. */
+.count-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
 }
