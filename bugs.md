@@ -1,1 +1,2 @@
-- stop down etc button does not work on compose stacks
+- Hitting browser back in embedded file views does not og back up in a directory if you clicked down in a directory
+  - We can push the browser history state without modifying the url in such embedded file viewer views

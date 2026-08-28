@@ -3,6 +3,7 @@ import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import { UsersTab } from "./settings/UsersTab";
 import { OidcClientsTab } from "./settings/OidcClientsTab";
+import { DebugTab } from "./settings/DebugTab";
 import { cx } from "../utils";
 import shared from "../styles/shared.module.css";
 import uiStyles from "./ui.module.css";
@@ -15,12 +16,13 @@ interface ControlPlaneStatus {
     updateAvailable: boolean;
 }
 
-type SettingsTab = "general" | "users" | "oidc";
+type SettingsTab = "general" | "users" | "oidc" | "debug";
 
 const TABS: Array<{ id: SettingsTab; label: string }> = [
     { id: "general", label: "General" },
     { id: "users", label: "Users" },
     { id: "oidc", label: "SSO Clients" },
+    { id: "debug", label: "Debug" },
 ];
 
 function GeneralSettings() {
@@ -550,21 +552,22 @@ export function SettingsView() {
                 <h1>Settings</h1>
             </header>
 
-            <div className={shared["tab-strip"]} style={{ marginBottom: 20 }}>
+            <nav className={shared["sub-tabs"]} style={{ marginBottom: 20 }}>
                 {TABS.map((t) => (
                     <button
                         key={t.id}
-                        className={cx(shared.btn, tab === t.id && shared["btn-primary"])}
+                        className={cx(shared["sub-tab"], tab === t.id && shared.active)}
                         onClick={() => setTab(t.id)}
                     >
                         {t.label}
                     </button>
                 ))}
-            </div>
+            </nav>
 
             {tab === "general" && <GeneralSettings />}
             {tab === "users" && <UsersTab />}
             {tab === "oidc" && <OidcClientsTab />}
+            {tab === "debug" && <DebugTab />}
         </div>
     );
 }

@@ -9,6 +9,7 @@ import { ComposeStackStore } from "./features/compose/store";
 import { createComposeStacksFeature } from "./features/compose/feature";
 import { createAuthFeature } from "./features/auth/feature";
 import { CONFIG_DIR, readConfig } from "./config";
+import { createDebugFeature } from "./features/debug/feature";
 import { createDockerFeature } from "./features/docker/feature";
 import { composeApiHandlers, composeTaskHandlers, defineFeatures } from "./feature";
 import { createFilesFeature } from "./features/files/feature";
@@ -116,6 +117,7 @@ const hostFeatures = defineFeatures(
     createProcessesFeature(fleet),
     createNetworkFeature(fleet),
     createTerminalFeature(),
+    createDebugFeature(),
 );
 
 const wanIp = await discoverWanIp();

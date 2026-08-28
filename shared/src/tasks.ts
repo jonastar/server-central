@@ -80,6 +80,22 @@ export interface TaskUpdateAgent {
     force?: boolean;
 }
 
+/** A synthetic run that touches nothing: it just emits log lines for
+ *  `durationMs`, then succeeds (or fails, on demand). Exists so the task UI —
+ *  the corner widget, the live modal, run history — can be exercised without a
+ *  host, a container, or a real action to undo afterwards. Runs on the control
+ *  plane; owner-only, and driven from Settings → Debug. */
+export interface TaskDebugFake {
+    kind: "debug_fake";
+    /** Total wall time the run should take. */
+    durationMs: number;
+    /** Gap between emitted log lines. */
+    intervalMs: number;
+    /** Finish by throwing instead of succeeding, for exercising the failed-run
+     *  presentation. */
+    fail?: boolean;
+}
+
 // ---- ZFS -------------------------------------------------------------------------
 //
 // Every ZFS mutation runs as a task, even the ones that finish in milliseconds —
@@ -189,6 +205,7 @@ export type TaskSpec =
     | TaskDockerImagePull
     | TaskDockerComposeAction
     | TaskUpdateAgent
+    | TaskDebugFake
     | TaskZfsPoolCreate
     | TaskZfsPoolDestroy
     | TaskZfsPoolImport
@@ -256,6 +273,12 @@ export interface TaskUpdateAgentResult {
     kind: "update_agent";
 }
 
+export interface TaskDebugFakeResult {
+    kind: "debug_fake";
+    /** How many log lines the run emitted. */
+    lines: number;
+}
+
 // No extra data beyond confirmation for any ZFS mutation — status/error on the
 // run already says whether it worked, and stdout/stderr streams to the run's logs.
 
@@ -320,6 +343,7 @@ export type TaskResult =
     | TaskDockerImagePullResult
     | TaskDockerComposeActionResult
     | TaskUpdateAgentResult
+    | TaskDebugFakeResult
     | TaskZfsPoolCreateResult
     | TaskZfsPoolDestroyResult
     | TaskZfsPoolImportResult

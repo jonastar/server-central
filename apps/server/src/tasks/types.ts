@@ -1,6 +1,8 @@
 import type {
     TaskCmd,
     TaskCmdResult,
+    TaskDebugFake,
+    TaskDebugFakeResult,
     TaskDockerComposeAction,
     TaskDockerComposeActionResult,
     TaskDockerContainerAction,
@@ -140,6 +142,7 @@ export interface TaskHandlers {
     docker_image_pull(spec: TaskDockerImagePull, ctx: TaskCtx): Promise<TaskDockerImagePullResult>;
     docker_compose_action(spec: TaskDockerComposeAction, ctx: TaskCtx): Promise<TaskDockerComposeActionResult>;
     update_agent(spec: TaskUpdateAgent, ctx: TaskCtx): Promise<TaskUpdateAgentResult>;
+    debug_fake(spec: TaskDebugFake, ctx: TaskCtx): Promise<TaskDebugFakeResult>;
     zfs_pool_create(spec: TaskZfsPoolCreate, ctx: TaskCtx): Promise<TaskZfsPoolCreateResult>;
     zfs_pool_destroy(spec: TaskZfsPoolDestroy, ctx: TaskCtx): Promise<TaskZfsPoolDestroyResult>;
     zfs_pool_import(spec: TaskZfsPoolImport, ctx: TaskCtx): Promise<TaskZfsPoolImportResult>;

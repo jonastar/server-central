@@ -82,6 +82,8 @@ export function specSummary(spec: TaskSpec): string {
         }
         case "update_agent":
             return spec.force ? "Update agent (forced)" : "Update agent";
+        case "debug_fake":
+            return `Fake task (${(spec.durationMs / 1000).toFixed(1)}s${spec.fail ? ", failing" : ""})`;
         case "zfs_pool_create":
             return `Create pool ${spec.name}`;
         case "zfs_pool_destroy":
@@ -123,6 +125,8 @@ export function resultSummary(run: TaskRun): string {
             return `exit ${run.result.exitCode}`;
         case "find_wan_ip":
             return run.result.ip ?? "not detected";
+        case "debug_fake":
+            return `${run.result.lines} log lines`;
         case "service_action":
         case "docker_stack_action":
         case "docker_container_action":

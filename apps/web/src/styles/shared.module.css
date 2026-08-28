@@ -572,14 +572,7 @@ tr:hover .row-actions {
     margin-top: 16px;
 }
 
-/* ---- Tab strip (Settings, etc.) ---------------------------------------------------------------- */
-
-.tab-strip {
-    display: flex;
-    gap: 8px;
-}
-
-/* ---- Docker sub-tabs (also used by ContainerDetail) ---------------------------------- */
+/* ---- Sub-tabs (Docker/ZFS sections, ContainerDetail, Settings) ----------------------- */
 
 .sub-tabs {
     display: flex;
