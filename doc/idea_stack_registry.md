@@ -122,6 +122,8 @@ Two concerns:
 
 `pull` and `up` exceed the 30s `exec` timeout and stream progress that operators expect to watch. Resolve before building actions, one of:
 
+**Resolved 2026-08-28** by the second option — `execStreamRequest` / `execChunk` / `execStreamEnd`, with an idle timeout rather than none. See `idea_app_system.md` §8.
+
 - **Reuse the PTY path** — run the compose command through `openShell`, which already streams `shellData` to the client. Lowest new surface; output is terminal-formatted.
 - **Add a streaming-exec control message** — new `execStreamRequest` / `execStreamChunk` / `execStreamEnd` messages in [`node-protocol.ts`](../shared/src/node-protocol.ts) with no fixed timeout. Cleaner data model, more protocol work.
 

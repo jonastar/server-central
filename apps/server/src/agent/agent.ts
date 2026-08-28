@@ -177,6 +177,14 @@ export class Agent {
                 break;
             }
 
+            case "execStreamRequest": {
+                // Deliberately not awaited: chunks flow from inside runExecStream
+                // as the command produces them, and the message loop must stay
+                // free to handle everything else meanwhile.
+                void this.runExecStream(msg.requestId, msg.command);
+                break;
+            }
+
             case "listDirRequest": {
                 try {
                     const result = await this.runListDir(msg.path);
@@ -363,6 +371,42 @@ export class Agent {
             proc.exited,
         ]);
         return { stdout, stderr, code };
+    }
+
+    /**
+     * Streaming counterpart of {@link runExec}: forwards output as the command
+     * produces it, then reports the exit code separately. What this buys over
+     * runExec is progress on a slow command (a `docker pull`'s per-layer lines
+     * reaching the task log while it runs) and a control plane that can time the
+     * request out on silence rather than on total duration.
+     *
+     * Errors go back as a protocol `error` for the requestId, which the control
+     * plane already treats as the request failing — a half-streamed command
+     * doesn't need a distinct failure shape.
+     */
+    private async runExecStream(requestId: string, command: string): Promise<void> {
+        try {
+            const proc = Bun.spawn(["sh", "-c", command], { stdout: "pipe", stderr: "pipe" });
+            const pump = async (stream: ReadableStream<Uint8Array>, which: "stdout" | "stderr"): Promise<void> => {
+                // Streaming decode: a chunk boundary can land mid-UTF-8-sequence,
+                // and decoding each buffer independently would corrupt it.
+                const decoder = new TextDecoder();
+                for await (const buf of stream) {
+                    const data = decoder.decode(buf, { stream: true });
+                    if (data) {
+                        this.transport.send({ type: "execChunk", requestId, stream: which, data });
+                    }
+                }
+                const tail = decoder.decode();
+                if (tail) {
+                    this.transport.send({ type: "execChunk", requestId, stream: which, data: tail });
+                }
+            };
+            await Promise.all([pump(proc.stdout, "stdout"), pump(proc.stderr, "stderr")]);
+            this.transport.send({ type: "execStreamEnd", requestId, code: await proc.exited });
+        } catch (e) {
+            this.transport.send({ type: "error", requestId, message: String(e) });
+        }
     }
 
     /** Timeout under the control plane's 30s request timeout, so a hung server

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ContainerAction, ContainerInfo, DockerContainerDetail, DockerMount } from "@central/shared";
 import { api } from "../../api";
 import { cx } from "../../utils";
-import { ActionMenu, CodeBlock, DetailPair, Drawer, EmptyState, ErrorBanner, ExecBox } from "../ui";
+import { ActionMenu, CodeBlock, DetailPair, Drawer, EmptyState, ErrorBanner, ExecBox, TaskProgress } from "../ui";
 import { FilesView } from "../FilesView";
 import { LogViewerPane } from "../LogViewerModal";
 import { TerminalView } from "../TerminalView";
@@ -153,11 +153,13 @@ function MountBrowser({ serverId, mounts }: { serverId: string; mounts: DockerMo
  * deep-link, or for good if the container is gone); `detail` is the `docker
  * inspect` this fetches itself.
  */
-export function ContainerDrawer({ serverId, containerId, container, busy, onAction, onClose }: {
+export function ContainerDrawer({ serverId, containerId, container, busy, taskId, onAction, onClose }: {
     serverId: string;
     containerId: string;
     container: ContainerInfo | null;
     busy: boolean;
+    /** Run started from these controls, while one is in flight. */
+    taskId: string | null;
     onAction: (container: ContainerInfo, action: ContainerAction) => void;
     onClose: () => void;
 }) {
@@ -222,6 +224,7 @@ export function ContainerDrawer({ serverId, containerId, container, busy, onActi
                     Stop
                 </button>
                 <ActionMenu disabled={busy || !container} title={`Actions for ${name}`} items={menu} />
+                {busy && <TaskProgress taskId={taskId} />}
             </div>
             <div className={shared["sub-tabs"]} style={{ marginTop: 8 }}>
                 {TABS.map((t) => (

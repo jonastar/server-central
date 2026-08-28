@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react";
 import type { ServerEntry } from "@central/shared";
-import { api, runTaskAndWait } from "../api";
+import { api } from "../api";
+import { runTaskAndWait } from "../taskRun";
 import { cx, fmtDateTime, fmtUptime, isAgentOutdated } from "../utils";
 import { StatusDot, EmptyState, ErrorBanner } from "./ui";
 import { SetupWizard } from "./SetupWizard";
@@ -32,7 +33,7 @@ export function AgentsView({ servers, onOpenServer }: {
         setBusyId(serverId);
         setError(null);
         try {
-            await runTaskAndWait({ kind: "update_agent", force }, serverId, { autoOpenModal: true });
+            await runTaskAndWait({ kind: "update_agent", force }, serverId, { feedback: "modal" });
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {

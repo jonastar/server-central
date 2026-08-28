@@ -27,7 +27,8 @@ import {
     stringifyCompose,
 } from "../../lib/composeDoc";
 import { validateComposeObject } from "../../lib/composeValidate";
-import { api, runTaskAndWait } from "../../api";
+import { api } from "../../api";
+import { runTaskAndWait } from "../../taskRun";
 import { cx } from "../../utils";
 import { DirectoryPicker, fileTypeClass } from "../DirectoryPicker";
 import { EmptyState, ErrorBanner, Modal } from "../ui";
@@ -242,7 +243,7 @@ function ServiceEditor({ doc, service, hostId, stackDir, otherServices, errors, 
         }
         setPulling(true);
         try {
-            await runTaskAndWait({ kind: "docker_image_pull", ref: image }, hostId, { autoOpenModal: true });
+            await runTaskAndWait({ kind: "docker_image_pull", ref: image }, hostId, { feedback: "modal" });
         } catch { /* the task modal carries the failure; the button just goes idle */ }
         setPulling(false);
         setPullCount((n) => n + 1);

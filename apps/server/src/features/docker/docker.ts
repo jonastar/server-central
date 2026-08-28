@@ -19,7 +19,7 @@ import type {
     LogQuery,
     StackAction,
 } from "@central/shared";
-import type { HostAgent } from "../../host-agent";
+import type { ExecResult, HostAgent } from "../../host-agent";
 import { dockerSince, reverseLines } from "../../log-query";
 
 const SAFE_ID_RE = /^[A-Za-z0-9_.-]+$/;
@@ -62,6 +62,39 @@ function parseLabel(labels: string | undefined, key: string): string | undefined
 function errorText(res: { stdout: string; stderr: string }): string {
     const text = (res.stdout + res.stderr).trim().split("\n").map((l) => l.trim()).filter(Boolean).join(" — ");
     return text.length > 600 ? `${text.slice(0, 600)}…` : text;
+}
+
+/**
+ * Run a slow docker command with its output reaching `onLog` a line at a time,
+ * as the command produces it, instead of in one lump once it finishes.
+ *
+ * The line buffering is the point: `execStream` hands over raw chunks, which
+ * split lines at arbitrary byte boundaries, while a task log line is supposed to
+ * be a line. Everything here runs with `2>&1`, so stdout carries both streams in
+ * the order docker wrote them and stderr stays empty.
+ *
+ * Against an agent too old for `execStream` this degrades to exactly the old
+ * behavior — one call to `onLog` with everything, at the end.
+ */
+async function execStreamingLines(server: HostAgent, command: string, onLog?: (text: string) => void): Promise<ExecResult> {
+    if (!onLog) {
+        return server.execStream(command, () => { /* nobody listening; still streamed, just not forwarded */ });
+    }
+    let buffered = "";
+    const res = await server.execStream(command, (_stream, data) => {
+        buffered += data;
+        const lines = buffered.split("\n");
+        // The trailing element is whatever came after the last newline — an
+        // incomplete line, held back until the rest of it arrives.
+        buffered = lines.pop() ?? "";
+        for (const line of lines) {
+            onLog(line);
+        }
+    });
+    if (buffered.trim()) {
+        onLog(buffered);
+    }
+    return res;
 }
 
 type PsRow = {
@@ -280,8 +313,7 @@ export async function composeStackAction(
     const svc = service ? ` ${service}` : "";
     const base = `cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project}`;
     if (pullFirst || action === "pull") {
-        const pull = await server.exec(`${base} pull${svc} 2>&1`);
-        onLog?.(pull.stdout);
+        const pull = await execStreamingLines(server, `${base} pull${svc} 2>&1`, onLog);
         if (pull.code !== 0) {
             throw new Error(errorText(pull) || "docker compose pull failed");
         }
@@ -290,21 +322,18 @@ export async function composeStackAction(
         }
     }
     if (action === "down" && service) {
-        const stop = await server.exec(`${base} stop${svc} 2>&1`);
-        onLog?.(stop.stdout);
+        const stop = await execStreamingLines(server, `${base} stop${svc} 2>&1`, onLog);
         if (stop.code !== 0) {
             throw new Error(errorText(stop) || "docker compose stop failed");
         }
-        const rm = await server.exec(`${base} rm -f${svc} 2>&1`);
-        onLog?.(rm.stdout);
+        const rm = await execStreamingLines(server, `${base} rm -f${svc} 2>&1`, onLog);
         if (rm.code !== 0) {
             throw new Error(errorText(rm) || "docker compose rm failed");
         }
         return;
     }
     const verb = action === "up" ? "up -d" : action;
-    const res = await server.exec(`${base} ${verb}${svc} 2>&1`);
-    onLog?.(res.stdout);
+    const res = await execStreamingLines(server, `${base} ${verb}${svc} 2>&1`, onLog);
     if (res.code !== 0) {
         throw new Error(errorText(res) || `docker compose ${action} failed`);
     }
@@ -755,9 +784,8 @@ export async function dockerImagePull(
     if (!SAFE_REF_RE.test(ref)) {
         throw new Error(`Invalid image reference: ${ref}`);
     }
-    const res = await server.exec(`docker pull ${ref} 2>&1`);
+    const res = await execStreamingLines(server, `docker pull ${ref} 2>&1`, onLog);
     const message = (res.stdout + res.stderr).trim();
-    onLog?.(message);
     if (res.code !== 0) {
         return { ok: false, message: message.split("\n").filter(Boolean).pop() || "docker pull failed" };
     }
@@ -778,7 +806,7 @@ const EMPTY_IMAGE_DEFAULTS: ImageDefaults = { present: false, volumes: [], ports
  * (one exec covers all three, rather than one inspect per field). Cheap: no
  * pull or run, so it only works if the image is already present locally;
  * returns all-empty rather than triggering a pull otherwise (pulls belong to
- * the task system — see `dockerImagePull`'s note on the 30s exec ceiling).
+ * the task system, where they run as a `docker_image_pull` task with a live log).
  */
 export async function imageDefaults(server: HostAgent, image: string): Promise<ImageDefaults> {
     if (!SAFE_REF_RE.test(image)) {

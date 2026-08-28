@@ -1,9 +1,13 @@
 import type { ApiEvent, MetricsSnapshot, ServerEntry, TaskLogLine, TaskRun } from "@central/shared";
 import { api, getToken, wsUrl } from "./api";
+import { isTerminalStatus } from "./taskFormat";
 
 const METRICS_CLIENT_MAX = 720;
 /** Client-side mirror of the server's per-run log cap (TaskRunner.MAX_LOG_LINES). */
 const TASK_LOG_CLIENT_MAX = 2000;
+/** How often {@link ConnectionManager.waitForTask} falls back to asking, while
+ *  the events socket is down and no `taskUpdate` can reach us. */
+const TASK_WAIT_FALLBACK_POLL_MS = 3000;
 
 export type ConnectionState = {
     connected: boolean;
@@ -141,6 +145,63 @@ class ConnectionManager {
                 break;
             }
         }
+    }
+
+    /**
+     * Resolve once a run reaches a terminal status.
+     *
+     * Driven by the `taskUpdate` events this socket already receives, so a call
+     * site waiting on a run costs no requests at all — the same events that keep
+     * TasksView and the task modal live. The slow poll below is a fallback for
+     * exactly one case: the socket being down, which is also the only time no
+     * event can arrive on its own.
+     */
+    waitForTask(id: string): Promise<TaskRun> {
+        return new Promise((resolve) => {
+            let listenerId: number | null = null;
+            let timer: ReturnType<typeof setInterval> | null = null;
+            let done = false;
+
+            const finish = (run: TaskRun) => {
+                done = true;
+                if (listenerId !== null) {
+                    this.removeListener(listenerId);
+                }
+                if (timer) {
+                    clearInterval(timer);
+                }
+                resolve(run);
+            };
+
+            const check = (tasks: TaskRun[]): void => {
+                if (done) {
+                    return;
+                }
+                const run = tasks.find((t) => t.id === id);
+                if (run && isTerminalStatus(run.status)) {
+                    finish(run);
+                }
+            };
+
+            // addListener fires synchronously, so an already-finished run resolves
+            // here — before there's a listener id to remove, hence the `done` flag
+            // and the cleanup right after.
+            listenerId = this.addListener((state) => check(state.tasks));
+            if (done) {
+                this.removeListener(listenerId);
+                return;
+            }
+
+            timer = setInterval(() => {
+                if (this.state.connected) {
+                    return;
+                }
+                void api("getTask", { id }).then(
+                    (run) => { if (run) { check([run]); } },
+                    () => { /* retried on the next tick */ },
+                );
+            }, TASK_WAIT_FALLBACK_POLL_MS);
+        });
     }
 
     /**

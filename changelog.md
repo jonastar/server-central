@@ -28,6 +28,14 @@ feature may run longer; most don't earn it.
   allowed automatically. Unset keeps today's behaviour. Editable in Settings, add/remove per entry.
 - **Primary URL** replaces the OIDC issuer field as one canonical public URL for SC, reused as the
   `iss` claim. Changing it with SSO clients registered needs confirming.
+- **Streaming exec.** `docker pull` and compose actions stream their output into the task log
+  a line at a time, instead of one lump at the end.
+- **Settings → Debug** runs a fake task that logs for a few seconds, for exercising the task
+  widget and modal without a real slow action.
+- **Every task action now shows its progress** where you clicked — a spinner and label that
+  opens the run's live output — plus a card under the new Tasks button.
+- **Tasks button in a new top bar**, with a live count and a panel of recent runs, so a finished
+  task is still reachable without going to the Tasks view.
 
 ### Changed
 
@@ -35,6 +43,10 @@ feature may run longer; most don't earn it.
   `/api/terminal`. OIDC routes unchanged. An open tab needs a reload.
 - **Dev websockets skip the Vite proxy**, which can't forward upgrades under Bun. Release
   builds are served from one origin and unaffected.
+- **Slow host commands no longer fail at 30s.** A streaming exec times out on silence, not on
+  total duration, so a pull that keeps reporting progress can take as long as it needs.
+- **Waiting on a task rides the events socket** rather than polling `getTask` every 400ms —
+  the run's status was already being broadcast to the page.
 - **External domain** renamed "External domain for agents" — it's the address agents dial on
   `:4142`, which differs from the UI's hostname when the proxy is a separate machine.
 

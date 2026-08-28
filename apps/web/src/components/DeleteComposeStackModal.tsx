@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ComposeStack, ServerEntry } from "@central/shared";
-import { api, runTaskAndWait } from "../api";
+import { api } from "../api";
+import { runTaskAndWait } from "../taskRun";
 import { cx } from "../utils";
 import { ErrorBanner, Modal } from "./ui";
 import shared from "../styles/shared.module.css";

@@ -26,6 +26,11 @@ export type NodeMessage =
     | { type: "identify"; token: string; info: SystemInfo; machineId: string; mode: AgentMode; capabilities?: string[]; hostCapabilities?: HostCapabilityReport }
     | { type: "metrics"; snapshot: MetricsSnapshot }
     | { type: "execResponse"; requestId: string; result: NodeExecResult }
+    // Output of an execStreamRequest as it appears, then one final message with
+    // the exit code. `data` is a raw chunk, not a line: it can split a line in
+    // half or carry several, so a consumer that wants lines buffers them itself.
+    | { type: "execChunk"; requestId: string; stream: "stdout" | "stderr"; data: string }
+    | { type: "execStreamEnd"; requestId: string; code: number }
     | { type: "listDirResponse"; requestId: string; result: { path: string; entries: DirEntry[] } }
     | { type: "readFileResponse"; requestId: string; result: FileContent }
     | { type: "writeFileResponse"; requestId: string }
@@ -52,6 +57,14 @@ export type NodeMessage =
 export type ControlMessage =
     | { type: "acknowledged"; nodeId: string; active: boolean }
     | { type: "execRequest"; requestId: string; command: string }
+    // Same as execRequest, but the agent forwards output as it appears rather
+    // than buffering it into one reply at the end. Two things depend on that: a
+    // task's log streams while the command runs (docker pull), and the control
+    // plane can time the request out on *silence* instead of on total duration,
+    // which is what the 30s execRequest ceiling really measures. Sent only to
+    // agents advertising the "execStream" capability; older ones get a buffered
+    // execRequest instead (see HostAgent.execStream).
+    | { type: "execStreamRequest"; requestId: string; command: string }
     | { type: "listDirRequest"; requestId: string; path: string }
     | { type: "readFileRequest"; requestId: string; path: string }
     | { type: "writeFileRequest"; requestId: string; path: string; content: string }

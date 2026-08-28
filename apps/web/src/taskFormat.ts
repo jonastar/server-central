@@ -13,6 +13,11 @@ export const STATUS_LABEL: Record<TaskStatus, string> = {
 
 export const STATUSES = Object.keys(STATUS_LABEL) as TaskStatus[];
 
+/** A run in one of these has finished moving — nothing more will arrive for it. */
+export function isTerminalStatus(status: TaskStatus): boolean {
+    return status === "succeeded" || status === "failed" || status === "cancelled";
+}
+
 export function statusTone(status: TaskStatus): "ok" | "warn" | "err" | "muted" {
     switch (status) {
         case "succeeded":
@@ -45,6 +50,21 @@ export function modalTone(status: TaskStatus): "info" | "ok" | "err" | "muted" {
 
 export function fmtTime(ms?: number): string {
     return ms ? new Date(ms).toLocaleString() : "—";
+}
+
+/** Compact "how long ago", for lists where the exact clock time is noise. */
+export function fmtAgo(ms: number): string {
+    const secs = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (secs < 60) {
+        return "just now";
+    }
+    if (secs < 3600) {
+        return `${Math.floor(secs / 60)}m ago`;
+    }
+    if (secs < 86400) {
+        return `${Math.floor(secs / 3600)}h ago`;
+    }
+    return `${Math.floor(secs / 86400)}d ago`;
 }
 
 export function fmtDuration(run: TaskRun): string {

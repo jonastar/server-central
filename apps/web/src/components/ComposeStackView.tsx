@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ComposeStack, ComposeStackStatus, DirEntry, ServerEntry } from "@central/shared";
 import type { ComposeStackTab } from "../routes";
-import { api, runTaskAndWait } from "../api";
+import { api } from "../api";
+import { useTaskAction } from "../hooks/useTaskAction";
 import { useConnection } from "../hooks/useConnection";
 import { fmtDateTime, fmtRelative, cx } from "../utils";
 import { fmtDuration, specSummary, statusTone } from "../taskFormat";
@@ -12,7 +13,7 @@ import { ComposeVisualEditor } from "./compose/ComposeVisualEditor";
 import { DeleteComposeStackModal } from "./DeleteComposeStackModal";
 import { FilesView } from "./FilesView";
 import { LogViewer } from "./LogViewer";
-import { ActionMenu, EmptyState, ErrorBanner } from "./ui";
+import { ActionMenu, EmptyState, ErrorBanner, TaskProgress } from "./ui";
 import shared from "../styles/shared.module.css";
 
 const REFRESH_MS = 10_000;
@@ -46,7 +47,7 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
     const [stack, setStack] = useState<ComposeStack | null | undefined>(undefined);
     const [status, setStatus] = useState<ComposeStackStatus | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [busy, setBusy] = useState<string | null>(null);
+    const task = useTaskAction();
     // Where the Files tab should open to — set by Overview's per-entry Browse
     // buttons just before switching tabs, cleared on a direct click of the Files
     // nav tab so that always starts back at the stack's own folder.
@@ -81,7 +82,7 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
         return () => clearInterval(timer);
     }, [loadStatus]);
 
-    async function runAction(action: ComposeVerb, opts?: { pullFirst?: boolean; autoOpenModal?: boolean; service?: string }) {
+    async function runAction(action: ComposeVerb, opts?: { pullFirst?: boolean; watch?: boolean; service?: string }) {
         if (!stack) {
             return;
         }
@@ -91,18 +92,14 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
         // key belongs to the plain pull button sitting next to it.
         const verb = opts?.pullFirst ? "pull-up" : action;
         const busyId = opts?.service ? `${opts.service}:${verb}` : verb;
-        setBusy(busyId);
-        try {
-            await runTaskAndWait(
-                { kind: "docker_compose_action", stackId: stack.id, action, pullFirst: opts?.pullFirst, service: opts?.service },
-                stack.hostId,
-                { autoOpenModal: opts?.autoOpenModal },
-            );
+        const run = await task.start(
+            busyId,
+            { kind: "docker_compose_action", stackId: stack.id, action, pullFirst: opts?.pullFirst, service: opts?.service },
+            stack.hostId,
+            { feedback: opts?.watch ? "modal" : "progress" },
+        );
+        if (run) {
             await loadStatus();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        } finally {
-            setBusy(null);
         }
     }
 
@@ -133,25 +130,25 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
                 </span>
                 <button
                     className={cx(shared.btn, shared["btn-sm"], shared["btn-primary"])}
-                    disabled={busy !== null}
-                    onClick={() => void runAction("up", { pullFirst: true, autoOpenModal: true })}
+                    disabled={task.busy}
+                    onClick={() => void runAction("up", { pullFirst: true, watch: true })}
                 >
-                    {busy === "pull-up" ? "Pulling…" : "Pull & up"}
+                    {task.busyKey === "pull-up" ? "Pulling…" : "Pull & up"}
                 </button>
                 <button
                     className={cx(shared.btn, shared["btn-sm"])}
-                    disabled={busy !== null}
+                    disabled={task.busy}
                     onClick={() => void runAction(up ? "restart" : "up")}
                 >
-                    {busy === "restart" ? "Restarting…" : busy === "up" ? "Starting…" : up ? "Restart" : "Start"}
+                    {task.busyKey === "restart" ? "Restarting…" : task.busyKey === "up" ? "Starting…" : up ? "Restart" : "Start"}
                 </button>
                 <ActionMenu
-                    disabled={busy !== null}
+                    disabled={task.busy}
                     title={`Actions for ${stack.name}`}
                     items={[
                         { label: "Start", disabled: up, onSelect: () => void runAction("up") },
                         { label: "Stop", disabled: !up, onSelect: () => void runAction("stop") },
-                        { label: "Pull", onSelect: () => void runAction("pull", { autoOpenModal: true }) },
+                        { label: "Pull", onSelect: () => void runAction("pull", { watch: true }) },
                         { label: "View containers", onSelect: () => onOpenContainers(stack.project) },
                         {
                             label: "Down",
@@ -165,9 +162,10 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
                         { label: "Remove…", danger: true, onSelect: () => setDeleting(true) },
                     ]}
                 />
+                {task.busy && <TaskProgress taskId={task.taskId} />}
             </header>
 
-            {error && <ErrorBanner>{error}</ErrorBanner>}
+            {(error ?? task.error) && <ErrorBanner>{error ?? task.error}</ErrorBanner>}
 
             <nav className={shared["sub-tabs"]}>
                 {([
@@ -192,7 +190,8 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
                     host={host}
                     status={status}
                     tasks={conn.tasks}
-                    busy={busy}
+                    busy={task.busyKey}
+                    taskId={task.taskId}
                     run={(action, opts) => runAction(action, opts)}
                     onOpenContainers={onOpenContainers}
                     onBrowseEntry={(entry) => {
@@ -227,15 +226,17 @@ type ComposeVerb = "up" | "restart" | "stop" | "down" | "pull";
 
 type RunAction = (
     action: ComposeVerb,
-    opts?: { pullFirst?: boolean; autoOpenModal?: boolean; service?: string },
+    opts?: { pullFirst?: boolean; watch?: boolean; service?: string },
 ) => void;
 
-function OverviewTab({ stack, host, status, tasks, busy, run, onOpenContainers, onBrowseEntry }: {
+function OverviewTab({ stack, host, status, tasks, busy, taskId, run, onOpenContainers, onBrowseEntry }: {
     stack: ComposeStack;
     host: ServerEntry | undefined;
     status: ComposeStackStatus | null;
     tasks: import("@central/shared").TaskRun[];
     busy: string | null;
+    /** Run the busy control started, for its progress affordance. */
+    taskId: string | null;
     run: RunAction;
     onOpenContainers: (project: string, containerId?: string) => void;
     onBrowseEntry: (entry: DirEntry) => void;
@@ -316,14 +317,15 @@ function OverviewTab({ stack, host, status, tasks, busy, run, onOpenContainers, 
                                             >
                                                 Inspect →
                                             </button>
+                                            {busy?.startsWith(`${svc.name}:`) && <TaskProgress taskId={taskId} />}
                                             <ActionMenu
                                                 disabled={busy !== null}
                                                 title={`Actions for ${svc.name}`}
                                                 items={[
                                                     { label: svc.up ? "Restart" : "Start", onSelect: () => run(svc.up ? "restart" : "up", { service: svc.name }) },
                                                     { label: "Stop", disabled: !svc.up, onSelect: () => run("stop", { service: svc.name }) },
-                                                    { label: "Pull", onSelect: () => run("pull", { service: svc.name, autoOpenModal: true }) },
-                                                    { label: "Pull & up", onSelect: () => run("up", { pullFirst: true, service: svc.name, autoOpenModal: true }) },
+                                                    { label: "Pull", onSelect: () => run("pull", { service: svc.name, watch: true }) },
+                                                    { label: "Pull & up", onSelect: () => run("up", { pullFirst: true, service: svc.name, watch: true }) },
                                                     {
                                                         label: "Down",
                                                         danger: true,

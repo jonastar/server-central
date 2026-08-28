@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ContainerAction, ContainerInfo, DockerState } from "@central/shared";
-import { api, runTaskAndWait } from "../../api";
+import { api } from "../../api";
+import { useTaskAction } from "../../hooks/useTaskAction";
 import { DetailedList, DetailedRow, DrawerLayout, EmptyState, ErrorBanner } from "../ui";
 import { StatusFilter, type StatusToken } from "../StatusFilter";
 import { ContainerDrawer } from "./ContainerDrawer";
@@ -29,7 +30,7 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
 }) {
     const [docker, setDocker] = useState<DockerState | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [busyId, setBusyId] = useState<string | null>(null);
+    const task = useTaskAction();
     const [filter, setFilter] = useState(initialFilter ?? "");
     const [statusFilter, setStatusFilter] = useState<StatusToken>("all");
 
@@ -57,17 +58,12 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
         if (act === "remove" && !confirm(`Remove container "${container.name}"?`)) {
             return;
         }
-        setBusyId(container.id);
-        try {
-            await runTaskAndWait({ kind: "docker_container_action", containerId: container.id, action: act }, serverId);
-            await load();
-            if (act === "remove" && container.id === containerId) {
-                onCloseContainer();
-            }
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        } finally {
-            setBusyId(null);
+        if (!await task.start(container.id, { kind: "docker_container_action", containerId: container.id, action: act }, serverId)) {
+            return;
+        }
+        await load();
+        if (act === "remove" && container.id === containerId) {
+            onCloseContainer();
         }
     }
 
@@ -124,7 +120,7 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
                     </div>
                 )}
 
-                {error && <ErrorBanner>{error}</ErrorBanner>}
+                {(error ?? task.error) && <ErrorBanner>{error ?? task.error}</ErrorBanner>}
                 {docker === null && !error && <EmptyState>Loading…</EmptyState>}
                 {docker && !docker.available && (
                     <EmptyState>Docker is not available on this server{docker.error ? `: ${docker.error}` : "."}</EmptyState>
@@ -142,7 +138,7 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
                                     key={c.id}
                                     tone={tone}
                                     selected={isOpen}
-                                    busy={busyId === c.id}
+                                    busy={task.busyKey === c.id}
                                     // The row only selects; every action lives in the drawer,
                                     // so there's one place a container is acted on.
                                     onClick={() => (isOpen ? onCloseContainer() : onOpenContainer(c.id))}
@@ -168,7 +164,8 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
                     serverId={serverId}
                     containerId={containerId}
                     container={selected}
-                    busy={busyId !== null}
+                    busy={task.busy}
+                    taskId={task.busyKey === containerId ? task.taskId : null}
                     onAction={(container, act) => void action(container, act)}
                     onClose={onCloseContainer}
                 />

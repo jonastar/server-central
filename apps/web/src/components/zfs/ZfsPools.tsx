@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ZfsDevice, ZfsHealth, ZfsPool, ZfsState, ZfsVdev } from "@central/shared";
-import { api, runTaskAndWait } from "../../api";
+import { api } from "../../api";
+import { runTaskAndWait } from "../../taskRun";
 import { cx, fmtBytes } from "../../utils";
 import { ConfirmDangerModal, EmptyState, ErrorBanner } from "../ui";
 import { CreatePoolModal, AddVdevModal, ReplaceDeviceModal } from "./PoolWizards";
@@ -130,7 +131,7 @@ export function ZfsPools({ serverId }: { serverId: string }) {
         setBusyPool(destroyTarget.name);
         setError(null);
         try {
-            await runTaskAndWait({ kind: "zfs_pool_destroy", name: destroyTarget.name }, serverId, { autoOpenModal: true });
+            await runTaskAndWait({ kind: "zfs_pool_destroy", name: destroyTarget.name }, serverId, { feedback: "modal" });
             setDestroyTarget(null);
             await load();
         } catch (err) {

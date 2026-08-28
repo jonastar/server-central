@@ -9,6 +9,14 @@ const REQUEST_TIMEOUT_MS = 30_000;
  * generous timeout here beats making every other request wait longer to fail.
  */
 const UPLOAD_TIMEOUT_MS = 120_000;
+/**
+ * Streaming exec times out on *silence*, not on total duration: the timer resets
+ * on every chunk, so a `docker pull` that keeps reporting layers can run as long
+ * as it needs, while one whose host has genuinely wedged still fails. That's the
+ * distinction the fixed REQUEST_TIMEOUT_MS above can't draw — and the reason
+ * slow pulls used to die at 30s regardless of progress.
+ */
+const EXEC_STREAM_IDLE_TIMEOUT_MS = 120_000;
 
 export interface ExecResult {
     stdout: string;
@@ -50,6 +58,10 @@ export class HostAgent {
 
     private readonly pending = new Map<string, { resolve: (msg: NodeMessage) => void; reject: (err: Error) => void }>();
     private readonly shells = new Map<string, { onData: (d: string) => void; onExit: (c: number | null) => void }>();
+    /** In-flight streaming execs, keyed by requestId — chunk sinks for
+     *  {@link execStream}. The terminal `execStreamEnd` goes through `pending`
+     *  like any other reply; only the chunks in between need routing here. */
+    private readonly execStreams = new Map<string, (stream: "stdout" | "stderr", data: string) => void>();
 
     /** Post-v0.6.0 message kinds the agent advertised at identify. Agents
      *  ignore unknown message types, so sending one to an agent that didn't
@@ -126,6 +138,10 @@ export class HostAgent {
             this.onMetrics(this.id, msg.snapshot);
             return;
         }
+        if (msg.type === "execChunk") {
+            this.execStreams.get(msg.requestId)?.(msg.stream, msg.data);
+            return;
+        }
         if (msg.type === "shellData") {
             this.shells.get(msg.sessionId)?.onData(msg.data);
             return;
@@ -163,6 +179,9 @@ export class HostAgent {
             session.onExit(null);
         }
         this.shells.clear();
+        // The streams' own promises were just rejected via `pending` above; this
+        // only drops the chunk sinks that would otherwise outlive them.
+        this.execStreams.clear();
     }
 
     private request<T extends NodeMessage>(msg: ControlMessage & { requestId: string }, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
@@ -187,6 +206,67 @@ export class HostAgent {
             type: "execRequest", requestId: crypto.randomUUID(), command,
         });
         return resp.result;
+    }
+
+    /**
+     * Run a command, receiving its output through `onChunk` as it appears rather
+     * than as one buffered reply at the end. For anything slow enough that its
+     * progress is worth watching (image pulls, compose up) — the chunks are what
+     * a task's live log is made of.
+     *
+     * `onChunk` gets raw chunks, which may split a line or carry several; a
+     * caller that wants whole lines buffers them itself. The full output is
+     * still accumulated and returned, so this is a drop-in for {@link exec}.
+     *
+     * Falls back to a buffered `exec` against an agent too old to advertise
+     * `execStream` — same result, just delivered in one piece at the end (and
+     * still bound by the 30s request timeout, as it was before).
+     */
+    async execStream(command: string, onChunk: (stream: "stdout" | "stderr", data: string) => void): Promise<ExecResult> {
+        if (!this.capabilities.has("execStream")) {
+            const res = await this.exec(command);
+            if (res.stdout) {
+                onChunk("stdout", res.stdout);
+            }
+            if (res.stderr) {
+                onChunk("stderr", res.stderr);
+            }
+            return res;
+        }
+
+        const requestId = crypto.randomUUID();
+        const stdout: string[] = [];
+        const stderr: string[] = [];
+
+        const end = await new Promise<Extract<NodeMessage, { type: "execStreamEnd" }>>((resolve, reject) => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const cleanup = () => {
+                clearTimeout(timer);
+                this.execStreams.delete(requestId);
+            };
+            const arm = () => {
+                clearTimeout(timer);
+                timer = setTimeout(() => {
+                    this.pending.delete(requestId);
+                    cleanup();
+                    reject(new Error(`Command produced no output for ${Math.round(EXEC_STREAM_IDLE_TIMEOUT_MS / 1000)}s and was abandoned`));
+                }, EXEC_STREAM_IDLE_TIMEOUT_MS);
+            };
+
+            this.execStreams.set(requestId, (stream, data) => {
+                arm(); // output is proof of life
+                (stream === "stderr" ? stderr : stdout).push(data);
+                onChunk(stream, data);
+            });
+            this.pending.set(requestId, {
+                resolve: (msg) => { cleanup(); resolve(msg as Extract<NodeMessage, { type: "execStreamEnd" }>); },
+                reject: (err) => { cleanup(); reject(err); },
+            });
+            arm();
+            this.sendControl({ type: "execStreamRequest", requestId, command });
+        });
+
+        return { stdout: stdout.join(""), stderr: stderr.join(""), code: end.code };
     }
 
     async listDir(dirPath: string): Promise<{ path: string; entries: DirEntry[] }> {

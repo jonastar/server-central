@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { DockerExecResult, ServerConnState } from "@central/shared";
 import { cx, copyToClipboard, type Tone } from "../utils";
+import { taskFeedbackManager } from "../taskFeedback";
 import styles from "./ui.module.css";
 import shared from "../styles/shared.module.css";
 
@@ -439,5 +440,41 @@ export function ConfirmDangerModal({ title, confirmWord, actionLabel, busy, erro
                 </button>
             </div>
         </Modal>
+    );
+}
+
+/**
+ * What a control shows while the task it started is running: a spinner, a label,
+ * and a way into the run's live output.
+ *
+ * The point is that it *appears*. A disabled button and a dimmed row say only
+ * that the UI stopped responding to you; this says the click landed, what it's
+ * doing, and — because clicking it opens the full task view — where the rest of
+ * the story is. Pair it with {@link useTaskAction}, which owns the `taskId`.
+ *
+ * `taskId` is null for the moment between the click and the run existing, which
+ * is why the label falls back to "Starting…" rather than rendering nothing.
+ */
+export function TaskProgress({ taskId, label, className }: {
+    taskId: string | null;
+    label?: string;
+    className?: string;
+}) {
+    return (
+        <button
+            type="button"
+            className={cx(styles["task-progress"], className)}
+            disabled={!taskId}
+            title={taskId ? "Open the running task" : undefined}
+            onClick={(e) => {
+                e.stopPropagation();
+                if (taskId) {
+                    taskFeedbackManager.open(taskId);
+                }
+            }}
+        >
+            <span className={styles.spinner} />
+            <span className={styles["task-progress-label"]}>{taskId ? label ?? "Running…" : "Starting…"}</span>
+        </button>
     );
 }

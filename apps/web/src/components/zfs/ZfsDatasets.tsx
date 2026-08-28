@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ZfsDataset } from "@central/shared";
-import { api, runTaskAndWait } from "../../api";
+import { api } from "../../api";
+import { runTaskAndWait } from "../../taskRun";
 import { cx, fmtBytes } from "../../utils";
 import { ConfirmDangerModal, EmptyState, ErrorBanner, Modal } from "../ui";
 import shared from "../../styles/shared.module.css";
@@ -42,7 +43,7 @@ function CreateDatasetModal({ serverId, datasets, onClose, onCreated }: {
                 type,
                 volsizeBytes: type === "volume" ? Math.round(Number(volsizeGb) * 1024 ** 3) : undefined,
                 properties,
-            }, serverId, { autoOpenModal: true });
+            }, serverId, { feedback: "modal" });
             onCreated();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -206,7 +207,7 @@ export function ZfsDatasets({ serverId }: { serverId: string }) {
         setBusyName(destroyTarget.name);
         setError(null);
         try {
-            await runTaskAndWait({ kind: "zfs_dataset_destroy", name: destroyTarget.name, recursive }, serverId, { autoOpenModal: true });
+            await runTaskAndWait({ kind: "zfs_dataset_destroy", name: destroyTarget.name, recursive }, serverId, { feedback: "modal" });
             setDestroyTarget(null);
             await load();
         } catch (err) {

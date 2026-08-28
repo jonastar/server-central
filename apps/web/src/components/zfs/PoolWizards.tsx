@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ZfsBlockDevice, ZfsVdevType } from "@central/shared";
-import { api, runTaskAndWait } from "../../api";
+import { api } from "../../api";
+import { runTaskAndWait } from "../../taskRun";
 import { cx, fmtBytes } from "../../utils";
 import { CodeBlock, EmptyState, ErrorBanner, Modal } from "../ui";
 import shared from "../../styles/shared.module.css";
@@ -173,7 +174,7 @@ export function CreatePoolModal({ serverId, onClose, onCreated }: {
                     force: needsForce && forceConfirmed,
                 },
                 serverId,
-                { autoOpenModal: true },
+                { feedback: "modal" },
             );
             onCreated();
         } catch (err) {
@@ -267,7 +268,7 @@ export function AddVdevModal({ serverId, pool, onClose, onAdded }: {
             await runTaskAndWait(
                 { kind: "zfs_vdev_add", pool, vdev: { type: group.type, devices: group.devices }, force: needsForce && forceConfirmed },
                 serverId,
-                { autoOpenModal: true },
+                { feedback: "modal" },
             );
             onAdded();
         } catch (err) {
@@ -332,7 +333,7 @@ export function ReplaceDeviceModal({ serverId, pool, oldDevice, onClose, onRepla
         setBusy(true);
         setError(null);
         try {
-            await runTaskAndWait({ kind: "zfs_device_replace", pool, oldDevice, newDevice }, serverId, { autoOpenModal: true });
+            await runTaskAndWait({ kind: "zfs_device_replace", pool, oldDevice, newDevice }, serverId, { feedback: "modal" });
             onReplaced();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

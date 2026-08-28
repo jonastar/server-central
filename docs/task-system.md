@@ -331,7 +331,7 @@ Four more agent-targeted kinds landed the same way (2026-07-22): `service_action
 pull`) — replacing the `systemdServiceAction`/`dockerStackAction`/
 `dockerContainerAction`/`dockerImagePull` RPCs, which are now removed
 (`ServicesView`/`DockerStacks`/`DockerContainers`/`DockerImages` call the new
-`runTaskAndWait()` helper, `apps/web/src/api.ts`, instead). All four require a
+`runTaskAndWait()` helper, `apps/web/src/taskRun.ts`, instead). All four require a
 target (`requireAgent` throws a normal task failure otherwise — no
 control-plane-local variant, unlike `cmd`/`find_wan_ip`). Backups remain the
 one candidate from `next.md` with no code at all yet.
@@ -360,7 +360,8 @@ disconnect implement it.
 | `apps/server/src/features/tasks/feature.ts` | `handleRunTask` / `handleListTasks` / `handleGetTask` / `handleGetTaskLogs` |
 | `apps/server/src/features/systemd/systemd.ts` | `systemdServiceAction` — command + validation for `service_action`, optional `onLog` |
 | `apps/server/src/features/docker/docker.ts` | `dockerStackAction`/`dockerContainerAction`/`dockerImagePull` — same pattern |
-| `apps/web/src/api.ts` | `runTaskAndWait()` — poll-to-terminal helper for call sites that want synchronous-await ergonomics |
+| `apps/web/src/taskRun.ts` | `runTaskAndWait()` — wait-to-terminal helper for call sites that want synchronous-await ergonomics; waits on the events socket via `connectionManager.waitForTask` |
+| `apps/web/src/taskFeedback.ts` | How a started run is surfaced (`"none"` / `"progress"` / `"modal"`), and when that surface goes away |
 | `apps/web/src/connection.ts` | Client task state (`tasks` seed + upsert, `taskLogs` seed + live append) |
 | `apps/web/src/components/TasksView.tsx` | General run-history browser (list, filter, per-run detail + logs) |
 | `apps/web/src/components/SettingsView.tsx` | WAN IP card (first consumer) |

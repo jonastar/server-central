@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../../api";
 import { useConnection } from "../../hooks/useConnection";
 import { specSummary, STATUS_LABEL, statusTone } from "../../taskFormat";
-import { taskModalManager } from "../../taskModal";
+import { taskFeedbackManager, type TaskFeedback } from "../../taskFeedback";
 import { cx } from "../../utils";
 import { colorVars } from "../../styles/colorVars";
 import shared from "../../styles/shared.module.css";
@@ -16,12 +16,16 @@ import uiStyles from "../ui.module.css";
  *
  * Visible to everyone, but `debug_fake` is owner-only server-side, so a
  * non-owner's click comes back as a "requires owner" error rather than a run.
+ *
+ * `feedback` picks which of the two surfaces the run gets, so both the compact
+ * card and the full modal — including how each behaves on success vs failure —
+ * can be driven from here without arranging for a real action to fail.
  */
 export function DebugTab() {
     const [durationSecs, setDurationSecs] = useState(5);
     const [intervalMs, setIntervalMs] = useState(400);
     const [fail, setFail] = useState(false);
-    const [openModal, setOpenModal] = useState(true);
+    const [feedback, setFeedback] = useState<TaskFeedback>("progress");
     const [error, setError] = useState<string | null>(null);
     const [starting, setStarting] = useState(false);
 
@@ -36,8 +40,8 @@ export function DebugTab() {
                 spec: { kind: "debug_fake", durationMs: durationSecs * 1000, intervalMs, fail },
                 target: null,
             });
-            if (openModal) {
-                taskModalManager.open(id);
+            if (feedback !== "none") {
+                taskFeedbackManager.track(id, feedback);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -83,10 +87,18 @@ export function DebugTab() {
                     </label>
                 </div>
 
-                <div style={{ display: "flex", gap: 16, marginBottom: 12, fontSize: 13 }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <input type="checkbox" checked={openModal} onChange={(e) => setOpenModal(e.target.checked)} />
-                        Open the task modal
+                <div style={{ display: "flex", gap: 16, marginBottom: 12, fontSize: 13, alignItems: "flex-end" }}>
+                    <label style={{ fontSize: 12, color: colorVars.muted }}>
+                        Feedback
+                        <select
+                            value={feedback}
+                            onChange={(e) => setFeedback(e.target.value as TaskFeedback)}
+                            style={{ display: "block", marginTop: 4 }}
+                        >
+                            <option value="progress">Progress card</option>
+                            <option value="modal">Full modal</option>
+                            <option value="none">None</option>
+                        </select>
                     </label>
                     <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <input type="checkbox" checked={fail} onChange={(e) => setFail(e.target.checked)} />
@@ -116,7 +128,7 @@ export function DebugTab() {
                                 className={shared.btn}
                                 type="button"
                                 style={{ display: "flex", justifyContent: "space-between", gap: 12 }}
-                                onClick={() => taskModalManager.open(run.id)}
+                                onClick={() => taskFeedbackManager.open(run.id)}
                             >
                                 <span>{specSummary(run.spec)}</span>
                                 <span className={cx(shared.badge, shared[`badge-${statusTone(run.status)}`])}>

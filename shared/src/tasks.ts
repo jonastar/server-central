@@ -59,8 +59,8 @@ export interface TaskDockerImagePull {
  *  at all). `action: "up"`
  *  with `pullFirst` is the "Pull & up" control; `action: "pull"` is the same
  *  pull on its own, fetching images without touching what's running. Runs over
- *  the plain (30s, non-streaming) exec today — see doc/idea_app_system.md §8's
- *  streaming-exec deferral for the known limitation on slow pulls. */
+ *  the streaming exec, so its output reaches the run's log while it works and a
+ *  slow pull isn't cut off at 30s. */
 export interface TaskDockerComposeAction {
     kind: "docker_compose_action";
     stackId: string;

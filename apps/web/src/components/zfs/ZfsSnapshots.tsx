@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ZfsSnapshot } from "@central/shared";
-import { api, runTaskAndWait } from "../../api";
+import { api } from "../../api";
+import { runTaskAndWait } from "../../taskRun";
 import { cx, fmtBytes, fmtDateTime } from "../../utils";
 import { ConfirmDangerModal, EmptyState, ErrorBanner, Modal } from "../ui";
 import shared from "../../styles/shared.module.css";
@@ -160,7 +161,7 @@ export function ZfsSnapshots({ serverId }: { serverId: string }) {
         setBusyName(rollbackTarget.name);
         setError(null);
         try {
-            await runTaskAndWait({ kind: "zfs_snapshot_rollback", snapshot: rollbackTarget.name, destroyLater: newerCount > 0 }, serverId, { autoOpenModal: true });
+            await runTaskAndWait({ kind: "zfs_snapshot_rollback", snapshot: rollbackTarget.name, destroyLater: newerCount > 0 }, serverId, { feedback: "modal" });
             setRollbackTarget(null);
             await load();
         } catch (err) {

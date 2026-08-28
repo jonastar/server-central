@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import type { ServiceAction, ServiceInfo, SystemdState } from "@central/shared";
-import { api, runTaskAndWait } from "../api";
+import { api } from "../api";
+import { useTaskAction } from "../hooks/useTaskAction";
 import { cx } from "../utils";
-import { CodeBlock, DetailPair, EmptyState, ErrorBanner, Modal } from "./ui";
+import { CodeBlock, DetailPair, EmptyState, ErrorBanner, Modal, TaskProgress } from "./ui";
 import { LogViewerModal } from "./LogViewerModal";
 import { LogPreview } from "./LogPreview";
 import { StatusFilter, type StatusToken } from "./StatusFilter";
@@ -28,7 +29,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
     const [error, setError] = useState<string | null>(null);
     const [filter, setFilter] = useState("");
     const [statusFilter, setStatusFilter] = useState<StatusToken>("all");
-    const [busyUnit, setBusyUnit] = useState<string | null>(null);
+    const task = useTaskAction();
     const [detail, setDetail] = useState<Detail | null>(null);
     const [logUnit, setLogUnit] = useState<string | null>(null);
     const [expandedUnit, setExpandedUnit] = useState<string | null>(null);
@@ -53,14 +54,8 @@ export function ServicesView({ serverId }: { serverId: string }) {
         if ((act === "stop" || act === "disable") && !confirm(`${act} "${svc.unit}"?`)) {
             return;
         }
-        setBusyUnit(svc.unit);
-        try {
-            await runTaskAndWait({ kind: "service_action", unit: svc.unit, action: act }, serverId);
+        if (await task.start(svc.unit, { kind: "service_action", unit: svc.unit, action: act }, serverId)) {
             await load();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        } finally {
-            setBusyUnit(null);
         }
     }
 
@@ -87,7 +82,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
                 <h1>Services</h1>
             </header>
 
-            {error && <ErrorBanner>{error}</ErrorBanner>}
+            {(error ?? task.error) && <ErrorBanner>{error ?? task.error}</ErrorBanner>}
             {state === null && !error && <EmptyState>Loading…</EmptyState>}
             {state && !state.available && (
                 <EmptyState>Systemd is not available on this server{state.error ? `: ${state.error}` : "."}</EmptyState>
@@ -128,7 +123,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
                                     return (
                                         <Fragment key={s.unit}>
                                             <tr
-                                                className={cx(shared["row-clickable"], shared[`row-status-${activeStatus(s.active)}`], busyUnit === s.unit && shared["row-busy"], expanded && shared["row-active"])}
+                                                className={cx(shared["row-clickable"], shared[`row-status-${activeStatus(s.active)}`], task.busyKey === s.unit && shared["row-busy"], expanded && shared["row-active"])}
                                                 onClick={() => setExpandedUnit(expanded ? null : s.unit)}
                                             >
                                                 <td className={shared["col-expander"]}><span className={cx(shared["row-expander"], expanded && shared.open)}>▸</span></td>
@@ -144,18 +139,19 @@ export function ServicesView({ serverId }: { serverId: string }) {
                                                     <td colSpan={5}>
                                                         <div className={shared["row-detail-wrap"]}><div className={shared["row-detail"]}>
                                                             <div className={shared["row-detail-actions"]}>
+                                                                {task.busyKey === s.unit && <TaskProgress taskId={task.taskId} />}
                                                                 {s.active === "active" ? (
                                                                     <>
-                                                                        <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "restart")}>Restart</button>
-                                                                        <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "stop")}>Stop</button>
+                                                                        <button className={cx(shared.btn, shared["btn-sm"])} disabled={task.busy} onClick={() => void action(s, "restart")}>Restart</button>
+                                                                        <button className={cx(shared.btn, shared["btn-sm"])} disabled={task.busy} onClick={() => void action(s, "stop")}>Stop</button>
                                                                     </>
                                                                 ) : (
-                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "start")}>Start</button>
+                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={task.busy} onClick={() => void action(s, "start")}>Start</button>
                                                                 )}
                                                                 {s.enabledState === "enabled" ? (
-                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "disable")}>Disable</button>
+                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={task.busy} onClick={() => void action(s, "disable")}>Disable</button>
                                                                 ) : s.enabledState === "disabled" ? (
-                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={busyUnit !== null} onClick={() => void action(s, "enable")}>Enable</button>
+                                                                    <button className={cx(shared.btn, shared["btn-sm"])} disabled={task.busy} onClick={() => void action(s, "enable")}>Enable</button>
                                                                 ) : null}
                                                                 <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => void showUnitFile(s)}>Unit file</button>
                                                             </div>

@@ -120,7 +120,7 @@ export const AGENT_VERSION: string = pkg.version;
  * the control plane checks the advertised set and fails fast with a real
  * error instead. Add an entry whenever a new request kind joins the protocol.
  */
-export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities"];
+export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream"];
 
 /**
  * Common Name (and a baseline SAN entry) of the control-plane leaf cert. Agents

@@ -444,3 +444,38 @@
     gap: 6px;
     margin-left: auto;
 }
+
+/* ---- Task progress control ------------------------------------------------- */
+
+/* Reads as a status, not a button, until hovered — it *is* one (it opens the
+   run), but its first job is telling you the action took. */
+.task-progress {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 240px;
+    padding: 2px 8px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.task-progress:not(:disabled):hover {
+    border-color: var(--border);
+    color: var(--text);
+    background: var(--panel-2);
+}
+
+.task-progress:disabled {
+    cursor: default;
+}
+
+.task-progress-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

@@ -4,7 +4,7 @@ import { useConnection } from "../hooks/useConnection";
 import { api } from "../api";
 import { connectionManager } from "../connection";
 import { fmtDuration, fmtTime, resultSummary, serverLabel, specSummary, STATUS_LABEL, STATUSES, statusTone } from "../taskFormat";
-import { taskModalManager } from "../taskModal";
+import { taskFeedbackManager } from "../taskFeedback";
 import { cx } from "../utils";
 import { DetailPair, EmptyState, ErrorBanner } from "./ui";
 import { LogViewer } from "./LogViewer";
@@ -33,7 +33,7 @@ export function TasksView() {
         // In-flight runs stream live in the task modal instead of the static
         // inline drawer — open that rather than expanding the row.
         if (run.status === "running" || run.status === "pending") {
-            taskModalManager.open(run.id);
+            taskFeedbackManager.open(run.id);
             return;
         }
         const next = expanded === run.id ? null : run.id;

@@ -202,6 +202,14 @@ whole task fails with a timeout and no partial log — the task system's run-his
 envelope is already wired up, it's just fed by a call that can't stream and can't run long.
 `docker compose pull`/`up` on a multi-service app makes this worse, not better.
 
+**Implemented 2026-08-28**, as `execStreamRequest` / `execChunk` / `execStreamEnd`
+(`shared/src/node-protocol.ts`) plus `HostAgent.execStream`. Two departures from the sketch
+below: it's gated on an `execStream` agent capability, falling back to the buffered `exec` for
+agents too old to advertise it; and the timeout is idle-based rather than absent
+(`EXEC_STREAM_IDLE_TIMEOUT_MS`, reset on every chunk) — a wedged host still fails, a
+slow-but-progressing pull doesn't. `dockerImagePull` and `composeStackAction` feed `ctx.log`
+through it a line at a time.
+
 So: build the streaming-exec primitive `idea_stack_registry.md` §4 already flagged as a
 prerequisite, once, as shared infra — it fixes `docker_image_pull`'s existing log gap for
 free and unblocks a new `docker_compose_action` task kind (`up` / `pull`, in addition to

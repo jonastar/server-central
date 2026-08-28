@@ -1,6 +1,5 @@
-import type { CentralApiOperations, TaskRun, TaskSpec } from "@central/shared";
+import type { CentralApiOperations } from "@central/shared";
 import { API_PREFIX } from "@central/shared";
-import { taskModalManager } from "./taskModal";
 
 /**
  * Every request goes to the page's own origin, under {@link API_PREFIX}.
@@ -98,47 +97,4 @@ export async function api<K extends keyof CentralApiOperations>(
 
     const text = await res.text();
     return (text && text !== "null" ? JSON.parse(text) : undefined) as CentralApiOperations[K]["response"];
-}
-
-/** Terminal statuses `runTaskAndWait` stops polling at. */
-const TERMINAL: TaskRun["status"][] = ["succeeded", "failed", "cancelled"];
-
-/**
- * Run a task and poll until it reaches a terminal status — for call sites that
- * want the old synchronous-await ergonomics (resolve with the finished run,
- * throw on failure/cancellation) while still getting task history + logs for
- * free. Not for kinds where "not ok" is itself a normal result (e.g.
- * `docker_image_pull`) — those resolve either way; check `run.result` instead.
- *
- * `autoOpenModal` pops the live {@link TaskModal} for this run as soon as it's
- * created — opt in per call site for actions that don't already give inline
- * feedback while they run (agent update, image pull), not for quick ones
- * (service/container start-stop) that would make every click feel modal-heavy.
- */
-export async function runTaskAndWait(
-    spec: TaskSpec,
-    target: string | null,
-    opts: { autoOpenModal?: boolean; pollMs?: number } = {},
-): Promise<TaskRun> {
-    const { autoOpenModal = false, pollMs = 400 } = opts;
-    const { id } = await api("runTask", { spec, target });
-    if (autoOpenModal) {
-        taskModalManager.open(id);
-    }
-    for (;;) {
-        const run = await api("getTask", { id });
-        if (!run) {
-            throw new Error("Task run disappeared");
-        }
-        if (TERMINAL.includes(run.status)) {
-            if (run.status === "failed") {
-                throw new Error(run.error ?? "Task failed");
-            }
-            if (run.status === "cancelled") {
-                throw new Error("Task cancelled");
-            }
-            return run;
-        }
-        await new Promise((resolve) => setTimeout(resolve, pollMs));
-    }
 }

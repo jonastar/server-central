@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ComposeStack, ComposeStackRunStatus, ComposeStackStatus, DockerStack, HostComposeStacks, ServerEntry, StackAction } from "@central/shared";
-import { api, runTaskAndWait } from "../../api";
+import { api } from "../../api";
+import { useTaskAction } from "../../hooks/useTaskAction";
 import { cx } from "../../utils";
-import { ActionMenu, DetailedList, DetailedRow, EmptyState, ErrorBanner, ExperimentalBanner } from "../ui";
+import { ActionMenu, DetailedList, DetailedRow, EmptyState, ErrorBanner, ExperimentalBanner, TaskProgress } from "../ui";
 import { NewComposeStackModal } from "../NewComposeStackModal";
 import { ImportComposeStackModal } from "../ImportComposeStackModal";
 import { DeleteComposeStackModal } from "../DeleteComposeStackModal";
@@ -60,7 +61,7 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
     const [state, setState] = useState<HostComposeStacks | null>(null);
     const [statuses, setStatuses] = useState<Record<string, ComposeStackStatus>>({});
     const [error, setError] = useState<string | null>(null);
-    const [busy, setBusy] = useState<string | null>(null);
+    const task = useTaskAction();
     const [creating, setCreating] = useState(false);
     const [importing, setImporting] = useState(false);
     const [deleting, setDeleting] = useState<ComposeStack | null>(null);
@@ -103,14 +104,8 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
         if (act === "down" && !confirm(`Take down "${stack.name}"? Containers are removed; the stack's files are untouched.`)) {
             return;
         }
-        setBusy(stack.project);
-        try {
-            await runTaskAndWait({ kind: "docker_compose_action", stackId: stack.id, action: act }, serverId);
+        if (await task.start(stack.project, { kind: "docker_compose_action", stackId: stack.id, action: act }, serverId)) {
             await load();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        } finally {
-            setBusy(null);
         }
     }
 
@@ -118,14 +113,8 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
         if ((act === "stop" || act === "down") && !confirm(`${act} stack "${stack.project}"?`)) {
             return;
         }
-        setBusy(stack.project);
-        try {
-            await runTaskAndWait({ kind: "docker_stack_action", project: stack.project, action: act }, serverId);
+        if (await task.start(stack.project, { kind: "docker_stack_action", project: stack.project, action: act }, serverId)) {
             await load();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        } finally {
-            setBusy(null);
         }
     }
 
@@ -169,7 +158,7 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
                 and status reporting can have rough edges.
             </ExperimentalBanner>
 
-            {error && <ErrorBanner>{error}</ErrorBanner>}
+            {(error ?? task.error) && <ErrorBanner>{error ?? task.error}</ErrorBanner>}
 
             {state.error && (
                 <div className={shared.dim} style={{ fontSize: 12, marginBottom: 8 }}>
@@ -191,7 +180,7 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
                             <DetailedRow
                                 key={row.project}
                                 tone={stackTone(runState)}
-                                busy={busy === row.project}
+                                busy={task.busyKey === row.project}
                                 // A registered stack has a detail page to open; an adopted one
                                 // only has its running containers to look at.
                                 onClick={() => (reg ? onOpenStack(reg.id) : onViewContainers(row.project))}
@@ -228,15 +217,16 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
                                 // over the data they belonged to.
                                 actions={reg ? (
                                     <>
+                                        {task.busyKey === row.project && <TaskProgress taskId={task.taskId} />}
                                         <button
                                             className={cx(shared.btn, shared["btn-sm"])}
-                                            disabled={busy !== null}
+                                            disabled={task.busy}
                                             onClick={() => void registeredAction(reg, up ? "restart" : "up")}
                                         >
                                             {up ? "Restart" : "Start"}
                                         </button>
                                         <ActionMenu
-                                            disabled={busy !== null}
+                                            disabled={task.busy}
                                             title={`Actions for ${row.label}`}
                                             items={[
                                                 { label: "Open", onSelect: () => onOpenStack(reg.id) },
@@ -250,15 +240,16 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
                                     </>
                                 ) : (
                                     <>
+                                        {task.busyKey === row.project && <TaskProgress taskId={task.taskId} />}
                                         <button
                                             className={cx(shared.btn, shared["btn-sm"])}
-                                            disabled={busy !== null}
+                                            disabled={task.busy}
                                             onClick={() => void observedAction(obs!, up ? "restart" : "start")}
                                         >
                                             {up ? "Restart" : "Start"}
                                         </button>
                                         <ActionMenu
-                                            disabled={busy !== null}
+                                            disabled={task.busy}
                                             title={`Actions for ${row.label}`}
                                             items={[
                                                 { label: "View containers", onSelect: () => onViewContainers(row.project) },

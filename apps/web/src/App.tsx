@@ -9,6 +9,7 @@ import { useAuth } from "./hooks/useAuth";
 import { connectionManager } from "./connection";
 import { LoginView } from "./components/LoginView";
 import { Sidebar } from "./components/Sidebar";
+import { TopBar } from "./components/TopBar";
 import { Dashboard } from "./components/Dashboard";
 import { AgentsView } from "./components/AgentsView";
 import { ServerOverview } from "./components/ServerOverview";
@@ -178,7 +179,10 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
                 onNavigate={setRoute}
                 onLogout={onLogout}
             />
-            <main className={styles.main}>{renderMain()}</main>
+            <main className={styles.main}>
+                <TopBar onNavigate={setRoute} />
+                {renderMain()}
+            </main>
             <TaskWidget />
             <TaskModal />
         </div>
