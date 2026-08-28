@@ -50,6 +50,12 @@ feature may run longer; most don't earn it.
 - **External domain** renamed "External domain for agents" — it's the address agents dial on
   `:4142`, which differs from the UI's hostname when the proxy is a separate machine.
 
+### Fixed
+
+- **Browser Back now steps back up the folder trail in embedded file browsers** — a compose
+  stack's Files tab and a container's Volumes tab, whose folder isn't in the URL. They push a
+  history entry per navigation instead.
+
 ## [0.11.0] - 2026-08-25
 
 ### Added
@@ -83,7 +89,7 @@ feature may run longer; most don't earn it.
 
 - **"Pull image to show suggestions" in the compose visual editor.** The suggested
   ports/volumes/environment pickers read the image's own `EXPOSE`/`VOLUME`/`ENV` via `docker
-  image inspect`, which only answers for an image that's already on the host — so for an
+image inspect`, which only answers for an image that's already on the host — so for an
   unpulled image the buttons simply weren't there, indistinguishable from an image that
   declares nothing. `ImageDefaults` now reports `present`, and each field offers the pull in
   place of its suggestions button, re-inspecting when it finishes. The pull is a read here:
@@ -93,7 +99,7 @@ feature may run longer; most don't earn it.
   actually do — ZFS, systemd, Docker — and report the result on `identify`, so the control
   plane knows before it acknowledges the connection. Probes are native (filesystem and
   `/proc` checks in `apps/server/src/agent/host-capabilities.ts`), not shelled out, so they
-  distinguish *installed* from *usable*: ZFS tools without a loaded kernel module, a Docker
+  distinguish _installed_ from _usable_: ZFS tools without a loaded kernel module, a Docker
   socket the agent's user can't open, or `systemctl` present on a host that isn't actually
   booted with systemd all report unavailable with an explanation rather than a working tab
   that errors on click. A feature declares what it needs via
@@ -103,12 +109,12 @@ feature may run longer; most don't earn it.
   reconnect. The probe itself is declared on the feature — an `AgentFeature` exported
   alongside the control-plane one and registered in `agent/features.ts`, giving the feature
   system a node-side half. A capability the agent never reported — an older agent, or an offline host — is
-  treated as *unknown* and renders normally, so nothing greys out on a reconnect flicker.
+  treated as _unknown_ and renders normally, so nothing greys out on a reconnect flicker.
 
 ### Fixed
 
-- **A compose stack whose directory was deleted reported "down" while its containers were
-  still running.** Every compose command runs as `cd <dir> && docker compose …`, so once the
+- **A compose stack whose directory was deleted reported "down" while its containers were still running.**
+  Every compose command runs as `cd <dir> && docker compose …`, so once the
   directory is gone they all fail at `cd` — and the status view read that as "no services,
   nothing running", contradicting the container counts shown right next to it. Status now
   falls back to plain `docker ps` filtered by the project's own
@@ -144,7 +150,7 @@ feature may run longer; most don't earn it.
   `apps/server/src/features/compose/`), and the top-level **Apps** nav item is gone. Stacks
   live in **Server → Docker → Compose stacks** ("compose" spelled out throughout, so nothing
   reads as a Swarm stack), which now shows one merged list instead of two disjoint ones:
-  stacks SC *registered* — with a detail page, and actions that work even when every
+  stacks SC _registered_ — with a detail page, and actions that work even when every
   container is down — alongside what's actually running. That merge retires the "orphaned"
   concept: a registered stack with no containers is just down.
 
@@ -156,14 +162,14 @@ feature may run longer; most don't earn it.
   actually belong to. A project whose containers carry no usable compose path can't be
   placed and still lists as **no compose path**, without a detail page.
 
-  This is groundwork: `App` is being freed for a layer *above* stacks (identity, routes,
+  This is groundwork: `App` is being freed for a layer _above_ stacks (identity, routes,
   backup policy, templates), which is fleet-scoped and doesn't belong on a host tab. The
   fleet-wide "every stack on every server" list goes away with this change and is expected
   to return as that layer's list.
 
   **Removing a stack is now two named outcomes** instead of one action with a checkbox:
-  *Down and unregister* (just *Unregister* when nothing is running) leaves the folder where
-  it is, and *Delete folder* removes the directory outright behind a type-the-name confirm.
+  _Down and unregister_ (just _Unregister_ when nothing is running) leaves the folder where
+  it is, and _Delete folder_ removes the directory outright behind a type-the-name confirm.
   Both take containers down first when the stack is running — a stack left running with
   nothing managing it would only be adopted straight back on the next read.
 
@@ -200,7 +206,7 @@ feature may run longer; most don't earn it.
 - **App system v1** (design: [doc/idea_app_system.md](doc/idea_app_system.md)): a new **Apps**
   section (sidebar + `#/apps`) for managing docker-compose stacks directly, alongside the
   existing container-id-based Docker tab. An App is `{ id, name, hostId, dir, composeFile,
-  project, createdAt }` (`AppStore`, `.sc-data/app-registry.json`); Apps list = cards grouped by
+project, createdAt }` (`AppStore`, `.sc-data/app-registry.json`); Apps list = cards grouped by
   server, App detail = tabbed Overview/Compose/Volumes/Controls/Logs matching the server-overview
   sub-tab pattern. Create (single modal, writes a fresh compose file) and Import (stepped modal,
   detects an existing compose project on disk) both go through `DirectoryPicker`. A new
@@ -258,13 +264,13 @@ feature may run longer; most don't earn it.
   instead of a login/runuser shell, and it overrides `asUser` — exec'ing into a container is its own
   identity boundary, not a host OS user. Tries bash first, falling back to `sh` for minimal images —
   written as `command -v bash && exec bash; exec sh` rather than the more obvious `exec bash || exec
-  sh`, since POSIX has `exec` failing to find its target abort a *non-interactive* shell outright
+sh`, since POSIX has `exec` failing to find its target abort a _non-interactive_ shell outright
   instead of continuing on to `||`, which silently 127'd on every bash-less image (alpine included)
   during testing.
 
 - **Docker exec quick-command box**: a small "run one command, see the output" input (new `ExecBox`
   component, `ui.tsx`) — a one-shot, non-interactive wrapper around `docker exec`/`docker compose
-  exec`, for scripty one-liners that don't need a full shell. Lives in an "Exec" tab on the container
+exec`, for scripty one-liners that don't need a full shell. Lives in an "Exec" tab on the container
   details modal (`dockerContainerExec`, by container id) and a "Run command" section on the App
   page's Controls tab (`appServiceExec`, by compose service name, so the App page never needs to
   know container ids). Shows stdout, stderr, and the exit code; doesn't throw on a non-zero exit
@@ -345,7 +351,7 @@ feature may run longer; most don't earn it.
   easily.
 
 - **Agents remember which control URL worked** (`state.json`): the working endpoint is persisted and
-  tried first on the next reconnect *and* across restarts. Previously the configured order
+  tried first on the next reconnect _and_ across restarts. Previously the configured order
   (`--control`, then `--alt-control`) was retried from the top every single time, so a host that only
   reaches the control plane via the alt endpoint — the normal case off-LAN, where the primary is a
   LAN address — paid a full failed attempt on every reconnect, forever. Every 10th reconnect cycle
@@ -353,7 +359,7 @@ feature may run longer; most don't earn it.
   re-discovers the (cheaper, LAN-local) primary once it's reachable; a remembered URL that's no
   longer configured is ignored outright, so stale state can't strand an agent. State lives in
   `state.json` next to the install's cert/config (or under `SC_AGENT_DIR`/`~/.sc-agent` for a live
-  agent) — deliberately *not* in `config.json`, which is operator/installer-authored input rewritten
+  agent) — deliberately _not_ in `config.json`, which is operator/installer-authored input rewritten
   wholesale by `installSelf`. Writes are atomic (temp + rename) and entirely best-effort: the file is
   a cache, and losing it costs one slower reconnect.
 
@@ -398,7 +404,7 @@ feature may run longer; most don't earn it.
   integration tests (`fleet-priority`, `agent-connect`, `agent-update-download`, `binary-store`,
   `update-agent-task`) isolate `config.ts`'s data dir by `process.chdir()`-ing to a per-test tmp
   dir — but `Fleet.register()`/`deregister()` persist fire-and-forget, so a write still in flight
-  when a test's `afterAll` restored `cwd` could resolve its *relative* `.sc-data/...` path against
+  when a test's `afterAll` restored `cwd` could resolve its _relative_ `.sc-data/...` path against
   the real repo directory instead. This wasn't hypothetical — it clobbered a real `bun run dev`
   instance's `apps/server/.sc-data/agents.json` mid-session. Fixed by forcing `SC_DATA_DIR` to one
   absolute, test-run-only directory before any test file loads (`apps/server/test/env-preload.ts`,
@@ -422,7 +428,7 @@ feature may run longer; most don't earn it.
 
 - **Agent update waits for the actual reconnect, not just the ack**: `update_agent` no longer
   reports `succeeded` the moment the agent acknowledges the update — it now polls the fleet
-  (`apps/server/src/tasks/types.ts` `waitForAgentReconnect`) until a *new* connection for that
+  (`apps/server/src/tasks/types.ts` `waitForAgentReconnect`) until a _new_ connection for that
   machine comes back online (proof it actually disconnected to swap its binary and restart). If
   that new connection reports the wrong version (not `force`), the run fails immediately with a
   clear "Agent reconnected on X, expected Y" error instead of continuing to poll — a real

@@ -12,6 +12,7 @@ import { serviceState, serviceTone, stackTone, StatusBadge } from "./docker/stat
 import { ComposeVisualEditor } from "./compose/ComposeVisualEditor";
 import { DeleteComposeStackModal } from "./DeleteComposeStackModal";
 import { FilesView } from "./FilesView";
+import { useHistoryState } from "../hooks/useHistoryState";
 import { LogViewer } from "./LogViewer";
 import { ActionMenu, EmptyState, ErrorBanner, TaskProgress } from "./ui";
 import shared from "../styles/shared.module.css";
@@ -474,22 +475,23 @@ function ComposeTab({ stack, onSaved, onUp }: { stack: ComposeStack; onSaved: ()
  *  of it. Bind mounts live wherever the compose file points them; SC doesn't
  *  impose a layout, so there's nothing narrower to root this at. */
 function FilesTab({ stack, initial }: { stack: ComposeStack; initial: { path: string; file: string | null } | null }) {
-    const [path, setPath] = useState(initial?.path ?? stack.dir);
-    const [file, setFile] = useState<string | null>(initial?.file ?? null);
+    // Folder and open file aren't in the hash here (the route stops at the
+    // stack's Files tab), so they ride the history entry instead — Back steps
+    // back up the folder trail rather than out of the stack.
+    const [nav, setNav] = useHistoryState<{ path: string; file: string | null }>(
+        `compose-files:${stack.id}`,
+        { path: initial?.path ?? stack.dir, file: initial?.file ?? null },
+    );
 
     return (
         <FilesView
             serverId={stack.hostId}
-            path={path}
-            openFile={file}
-            onNavigate={(patch) => {
-                if (patch.path !== undefined) {
-                    setPath(patch.path);
-                }
-                if ("file" in patch) {
-                    setFile(patch.file ?? null);
-                }
-            }}
+            path={nav.path}
+            openFile={nav.file}
+            onNavigate={(patch) => setNav({
+                path: patch.path ?? nav.path,
+                file: "file" in patch ? patch.file ?? null : nav.file,
+            })}
         />
     );
 }

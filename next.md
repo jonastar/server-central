@@ -36,20 +36,6 @@ Two ways to close it, roughly in order of preference:
   the same trick the Volumes tab already plays). But it's overlay2-only and only valid while
   the container runs, so it's a shortcut, not the answer.
 
-### Public endpoints accept cross-origin writes
-
-`setupOwner` is in `PUBLIC_COMMANDS` (`apps/server/src/index.ts`), and a cross-origin POST
-reaches it: with `Content-Type: text/plain` the request is CORS-"simple", so no preflight
-happens and `req.json()` parses the body regardless of the declared type. Confirmed against a
-fresh instance — any page a user visits can claim ownership of an un-setup control plane
-reachable from their browser (a LAN address, typically).
-
-`allowedOrigins` does **not** close this: CORS governs whether the response can be *read*, not
-whether the request is *delivered*. The fix is a request-level check — reject a state-changing
-request whose `Origin` is present and matches neither the host it arrived on
-(`Host`/`X-Forwarded-Host`) nor `allowedOrigins`. Browsers always send `Origin` cross-origin and
-page JS can't forge it. Cheap, and worth doing before anyone runs this anywhere exposed.
-
 ### RBAC gap
 
 Only the Users/OIDC-client admin endpoints (`requireOwner` in `handler.ts`) have any permission
@@ -65,8 +51,6 @@ deny-by-default for unmapped operator/viewer. Files/exec/docker/systemd still by
 
 Follow-ups to the 2026-07-04 slice (manual mapping + per-host Users tab):
 
-- Agent version skew: an outdated agent ignores `openShell.asUser` and opens a root shell.
-  Consider a minimum-agent-version gate on impersonated shells.
 - Per-node mapping overrides (map keyed by machine id) once someone actually has divergent
   usernames per host; today one username applies fleet-wide.
 - Provisioning polish: per-host manual create + group editing exist now (mapped-hosts modal in
@@ -76,7 +60,6 @@ Follow-ups to the 2026-07-04 slice (manual mapping + per-host Users tab):
 
 ### Reverse proxy
 
-- Deploying the reverse proxy creates a temporary error thing? Weird.
 - Add a route path prefix, maybe with a checkbox to enable stripping the prefix.
 - Test routes: show a mark for whether they're valid (i.e. whether anything is actually behind
   them), and add this to the list of recurring things.

@@ -4,6 +4,7 @@ import { api } from "../../api";
 import { cx } from "../../utils";
 import { ActionMenu, CodeBlock, DetailPair, Drawer, EmptyState, ErrorBanner, ExecBox, TaskProgress } from "../ui";
 import { FilesView } from "../FilesView";
+import { useHistoryState } from "../../hooks/useHistoryState";
 import { LogViewerPane } from "../LogViewerModal";
 import { TerminalView } from "../TerminalView";
 import { containerTone, StatusBadge } from "./status";
@@ -65,19 +66,24 @@ function Collapsible({ label, count, children }: { label: string; count: number;
  * its overlay filesystem, which the agent has no path to — that needs the Exec
  * or Terminal tab.
  */
-function MountBrowser({ serverId, mounts }: { serverId: string; mounts: DockerMount[] }) {
-    const [open, setOpen] = useState<DockerMount | null>(null);
-    const [path, setPath] = useState<string | null>(null);
-    const [file, setFile] = useState<string | null>(null);
+function MountBrowser({ serverId, containerId, mounts }: { serverId: string; containerId: string; mounts: DockerMount[] }) {
+    // Which mount, which folder and which file are all below the route's
+    // resolution — the hash stops at the container — so they ride the history
+    // entry: Back walks back up the folders and out to the mounts list.
+    const [nav, setNav] = useHistoryState<{ mount: string | null; path: string | null; file: string | null }>(
+        `container-mounts:${containerId}`,
+        { mount: null, path: null, file: null },
+    );
+    const open = nav.mount === null ? null : mounts.find((m) => m.destination === nav.mount) ?? null;
 
-    if (open && path) {
+    if (open && nav.path) {
         return (
             <>
                 <div className={shared["scope-row"]} style={{ marginBottom: 0, padding: "0 4px" }}>
                     <button
                         type="button"
                         className={cx(shared.btn, shared["btn-sm"])}
-                        onClick={() => { setOpen(null); setPath(null); setFile(null); }}
+                        onClick={() => setNav({ mount: null, path: null, file: null })}
                     >
                         ← Mounts
                     </button>
@@ -86,16 +92,13 @@ function MountBrowser({ serverId, mounts }: { serverId: string; mounts: DockerMo
                 </div>
                 <FilesView
                     serverId={serverId}
-                    path={path}
-                    openFile={file}
-                    onNavigate={(patch) => {
-                        if (patch.path !== undefined) {
-                            setPath(patch.path);
-                        }
-                        if ("file" in patch) {
-                            setFile(patch.file ?? null);
-                        }
-                    }}
+                    path={nav.path}
+                    openFile={nav.file}
+                    onNavigate={(patch) => setNav({
+                        mount: nav.mount,
+                        path: patch.path ?? nav.path,
+                        file: "file" in patch ? patch.file ?? null : nav.file,
+                    })}
                 />
             </>
         );
@@ -123,9 +126,7 @@ function MountBrowser({ serverId, mounts }: { serverId: string; mounts: DockerMo
                                 title={browsable ? `Browse ${m.source}` : "Not a path on the host — nothing to browse"}
                                 onClick={() => {
                                     if (browsable) {
-                                        setOpen(m);
-                                        setPath(m.source);
-                                        setFile(null);
+                                        setNav({ mount: m.destination, path: m.source, file: null });
                                     }
                                 }}
                             >
@@ -246,7 +247,7 @@ export function ContainerDrawer({ serverId, containerId, container, busy, taskId
                     fetchLogs={(q) => api("dockerContainerLogs", { serverId, containerId, ...q }).then((r) => r.logs)}
                 />
             )}
-            {tab === "volumes" && detail && <MountBrowser serverId={serverId} mounts={detail.mounts} />}
+            {tab === "volumes" && detail && <MountBrowser serverId={serverId} containerId={containerId} mounts={detail.mounts} />}
             {tab === "terminal" && <TerminalView serverId={serverId} containerId={containerId} />}
             {tab === "exec" && (
                 <ExecBox
