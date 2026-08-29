@@ -52,6 +52,13 @@ feature may run longer; most don't earn it.
 
 ### Fixed
 
+- **A cross-origin page could POST to the API.** CORS only governs reading the *response*, so a
+  "simple" POST reached handlers regardless — including `setupOwner` on an un-setup instance.
+  `/api/` now refuses a request whose `Origin` is neither the host it arrived on nor allowlisted.
+- **An outdated agent opened a root shell instead of an impersonated one**, silently ignoring the
+  user mapping. Those agents now refuse the terminal and ask to be updated.
+- **Deploying the reverse proxy flashed a bogus error** while the image pulled: no container yet
+  read as a failed deploy. The status now says "deploying" until the bring-up chain finishes.
 - **Browser Back now steps back up the folder trail in embedded file browsers** — a compose
   stack's Files tab and a container's Volumes tab, whose folder isn't in the URL. They push a
   history entry per navigation instead.

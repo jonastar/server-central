@@ -71,7 +71,10 @@ Open question — the linkage between reverse proxy and apps. Do you create the 
 proxy, or in the app? Should there be a new port descriptor to help this? How should it work?
 
 - Related: do we need to expose the port on the local network too? For multi-node setups that
-  would need a cluster-wide overlay network (WireGuard or similar) — out of scope for now.
+  needs a cluster-wide overlay network — no longer out of scope, designed in
+  [doc/idea_node_overlay.md](doc/idea_node_overlay.md): WireGuard, in two steps. A per-host
+  visibility feature first (read-only, useful on its own), then an SC-managed `wg-sc0` mesh
+  after which routes target overlay addresses and the proxy code doesn't change.
 
 ## Task system
 
@@ -128,10 +131,13 @@ future), so find a new word for it as well (plugin?).
 > implemented (`apps/server/src/proxy/`, Proxy view in the web app): SC-deployed Caddy on one
 > designated node, routes = host → `{node, published host port}`, LAN-IP upstreams uniformly.
 > Still deferred, in order: sc-proxy shared docker network (same-node, no published ports),
-> DOCKER-USER source restriction for gated cross-node routes, WireGuard mesh between agents
-> (endgame — stable IPs, ports bound to wg interface only; decided against tunneling app traffic
-> through SC), forward_auth role gating (needs the Role-set redesign), per-route reachability
-> probes (the `httpRequest` agent primitive for them exists), DNS-01/wildcard certs.
+> then the WireGuard overlay ([doc/idea_node_overlay.md](doc/idea_node_overlay.md)) — promoted
+> from "endgame" to second, because routes then target overlay addresses and the proxy code
+> doesn't change; tunneling app traffic through SC stays rejected except as a last-resort
+> fallback. After those: DOCKER-USER source restriction for gated cross-node routes (largely
+> moot once the overlay lands), forward_auth role gating (needs the Role-set redesign),
+> per-route reachability probes (the `httpRequest` agent primitive for them exists),
+> DNS-01/wildcard certs.
 > Not runtime-verified against a real dockerd yet: the deploy/apply path was exercised end to end
 > in a netns (honest failures), but an actual Caddy bring-up + /load on a docker host is pending.
 

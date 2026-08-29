@@ -411,8 +411,16 @@ export class HostAgent {
 
     /** asUser: OS account the shell runs as (null = the agent's own user, root).
      *  command: run this instead of a login/runuser shell (see the protocol
-     *  doc comment) — ignores asUser when set. */
+     *  doc comment) — ignores asUser when set.
+     *
+     *  Impersonation is refused outright against an agent that doesn't advertise
+     *  `shellAsUser`: it would ignore the field and hand back a **root** shell,
+     *  so the one thing an unsupported request must not do here is succeed. */
     async openShell(cols: number, rows: number, asUser: string | null = null, command?: string): Promise<ShellSession> {
+        if (asUser !== null && !command && !this.capabilities.has("shellAsUser")) {
+            const version = this.info?.agentVersion ?? "unknown version";
+            throw new Error(`The agent on ${this.name} (${version}) predates per-user shells and would open a root shell instead — update the agent, then retry`);
+        }
         const sessionId = crypto.randomUUID();
         let dataCb: (data: string) => void = () => { };
         let exitCb: (code: number | null) => void = () => { };

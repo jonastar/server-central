@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { corsHeaders, originOf, resolveAllowedOrigins } from "../../src/cors";
+import { corsHeaders, originAllowsRequest, originOf, resolveAllowedOrigins } from "../../src/cors";
 
 // The allowlist decides whether a browser hands an API response back to a
 // cross-origin page. Unconfigured installs must keep the historical wildcard, and
@@ -61,4 +61,40 @@ test("the method and header allowances are always present", () => {
 
 test("originOf strips path, query and fragment", () => {
     expect(originOf("https://sc.example.com:8443/a/b?c=d#e")).toBe("https://sc.example.com:8443");
+});
+
+// The request-level half: CORS headers decide who may read a reply, this decides
+// whether a state-changing request is acted on at all. A "simple" cross-origin
+// POST (Content-Type: text/plain) reaches the handler with no preflight, so
+// without this any page could POST setupOwner at a LAN control plane.
+
+test("a cross-origin page can't reach the API, wildcard CORS or not", () => {
+    expect(originAllowsRequest("https://evil.example", ["sc.lan:4141"], [])).toBe(false);
+    expect(originAllowsRequest("https://evil.example", ["sc.lan:4141"], ["https://sc.lan"])).toBe(false);
+});
+
+test("the UI's own origin is allowed — it's the host the request arrived on", () => {
+    expect(originAllowsRequest("http://192.168.1.5:4141", ["192.168.1.5:4141"], [])).toBe(true);
+});
+
+test("scheme isn't compared, so a TLS-terminating proxy still works", () => {
+    expect(originAllowsRequest("https://sc.example.com", ["sc.example.com"], [])).toBe(true);
+});
+
+test("a front end's X-Forwarded-Host counts as the arrival host", () => {
+    expect(originAllowsRequest("https://sc.example.com", ["10.0.0.9:4141", "sc.example.com"], [])).toBe(true);
+});
+
+test("no Origin at all (curl, another server) is not a browser request to refuse", () => {
+    expect(originAllowsRequest(null, ["sc.lan:4141"], [])).toBe(true);
+});
+
+test("an allowlisted origin may call cross-origin, and an explicit * opens it up", () => {
+    expect(originAllowsRequest("https://app.example.com", ["sc.lan:4141"], ["https://app.example.com"])).toBe(true);
+    expect(originAllowsRequest("https://anything.example", ["sc.lan:4141"], ["*"])).toBe(true);
+});
+
+test("a null-ish or unparseable Origin never matches a host", () => {
+    expect(originAllowsRequest("null", ["sc.lan:4141"], [])).toBe(false);
+    expect(originAllowsRequest("https://sc.example.com", [null, ""], [])).toBe(false);
 });

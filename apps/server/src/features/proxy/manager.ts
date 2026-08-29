@@ -1,6 +1,6 @@
 import type { ProxyApplyResult, ProxyConfig, ProxyContainerStatus, ProxyRoute, ProxyState } from "@central/shared";
 import type { Fleet } from "../../fleet";
-import { PROXY_ADMIN_URL, PROXY_CONTAINER, PROXY_DEPLOY_LOG, PROXY_LABEL, proxyDeployCommand, renderCaddyConfig } from "./caddy";
+import { deployStatusFromLog, PROXY_ADMIN_URL, PROXY_CONTAINER, PROXY_DEPLOY_LOG, PROXY_LABEL, proxyDeployCommand, renderCaddyConfig } from "./caddy";
 import type { ProxyStore } from "./store";
 
 /**
@@ -116,12 +116,12 @@ export class ProxyManager {
             }
             const line = res.stdout.split("\n").map((l) => l.trim()).find(Boolean);
             if (!line) {
-                // No container: a failed `docker run` leaves nothing behind, so
-                // the only trace of a broken deploy is its log. Surface a recent
-                // tail; an old log is stale noise, not the current state.
-                const log = await agent.exec(`find ${PROXY_DEPLOY_LOG} -mmin -15 2>/dev/null | grep -q . && tail -n 4 ${PROXY_DEPLOY_LOG}`);
-                const tail = log.stdout.trim().split("\n").map((l) => l.trim()).filter(Boolean).join(" — ");
-                return tail ? { present: false, error: `Last deploy: ${tail}` } : { present: false };
+                // No container: the deploy is either still running or it failed
+                // and left nothing behind. Its log tells them apart — see
+                // deployStatusFromLog. A log older than 15 minutes is stale
+                // noise about a previous deploy, so it isn't read at all.
+                const log = await agent.exec(`find ${PROXY_DEPLOY_LOG} -mmin -15 2>/dev/null | grep -q . && tail -n 5 ${PROXY_DEPLOY_LOG}`);
+                return deployStatusFromLog(log.stdout);
             }
             const row = JSON.parse(line) as { State?: string; Status?: string; Image?: string };
             const status: ProxyContainerStatus = { present: true, state: row.State, status: row.Status, image: row.Image };

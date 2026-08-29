@@ -45,14 +45,19 @@ Explicitly deferred (all layer onto the same route model without changing it):
    node's IP (match original dst port via `-m conntrack --ctorigdstport` since
    packets are DNAT'd before that chain). Stops honest bypass, not ARP spoofing —
    surface as "restricted, not airtight".
-3. **WireGuard mesh between agents** — the endgame. SC brokers keys/endpoints
-   over the agent channel (STUN work is the first building block), data flows
+3. **WireGuard overlay between nodes** — no longer the endgame; it moved
+   *ahead* of item 2 and of any userspace tunneling. Design and the reasoning for
+   the reorder: [idea_node_overlay.md](idea_node_overlay.md). Short version —
+   everything cheaper than an overlay needs an upstream abstraction that the
+   overlay makes unnecessary: routes target overlay addresses, `resolveNodeIp`
+   returns one, and `renderCaddyConfig` doesn't change at all. SC brokers keys and
+   IPs over the agent channel (STUN work is the first building block), data flows
    directly node-to-node, ports publish bound to the wg interface IP only.
    Cross-node becomes as tight as same-node, plus stable IPs across sites.
-   Decided against ever tunneling app traffic through SC itself: that makes SC a
+   Still decided against tunneling app traffic through SC itself: that makes SC a
    data-plane component (SC restart = live traffic drops, streaming throughput
-   through the control-plane process, A→C→B path inefficiency). SC brokers,
-   data flows direct.
+   through the control-plane process, A→C→B path inefficiency). That is now a
+   last-resort fallback for the hosts WireGuard can't reach, never the default.
 4. **`forward_auth` role gating** on routes (depends on the Role-set redesign,
    see next.md).
 5. DNS-01 / wildcard certs, multiple proxy nodes, per-route headers/limits.

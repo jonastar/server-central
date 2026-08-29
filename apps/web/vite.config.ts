@@ -1,4 +1,4 @@
-import { defineConfig, mergeConfig, type UserConfig } from "vite";
+import { defineConfig, mergeConfig, type ProxyOptions, type UserConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 /**
@@ -12,6 +12,11 @@ import react from "@vitejs/plugin-react";
  */
 const API_PORT = Number(process.env.VITE_API_PORT ?? 4141);
 const API_TARGET = `http://127.0.0.1:${API_PORT}`;
+
+/** See the `/api` entry below — same-origin in a build, so same-origin in dev. */
+const stripOrigin: NonNullable<ProxyOptions["configure"]> = (proxy) => {
+    proxy.on("proxyReq", (proxyReq) => proxyReq.removeHeader("origin"));
+};
 
 const config: UserConfig = {
     plugins: [react()],
@@ -28,7 +33,12 @@ const config: UserConfig = {
             // it just makes /api/events and /api/terminal hang, which surfaces as a
             // UI stuck on "connecting". The app sends its sockets straight to the
             // control plane in dev instead; see DEV_WS_PORT in src/api.ts.
-            "/api": { target: API_TARGET, changeOrigin: true },
+            // `origin` is dropped along with the Host rewrite: the control plane
+            // refuses a state-changing request whose Origin isn't the host it
+            // arrived on (see cors.ts), and this proxy exists precisely to stand
+            // in for the single origin a released build is served from. Leaving
+            // the dev server's own origin on would make every call look foreign.
+            "/api": { target: API_TARGET, changeOrigin: true, configure: stripOrigin },
             // OIDC lives outside /api (fixed by spec relative to the issuer root).
             // /oidc/authorize is deliberately absent: it's a browser navigation the
             // SPA itself renders, so it must stay with the dev server.

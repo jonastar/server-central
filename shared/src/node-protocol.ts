@@ -74,6 +74,9 @@ export type ControlMessage =
     | { type: "renamePathRequest"; requestId: string; from: string; to: string }
     // asUser: OS account to run the shell as (via runuser/su; the agent runs as
     // root). Null/absent means the agent's own user — the pre-mapping behavior.
+    // Sent with a non-null value only to agents advertising the "shellAsUser"
+    // capability: an agent predating it ignores the field and opens the root
+    // shell instead, which is the one failure mode impersonation can't have.
     // command: run this shell command in the PTY instead of a login/runuser
     // shell — used for "terminal into a container" (`docker exec -it …`).
     // Built and validated by the control plane exactly like execRequest's

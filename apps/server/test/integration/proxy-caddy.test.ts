@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ProxyConfig, ProxyRoute } from "@central/shared";
-import { proxyDeployCommand, renderCaddyConfig } from "../../src/features/proxy/caddy";
+import { deployStatusFromLog, PROXY_DEPLOY_DONE, proxyDeployCommand, renderCaddyConfig } from "../../src/features/proxy/caddy";
 
 // The renderer is the contract between SC's route model and Caddy: what it
 // emits is exactly what gets POSTed to /load. These pin the parts that would
@@ -99,4 +99,29 @@ test("deploy command publishes on 80/443 by default, or the configured host port
 
 test("resolving an unknown target node fails the render (not a silent bad dial)", () => {
     expect(() => renderCaddyConfig(config, [route({ host: "a.example.com", target: { nodeId: "ghost", port: 80, scheme: "http" } })], resolve)).toThrow("unknown node");
+});
+
+// A detached deploy leaves no container behind while it pulls, which used to
+// read exactly like a failed one: the pull's own output came back as the
+// container's `error`, so every deploy flashed red until the image landed.
+
+test("the deploy chain announces itself and marks its own end", () => {
+    const cmd = proxyDeployCommand(config);
+    expect(cmd.indexOf("echo \"deploying")).toBeLessThan(cmd.indexOf("docker pull"));
+    expect(cmd).toContain(`echo "${PROXY_DEPLOY_DONE} rc=$?"`);
+});
+
+test("a log with no end marker is a deploy in progress, not a failure", () => {
+    const status = deployStatusFromLog("deploying caddy:2.10\n2.10: Pulling from library/caddy\n");
+    expect(status).toEqual({ present: false, deploying: true });
+});
+
+test("a finished chain that left no container is the failure, and says why", () => {
+    const status = deployStatusFromLog(`deploying caddy:2.10\ndocker: address already in use\n${PROXY_DEPLOY_DONE} rc=125`);
+    expect(status.deploying).toBeUndefined();
+    expect(status.error).toBe("Last deploy: deploying caddy:2.10 — docker: address already in use");
+});
+
+test("no recent log at all is simply not deployed", () => {
+    expect(deployStatusFromLog("")).toEqual({ present: false });
 });

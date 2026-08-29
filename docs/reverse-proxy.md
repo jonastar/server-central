@@ -49,8 +49,9 @@ installed control plane). Both of these are read once at startup — restart aft
     // Also the OIDC issuer. Settable from Settings → Primary URL.
     "primaryUrl": "https://sc.example.com",
 
-    // Optional. *Other* origins allowed to call the API cross-origin. Unset keeps
-    // the historical "*". The UI itself is same-origin and needs no entry here.
+    // Optional. *Other* origins allowed to call the API cross-origin — both to
+    // send the request and to read the reply. Unset keeps the historical "*"
+    // response header, with cross-origin writes refused. Same-origin UI needs no entry.
     "allowedOrigins": ["https://app.example.com"]
 }
 ```
@@ -77,8 +78,22 @@ SC's own identity.
 
 Know what you're getting: CORS decides whether a browser hands the **response** back to a
 calling page. It does not stop the request being **sent** — a "simple" cross-origin POST
-(`Content-Type: text/plain`) skips preflight and reaches the handler regardless. Narrowing
-this is tidiness and defence in depth, not a request-level control.
+(`Content-Type: text/plain`) skips preflight and reaches the handler regardless.
+
+That last part is why the API also checks `Origin` at request level, separately from these
+headers: a POST under `/api/` whose `Origin` is neither the host it arrived on (`Host` or
+`X-Forwarded-Host`) nor a listed origin is refused with **403**, response headers or not.
+Requests with no `Origin` at all — curl, a script, another server — are unaffected; they
+need a token like anyone else. So a page on some other origin can't drive your control
+plane, and in particular can't claim ownership of one that hasn't been set up yet.
+
+Listing an origin in `allowedOrigins` grants it both halves: it may send the request *and*
+read the reply. A literal `"*"` keeps the API open to any origin at request level too —
+that's the deliberate opt-out. Leaving the list unset is **not** that opt-out: unconfigured
+means same-origin only, while the response headers stay `*` as before.
+
+If SC sits behind a proxy that rewrites `Host` to something the browser never sees, set
+`primaryUrl` — its origin is allowed automatically.
 
 ### Why `trustedProxies` matters more than it looks
 

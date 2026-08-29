@@ -42,9 +42,10 @@ sudo-nopasswd "admin" mapping). Needs implementation.
   small host/client counts; revisit for the multi-host goal.
 - **Auth token in `localStorage`.** Readable by any JS on the page, so an XSS would
   expose it (an httpOnly cookie wouldn't be JS-readable — but introduces CSRF, the
-  other side of the tradeoff). Also `Access-Control-Allow-Origin: *` on the API.
-  Low risk while single-owner; tighten the origin and reconsider token storage when
-  moving past prototype.
+  other side of the tradeoff). Low risk while single-owner; reconsider token storage
+  when moving past prototype. `Access-Control-Allow-Origin: *` is still the default
+  response header, but a cross-origin *write* is now refused at request level
+  regardless of it (see cors.ts).
 
 ## Cleanups / polish
 

@@ -3,7 +3,7 @@ import type { ServerWebSocket } from "bun";
 import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
 import { API_PREFIX, MAX_UPLOAD_BYTES } from "@central/shared";
 import { DEFAULT_FORWARDED_HEADER, headerForPeer, parseTrustedProxies, parseTrustedProxiesEnv, resolveClientIp, type TrustedProxyEntry } from "./client-ip";
-import { corsHeaders as buildCorsHeaders, resolveAllowedOrigins } from "./cors";
+import { corsHeaders as buildCorsHeaders, originAllowsRequest, resolveAllowedOrigins } from "./cors";
 import type { ShellSession } from "./host-agent";
 import { ComposeStackStore } from "./features/compose/store";
 import { createComposeStacksFeature } from "./features/compose/feature";
@@ -231,6 +231,19 @@ function corsFor(req: Request): Record<string, string> {
     return buildCorsHeaders(req.headers.get("origin"), allowedOrigins);
 }
 
+/**
+ * Whether this request's `Origin` lets us act on it — see cors.ts. CORS headers
+ * only decide who may *read* a reply; this is what stops a cross-origin page
+ * getting a state-changing call through in the first place.
+ *
+ * The hosts it may claim to be are the `Host` it arrived on plus any
+ * `X-Forwarded-Host` a front end wrote (comma-separated when several did).
+ */
+function originAllowed(req: Request): boolean {
+    const forwarded = (req.headers.get("x-forwarded-host") ?? "").split(",");
+    return originAllowsRequest(req.headers.get("origin"), [req.headers.get("host"), ...forwarded], allowedOrigins);
+}
+
 /** The address to attribute a request to — see client-ip.ts. The header is chosen
  *  per peer, so two front ends writing different headers both resolve correctly. */
 function clientIp(req: Request, serverCtx: { requestIP(req: Request): { address: string } | null }): string | null {
@@ -423,6 +436,13 @@ const server = Bun.serve<WsData>({
         if (url.pathname === API_PREFIX || url.pathname.startsWith(`${API_PREFIX}/`)) {
             if (req.method !== "POST") {
                 return Response.json({ error: "Use POST" }, { status: 405, headers: corsHeaders });
+            }
+            // Every command here changes state or hands out a session, and a
+            // "simple" cross-origin POST reaches this point without a preflight —
+            // including the unauthenticated PUBLIC_COMMANDS below. Refuse a
+            // foreign origin before that, not just in the response headers.
+            if (!originAllowed(req)) {
+                return Response.json({ error: "Cross-origin request refused" }, { status: 403, headers: corsHeaders });
             }
 
             const command = url.pathname.slice(API_PREFIX.length + 1) as Command;

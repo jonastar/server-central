@@ -118,9 +118,12 @@ export const AGENT_VERSION: string = pkg.version;
  * advertised in `identify`. Agents ignore unknown message types, so without
  * this a request to an older agent dies as a silent 30s protocol timeout —
  * the control plane checks the advertised set and fails fast with a real
- * error instead. Add an entry whenever a new request kind joins the protocol.
+ * error instead. Add an entry whenever a new request kind joins the protocol —
+ * and whenever a new *field* on an existing kind is one an older agent ignoring
+ * it would silently do the wrong thing about, rather than merely less of it
+ * ("shellAsUser": an agent that drops `openShell.asUser` opens a root shell).
  */
-export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream"];
+export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream", "shellAsUser"];
 
 /**
  * Common Name (and a baseline SAN entry) of the control-plane leaf cert. Agents
@@ -812,6 +815,9 @@ export interface ProxyContainerStatus {
     image?: string;
     /** Why the container couldn't be inspected (node offline, docker missing). */
     error?: string;
+    /** The detached deploy chain is still running (pulling, or replacing the old
+     *  container) and hasn't produced a container yet — pending, not broken. */
+    deploying?: boolean;
 }
 
 export interface ProxyState {

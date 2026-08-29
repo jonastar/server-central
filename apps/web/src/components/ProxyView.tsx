@@ -274,8 +274,10 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                     <section className={shared.panel} style={{ padding: 16, marginBottom: 20 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                             <StatusDot
-                                state={container?.state === "running" ? "online" : container?.present ? "error" : "offline"}
-                                title={container?.status ?? "not deployed"}
+                                state={container?.state === "running" ? "online"
+                                    : container?.present ? "error"
+                                        : container?.deploying ? "connecting" : "offline"}
+                                title={container?.status ?? (container?.deploying ? "deploying" : "not deployed")}
                             />
                             <div style={{ flex: 1, minWidth: 240 }}>
                                 <div style={{ fontWeight: 600 }}>
@@ -284,7 +286,11 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                 <div style={{ fontSize: 12, color: colorVars.muted }}>
                                     {container?.present
                                         ? `${container.status ?? container.state} · ${container.image ?? ""}`
-                                        : "Not deployed yet"}
+                                        // The deploy chain runs detached on the node — pulling the
+                                        // image can take minutes, and there's no container until it
+                                        // lands. Pending, not a failure.
+                                        : container?.deploying ? "Deploying — pulling the image and starting the container…"
+                                            : "Not deployed yet"}
                                     {" · "}certs: {config.certMode === "internal" ? "internal CA" : "automatic HTTPS"}
                                     {" · "}ports {config.httpPort ?? 80}/{config.httpsPort ?? 443}
                                 </div>

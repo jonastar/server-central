@@ -1,4 +1,4 @@
-import type { ProxyConfig, ProxyRoute } from "@central/shared";
+import type { ProxyConfig, ProxyContainerStatus, ProxyRoute } from "@central/shared";
 
 /** Pinned to the minor so a redeploy picks up patch releases only. */
 export const PROXY_IMAGE = "caddy:2.10";
@@ -8,6 +8,10 @@ export const PROXY_LABEL = "sc.proxy";
 export const PROXY_ADMIN_URL = "http://127.0.0.1:2019";
 /** Where the detached bring-up chain logs on the proxy node. */
 export const PROXY_DEPLOY_LOG = "/tmp/sc-proxy-deploy.log";
+/** Last line the chain writes, so a log without it means it's still running.
+ *  Without that distinction a pull in progress is indistinguishable from a
+ *  failed deploy, and the UI reports the one as the other. */
+export const PROXY_DEPLOY_DONE = "sc-proxy-deploy-finished";
 
 /**
  * The full Caddy JSON config for the current route set, pushed atomically to
@@ -103,6 +107,35 @@ export function proxyDeployCommand(config: ProxyConfig): string {
     // Sequential, not &&-chained: a failed pull (host offline) still runs from
     // a locally cached image; a truly absent image fails at `docker run`, and
     // either way the outcome is visible via container status + the log file.
-    const chain = `docker pull ${PROXY_IMAGE}; docker rm -f ${PROXY_CONTAINER}; ${run}`;
+    // The trailing marker is how status tells "still pulling" from "failed":
+    // both leave no container behind, and only the finished one says so.
+    // The opening echo guarantees the log is non-empty the moment the chain
+    // starts, so "launched, nothing printed yet" reads as in-progress too.
+    const chain = `echo "deploying ${PROXY_IMAGE}"; docker pull ${PROXY_IMAGE}; docker rm -f ${PROXY_CONTAINER}; ${run}; echo "${PROXY_DEPLOY_DONE} rc=$?"`;
     return `nohup sh -c '${chain}' >${PROXY_DEPLOY_LOG} 2>&1 &`;
+}
+
+/**
+ * What a missing container means, read off the deploy log's tail.
+ *
+ * The bring-up chain is detached — pulling the image outlives the request that
+ * launched it, and a redeploy removes the old container first — so "no container
+ * on the node" is as often "not finished yet" as it is "it failed". Only the
+ * finished chain writes {@link PROXY_DEPLOY_DONE}; a tail without it is still
+ * running, and reporting that as an error (which is what showing the pull's own
+ * output as `error` amounted to) makes every deploy look broken while it works.
+ *
+ * `tail` is the last few lines of a *recent* log — an old one is stale noise
+ * about a previous deploy, and the caller doesn't read it at all.
+ */
+export function deployStatusFromLog(tail: string): ProxyContainerStatus {
+    const lines = tail.trim().split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+        return { present: false };
+    }
+    if (!lines.some((l) => l.startsWith(PROXY_DEPLOY_DONE))) {
+        return { present: false, deploying: true };
+    }
+    const detail = lines.filter((l) => !l.startsWith(PROXY_DEPLOY_DONE)).join(" — ");
+    return detail ? { present: false, error: `Last deploy: ${detail}` } : { present: false };
 }
