@@ -23,6 +23,8 @@ import { discoveryDocument } from "./features/oidc/discovery";
 import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "./features/oidc/tokens";
 import { createProcessesFeature } from "./features/processes/feature";
 import { ProxyManager } from "./features/proxy/manager";
+import { DashboardStore } from "./features/dashboard/store";
+import { createDashboardFeature } from "./features/dashboard/feature";
 import { ProxyStore } from "./features/proxy/store";
 import { createProxyFeature } from "./features/proxy/feature";
 import { createServersFeature } from "./features/servers/feature";
@@ -182,6 +184,7 @@ function applyTrustedProxies(configured: TrustedProxyEntry[]): void {
 applyTrustedProxies(startupConfig.trustedProxies ?? []);
 
 const oidcStore = new OidcStore();
+const dashboardStore = new DashboardStore();
 const proxyStore = new ProxyStore();
 const proxyManager = new ProxyManager(fleet, proxyStore);
 
@@ -189,6 +192,7 @@ const features = defineFeatures(
     ...hostFeatures,
     createAuthFeature(auth),
     createOidcFeature(oidcStore),
+    createDashboardFeature(dashboardStore),
     createProxyFeature(proxyManager, proxyStore),
     createServersFeature(fleet, nodeServer),
     createSettingsFeature(nodeServer, oidcStore, applyAllowedOrigins, applyTrustedProxies, trustedProxiesLocked),

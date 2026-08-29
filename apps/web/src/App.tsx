@@ -12,7 +12,7 @@ import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { Dashboard } from "./components/Dashboard";
 import { AgentsView } from "./components/AgentsView";
-import { ServerOverview } from "./components/ServerOverview";
+import { HostDashboard } from "./dashboard/HostDashboard";
 import { FilesView } from "./components/FilesView";
 import { DockerView } from "./components/DockerView";
 import { ZfsView } from "./components/ZfsView";
@@ -104,7 +104,7 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
 
         switch (route.tab) {
             case "overview":
-                return <ServerOverview entry={currentEntry} history={conn.metrics[currentEntry.id] ?? []} />;
+                return <HostDashboard entry={currentEntry} />;
             case "files":
                 return (
                     <FilesView

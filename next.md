@@ -9,11 +9,14 @@ re-document finished work here, and delete an item from this file once it lands.
 - Shortcut to `sc` logs
 - base64-encoding the blob to send it manually in the body is not ideal — can we support
   multipart somehow?
-- Features could expose overview data that contributes to the overview page
 - Better process list? Or is it better to just jump into `htop` in the terminal at that point?
 - Host user authorized keys mangement
   - Option to sync authorized keys across all mapped users?
 - Default stack location
+- Fleet-level dashboard widgets — `Dashboard.tsx` is still a hand-written card grid. The host
+  registry (`apps/web/src/dashboard`) is the model; fleet widgets aggregate across hosts, so
+  they need their own `WidgetProps` and a separate registry sharing `useHostPoll` and the layout
+  store shape. See [doc/idea_host_dashboard.md](doc/idea_host_dashboard.md) §4.
 
 ### Container filesystem access
 
@@ -47,6 +50,10 @@ this before leaning on roles for anything real.
 Terminals are the exception (2026-07-04): they run as the caller's mapped system user,
 deny-by-default for unmapped operator/viewer. Files/exec/docker/systemd still bypass this.
 
+This is now the first step of a longer chain — see
+[doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md), which needs roles to
+separate control-panel users from people who only ever sign into an app.
+
 ### System users
 
 Follow-ups to the 2026-07-04 slice (manual mapping + per-host Users tab):
@@ -66,6 +73,9 @@ Follow-ups to the 2026-07-04 slice (manual mapping + per-host Users tab):
 - More introspection into Let's Encrypt: which certificates were fetched, which were attempted
   and failed, which routes are configured and on. This is available in the log today, but that
   isn't good enough.
+- Auth on routes (`forward_auth`, route groups sharing a session, SSO auto-continue, device
+  tokens for mobile apps) — the road to exposing Immich et al. without a VPN. Design and open
+  questions: [doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md).
 
 Open question — the linkage between reverse proxy and apps. Do you create the link in the
 proxy, or in the app? Should there be a new port descriptor to help this? How should it work?

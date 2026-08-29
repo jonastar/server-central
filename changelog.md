@@ -14,6 +14,12 @@ feature may run longer; most don't earn it.
 
 ### Added
 
+- **Host dashboards.** The per-host overview is now a grid of widgets features contribute, not a
+  fixed page. Drag to reorder, resize 1–3 columns, add/remove cards. [doc/idea_host_dashboard.md](doc/idea_host_dashboard.md)
+- **Compose stacks on the host overview**, plus cards for one pinned stack, Docker totals and
+  failed systemd units — the first widgets from features other than metrics.
+- **Dashboard layouts are stored per host** on the control plane, so an arrangement follows the
+  box rather than the browser. A host nobody has arranged gets the default.
 - **Reverse proxy support.** The web UI works behind a TLS-terminating proxy; API calls and
   websockets are same-origin and relative. [docs/reverse-proxy.md](docs/reverse-proxy.md)
 - **`bindHost`** (`SC_BIND`) sets the web listener's address, to keep the plaintext port on
@@ -39,6 +45,8 @@ feature may run longer; most don't earn it.
 
 ### Changed
 
+- **Widget data is polled through one shared cache**, deduped per host and paused on hidden tabs,
+  so a page of cards costs one request per distinct query rather than one per card.
 - **API moved under `/api/`.** Ops are `POST /api/<op>`; websockets are `/api/events` and
   `/api/terminal`. OIDC routes unchanged. An open tab needs a reload.
 - **Dev websockets skip the Vite proxy**, which can't forward upgrades under Bun. Release

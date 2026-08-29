@@ -29,7 +29,7 @@ export function createComposeStacksFeature(stacks: ComposeStackStore, fleet: Fle
     };
 }
 
-export type ComposeStacksOps = "listComposeStacks" | "listHostComposeStacks" | "createComposeStack" | "detectComposeStack" | "importComposeStack" | "deleteComposeStack"
+export type ComposeStacksOps = "listComposeStacks" | "listHostComposeStacks" | "readHostComposeStacks" | "createComposeStack" | "detectComposeStack" | "importComposeStack" | "deleteComposeStack"
     | "getComposeStackStatus" | "getComposeStackLogs" | "validateComposeContent";
 
 export function composeStacksApiHandlers(stacks: ComposeStackStore, fleet: Fleet): FeatureApiHandlers<ComposeStacksOps> {
@@ -56,6 +56,19 @@ export function composeStacksApiHandlers(stacks: ComposeStackStore, fleet: Fleet
                 stacks: await stacks.syncHost(data.hostId, observed.stacks),
                 observed: observed.stacks,
             };
+        },
+
+        /** The same merge, minus the adoption write — see `readHostComposeStacks`
+         *  in the protocol. The dashboard's stacks widget polls this on every
+         *  host overview, and a read that registers things as a side effect is
+         *  not something to do on a timer. */
+        async handleReadHostComposeStacks(data: { hostId: string }): Promise<HostComposeStacks> {
+            const observed = await dockerStacks(fleet.get(data.hostId));
+            const registered = stacks.list().filter((s) => s.hostId === data.hostId);
+            if (!observed.available) {
+                return { available: false, error: observed.error, stacks: registered, observed: [] };
+            }
+            return { available: true, stacks: registered, observed: observed.stacks };
         },
 
         async handleCreateComposeStack(data: { name: string; hostId: string; dir: string; content?: string }): Promise<ComposeStack> {
