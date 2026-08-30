@@ -3,6 +3,14 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { AuthStore } from "../../src/auth";
+import { RoleStore } from "../../src/roles";
+
+/** AuthStore resolves role ids to permissions, so tests need a seeded store. */
+async function makeRoles(dir: string): Promise<RoleStore> {
+    const roles = new RoleStore(dir);
+    await roles.init();
+    return roles;
+}
 
 describe("AuthStore", () => {
     let dir: string;
@@ -16,7 +24,7 @@ describe("AuthStore", () => {
     });
 
     async function freshStore(): Promise<AuthStore> {
-        const store = new AuthStore(dir);
+        const store = new AuthStore(await makeRoles(dir), dir);
         await store.init();
         return store;
     }
@@ -27,7 +35,7 @@ describe("AuthStore", () => {
 
         const { token, user } = await store.setupOwner("Alice", "supersecret");
         expect(store.needsSetup()).toBe(false);
-        expect(user.role).toBe("owner");
+        expect(user.isOwner).toBe(true);
         expect(user.username).toBe("alice"); // normalized
         expect(token).toBeTruthy();
     });

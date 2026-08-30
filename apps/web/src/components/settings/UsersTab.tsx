@@ -1,18 +1,65 @@
 import { Fragment, useEffect, useState } from "react";
-import type { AssignableRole, Role, SystemUserHostStatus, UserDetail, UserInfo } from "@central/shared";
+import type { Permission, RoleDef, SystemUserHostStatus, UserDetail, UserInfo } from "@central/shared";
+import { PANEL_PERMISSION_IDS, permissionDef } from "@central/shared";
 import { api } from "../../api";
 import { cx } from "../../utils";
 import { DetailPair, EmptyState, ErrorBanner, Modal } from "../ui";
 import { MappedSystemUsersModal } from "./MappedSystemUsersModal";
 import shared from "../../styles/shared.module.css";
+import { colorVars } from "../../styles/colorVars";
 import uiStyles from "../ui.module.css";
 
-const ASSIGNABLE_ROLES: AssignableRole[] = ["admin", "operator", "viewer"];
+/**
+ * Roles a user holds, as checkboxes — any number, and their grants union.
+ *
+ * Deliberately not a dropdown any more: the model is additive, so "which of
+ * these" is the honest question, and holding none is a real answer (an account
+ * that signs into an app through SSO and reaches nothing in the control panel).
+ * Each row carries the role's own description, so the choice isn't made blind.
+ */
+function RolePicker({ roles, selected, disabled, onChange }: {
+    roles: RoleDef[];
+    selected: string[];
+    disabled?: boolean;
+    onChange: (roleIds: string[]) => void;
+}) {
+    function toggle(id: string) {
+        onChange(selected.includes(id) ? selected.filter((r) => r !== id) : [...selected, id]);
+    }
 
-function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: (user: UserInfo) => void }) {
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {roles.map((role) => (
+                <label key={role.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" }}>
+                    <input
+                        type="checkbox"
+                        checked={selected.includes(role.id)}
+                        disabled={disabled}
+                        onChange={() => toggle(role.id)}
+                        style={{ marginTop: 3 }}
+                    />
+                    <span>
+                        <span>{role.name}</span>
+                        <span className={shared.dim} style={{ fontSize: 12, display: "block" }}>
+                            {role.description} · {role.permissions.length} permission{role.permissions.length === 1 ? "" : "s"}
+                        </span>
+                    </span>
+                </label>
+            ))}
+            {roles.length === 0 && <span className={shared.dim}>No roles defined.</span>}
+            {selected.length === 0 && (
+                <span className={shared.dim} style={{ fontSize: 12 }}>
+                    No roles — this account can sign in, and reaches nothing in the control panel.
+                </span>
+            )}
+        </div>
+    );
+}
+
+function AddUserModal({ roles, onClose, onCreated }: { roles: RoleDef[]; onClose: () => void; onCreated: (user: UserInfo) => void }) {
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
-    const [role, setRole] = useState<AssignableRole>("viewer");
+    const [roleIds, setRoleIds] = useState<string[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
 
@@ -21,7 +68,7 @@ function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
         setError(null);
         setBusy(true);
         try {
-            const user = await api("createUser", { username, password, role });
+            const user = await api("createUser", { username, password, roleIds });
             onCreated(user);
             onClose();
         } catch (err) {
@@ -43,12 +90,10 @@ function AddUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                     <span>Password</span>
                     <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
                 </label>
-                <label className={shared["login-field"]}>
-                    <span>Role</span>
-                    <select value={role} onChange={(e) => setRole(e.target.value as AssignableRole)}>
-                        {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                </label>
+                <div className={shared["login-field"]}>
+                    <span>Roles</span>
+                    <RolePicker roles={roles} selected={roleIds} onChange={setRoleIds} />
+                </div>
                 <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
                     <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
                     <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy}>
@@ -210,7 +255,13 @@ function MappedHostsSummary({ user }: { user: UserInfo }) {
     );
 }
 
-function UserDetailBody({ user, onChanged }: { user: UserInfo; onChanged: () => void }) {
+function UserDetailBody({ user, roles, busy, onRolesChange, onChanged }: {
+    user: UserInfo;
+    roles: RoleDef[];
+    busy: boolean;
+    onRolesChange: (roleIds: string[]) => void;
+    onChanged: () => void;
+}) {
     const [detail, setDetail] = useState<UserDetail | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [busySessionId, setBusySessionId] = useState<string | null>(null);
@@ -291,6 +342,18 @@ function UserDetailBody({ user, onChanged }: { user: UserInfo; onChanged: () => 
                         <MappedHostsSummary user={user} />
                     </div>
 
+                    {!user.isOwner && (
+                        <div style={{ marginTop: 12 }}>
+                            <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>Roles</div>
+                            <RolePicker roles={roles} selected={user.roleIds} disabled={busy} onChange={onRolesChange} />
+                        </div>
+                    )}
+
+                    <div style={{ marginTop: 12 }}>
+                        <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>Extra permissions</div>
+                        <PermissionsForm user={user} detail={detail} onSaved={onChanged} />
+                    </div>
+
                     <div style={{ marginTop: 12 }}>
                         <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>Change password</div>
                         <ChangePasswordForm userId={user.id} onDone={refresh} />
@@ -301,8 +364,127 @@ function UserDetailBody({ user, onChanged }: { user: UserInfo; onChanged: () => 
     );
 }
 
+/**
+ * Ad-hoc permission grants on top of the role bundle.
+ *
+ * Free text rather than a checkbox tree, because only half the namespace has a
+ * registry: `app.*` role names are the app's business and can't be enumerated
+ * here. What the registry does give is an explanation of every `panel.*` node,
+ * shown as a reference list beside the field — so "panel.zfs.admin" isn't a
+ * string someone pastes hopefully.
+ */
+function PermissionsForm({ user, detail, onSaved }: { user: UserInfo; detail: UserDetail; onSaved: () => void }) {
+    const [value, setValue] = useState(detail.extraPermissions.join("\n"));
+    const [error, setError] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+    const [saved, setSaved] = useState(false);
+    const [showRef, setShowRef] = useState(false);
+
+    const held = user.permissions;
+    const fromRoles = held.filter((p) => !detail.extraPermissions.includes(p) && p !== "*").length;
+
+    async function handleSave() {
+        setBusy(true);
+        setError(null);
+        try {
+            const permissions = value.split("\n").map((l) => l.trim()).filter(Boolean);
+            await api("setUserPermissions", { userId: user.id, permissions });
+            setSaved(true);
+            onSaved();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    if (user.isOwner) {
+        return <div className={shared.dim}>The owner holds every permission and can't be restricted.</div>;
+    }
+
+    return (
+        <div>
+            {error && <ErrorBanner>{error}</ErrorBanner>}
+            <div className={shared.dim} style={{ fontSize: 12, marginBottom: 6 }}>
+                One node per line, on top of the {fromRoles} granted by this account's roles.
+                Use <span className={shared.mono}>app.immich.user</span> for app access, or
+                a <span className={shared.mono}>prefix.*</span> wildcard.
+            </div>
+            <textarea
+                value={value}
+                onChange={(e) => { setValue(e.target.value); setSaved(false); }}
+                rows={4}
+                spellCheck={false}
+                className={shared.mono}
+                style={{ width: "100%", resize: "vertical" }}
+                placeholder="app.immich.user"
+            />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                <button className={cx(shared.btn, shared["btn-sm"])} disabled={busy} onClick={() => void handleSave()}>
+                    {busy ? "Saving…" : "Save grants"}
+                </button>
+                {saved && <span className={shared.dim} style={{ fontSize: 12 }}>Saved</span>}
+                <button
+                    className={cx(shared.btn, shared["btn-sm"])}
+                    type="button"
+                    style={{ marginLeft: "auto" }}
+                    onClick={() => setShowRef((v) => !v)}
+                >
+                    {showRef ? "Hide reference" : "What can I grant?"}
+                </button>
+            </div>
+
+            {showRef && <PermissionReference held={held} />}
+        </div>
+    );
+}
+
+/**
+ * Every panel permission, what it grants, and whether this user already has it.
+ *
+ * This is what the node-first registry buys: each row's description comes from
+ * the same definition the server enforces with, so the list can't drift from
+ * what a grant actually does. Sensitive nodes say so — that a wildcard won't
+ * reach them is the single most surprising rule in the model, and the place
+ * someone needs to know it is here, while they're deciding.
+ */
+function PermissionReference({ held }: { held: readonly string[] }) {
+    return (
+        <div style={{ marginTop: 10, maxHeight: 260, overflowY: "auto", borderTop: `1px solid ${colorVars.border}` }}>
+            <table className={shared["data-table"]} style={{ fontSize: 12 }}>
+                <tbody>
+                    {PANEL_PERMISSION_IDS.map((id) => {
+                        const def = permissionDef(id);
+                        const has = held.includes(id);
+                        return (
+                            <tr key={id}>
+                                <td className={shared.mono} style={{ whiteSpace: "nowrap", verticalAlign: "top", opacity: has ? 1 : 0.6 }}>
+                                    {has && <span title="Already granted">✓ </span>}{id}
+                                </td>
+                                <td style={{ verticalAlign: "top" }}>
+                                    <div>{def.label}</div>
+                                    <div className={shared.dim}>{def.description}</div>
+                                    {def.sensitive && (
+                                        <div style={{ color: colorVars.warn, fontSize: 11 }}>
+                                            Not covered by any wildcard — must be granted by name.
+                                        </div>
+                                    )}
+                                    {def.escalation && (
+                                        <div style={{ color: colorVars.err, fontSize: 11 }}>⚠ {def.escalation}</div>
+                                    )}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
 export function UsersTab() {
     const [users, setUsers] = useState<UserInfo[] | null>(null);
+    const [roles, setRoles] = useState<RoleDef[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
@@ -310,18 +492,19 @@ export function UsersTab() {
 
     function refresh() {
         api("listUsers", undefined).then(setUsers).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+        // Role names are shown against every user, so the list is needed here as
+        // well as on the Roles tab. Failing to load them degrades to raw ids
+        // rather than breaking the screen.
+        api("listRoles", undefined).then(setRoles).catch(() => { });
     }
 
     useEffect(refresh, []);
 
-    async function handleRoleChange(userId: string, role: Role) {
-        if (role === "owner") {
-            return;
-        }
+    async function handleRolesChange(userId: string, roleIds: string[]) {
         setBusyId(userId);
         setError(null);
         try {
-            await api("updateUserRole", { userId, role });
+            await api("setUserRoles", { userId, roleIds });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -383,22 +566,22 @@ export function UsersTab() {
                                             <td className={shared["col-expander"]}><span className={cx(shared["row-expander"], expanded && shared.open)}>▸</span></td>
                                             <td className={shared["file-name"]}>{u.username}</td>
                                             <td onClick={(e) => e.stopPropagation()}>
-                                                {u.role === "owner" ? (
+                                                {u.isOwner ? (
                                                     <span className={shared.badge}>owner</span>
+                                                ) : u.roleIds.length === 0 ? (
+                                                    <span className={shared.dim}>no roles</span>
                                                 ) : (
-                                                    <select
-                                                        value={u.role}
-                                                        disabled={busyId === u.id}
-                                                        onChange={(e) => handleRoleChange(u.id, e.target.value as Role)}
-                                                    >
-                                                        {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                                                    </select>
+                                                    u.roleIds.map((id) => (
+                                                        <span key={id} className={shared.badge} style={{ marginRight: 4 }}>
+                                                            {roles.find((r) => r.id === id)?.name ?? id}
+                                                        </span>
+                                                    ))
                                                 )}
                                             </td>
                                             <td>{u.systemUser ? <span className={shared.mono}>{u.systemUser}</span> : <span className={shared.dim}>—</span>}</td>
                                             <td className={shared.dim}>{new Date(u.createdAt).toLocaleString()}</td>
                                             <td className={shared["row-actions-always"]} onClick={(e) => e.stopPropagation()}>
-                                                {u.role !== "owner" && (
+                                                {!u.isOwner && (
                                                     <button className={shared.btn} disabled={busyId === u.id} onClick={() => void handleDelete(u)}>
                                                         Delete
                                                     </button>
@@ -410,7 +593,13 @@ export function UsersTab() {
                                                 <td />
                                                 <td colSpan={5}>
                                                     <div className={shared["row-detail-wrap"]}>
-                                                        <UserDetailBody user={u} onChanged={refresh} />
+                                                        <UserDetailBody
+                                                            user={u}
+                                                            roles={roles}
+                                                            busy={busyId === u.id}
+                                                            onRolesChange={(ids) => void handleRolesChange(u.id, ids)}
+                                                            onChanged={refresh}
+                                                        />
                                                     </div>
                                                 </td>
                                             </tr>
@@ -425,6 +614,7 @@ export function UsersTab() {
 
             {adding && (
                 <AddUserModal
+                    roles={roles}
                     onClose={() => setAdding(false)}
                     onCreated={(user) => setUsers((prev) => [...(prev ?? []), user])}
                 />

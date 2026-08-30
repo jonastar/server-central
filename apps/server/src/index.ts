@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import type { ServerWebSocket } from "bun";
-import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
-import { API_PREFIX, MAX_UPLOAD_BYTES } from "@central/shared";
+import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, OpRequirement, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
+import { API_PREFIX, MAX_UPLOAD_BYTES, OP_REQUIREMENTS, eventPermission, userCan } from "@central/shared";
 import { DEFAULT_FORWARDED_HEADER, headerForPeer, parseTrustedProxies, parseTrustedProxiesEnv, resolveClientIp, type TrustedProxyEntry } from "./client-ip";
 import { corsHeaders as buildCorsHeaders, originAllowsRequest, resolveAllowedOrigins } from "./cors";
 import type { ShellSession } from "./host-agent";
@@ -9,6 +9,7 @@ import { ComposeStackStore } from "./features/compose/store";
 import { createComposeStacksFeature } from "./features/compose/feature";
 import { createAuthFeature } from "./features/auth/feature";
 import { CONFIG_DIR, readConfig } from "./config";
+import { RoleStore } from "./roles";
 import { createDebugFeature } from "./features/debug/feature";
 import { createDockerFeature } from "./features/docker/feature";
 import { composeApiHandlers, composeTaskHandlers, defineFeatures } from "./feature";
@@ -67,7 +68,12 @@ if (cliArgs.length === 0 && process.stdin.isTTY && await offerInteractiveInstall
 type Command = keyof CentralApiOperations;
 
 type WsData =
-    | { channel: "events" }
+    // The user rides along so pushed events can be filtered the same way pulled
+    // ones are: this socket carries fleet inventory and task history, which are
+    // exactly the `getServers`/`listTasks` payloads by another route. Resolved at
+    // upgrade and not refreshed, so a permission change takes effect on the
+    // client's next reconnect rather than mid-stream.
+    | { channel: "events"; user: UserInfo }
     // containerId, when set, opens a terminal into that container (`docker exec
     // -it`) instead of a host shell — see openTerminal().
     | { channel: "terminal"; serverId: string; containerId: string | null; user: UserInfo; shell: ShellSession | null };
@@ -76,7 +82,11 @@ const eventSockets = new Set<ServerWebSocket<WsData>>();
 
 function broadcast(event: ApiEvent): void {
     const payload = JSON.stringify(event);
+    const required = eventPermission(event.kind);
     for (const socket of eventSockets) {
+        if (!userCan(socket.data.user, required)) {
+            continue;
+        }
         socket.send(payload);
     }
 }
@@ -93,7 +103,12 @@ const fleet = new Fleet(
 );
 await fleet.init();
 
-const auth = new AuthStore();
+// Roles load first: computing a user's effective permissions resolves their role
+// ids, and that happens on every authenticated request.
+const roleStore = new RoleStore();
+await roleStore.init();
+
+const auth = new AuthStore(roleStore);
 await auth.init();
 
 const stackStore = new ComposeStackStore(fleet);
@@ -190,13 +205,13 @@ const proxyManager = new ProxyManager(fleet, proxyStore);
 
 const features = defineFeatures(
     ...hostFeatures,
-    createAuthFeature(auth),
+    createAuthFeature(auth, roleStore),
     createOidcFeature(oidcStore),
     createDashboardFeature(dashboardStore),
     createProxyFeature(proxyManager, proxyStore),
     createServersFeature(fleet, nodeServer),
     createSettingsFeature(nodeServer, oidcStore, applyAllowedOrigins, applyTrustedProxies, trustedProxiesLocked),
-    createTasksFeature(taskRunner, taskStore, featureTasks.ownerOnlyKinds),
+    createTasksFeature(taskRunner, taskStore),
 );
 for (const f of features) await f.init?.({ configDir: CONFIG_DIR, broadcast });
 
@@ -205,8 +220,7 @@ for (const f of features) await f.init?.({ configDir: CONFIG_DIR, broadcast });
 // feature claiming it.
 const handler: ApiHandlerPrefixed<CentralApiOperations> = composeApiHandlers(features);
 
-/** Commands callable without a session (first-run setup + login). */
-const PUBLIC_COMMANDS = new Set<Command>(["getAuthState", "setupOwner", "login"]);
+
 
 /**
  * Origins allowed to read API responses cross-origin.
@@ -405,7 +419,7 @@ const server = Bun.serve<WsData>({
             if (!user) {
                 return Response.json({ error: "invalid_token" }, { status: 401, headers: corsHeaders });
             }
-            return Response.json({ sub: user.id, preferred_username: user.username, groups: [user.role] }, { headers: corsHeaders });
+            return Response.json({ sub: user.id, preferred_username: user.username, groups: user.permissions.filter((p) => p.startsWith("app.")) }, { headers: corsHeaders });
         }
 
         // WebSocket channels carry the bearer token as a query param, since
@@ -415,9 +429,16 @@ const server = Bun.serve<WsData>({
             if (!user) {
                 return new Response("Unauthorized", { status: 401, headers: corsHeaders });
             }
+            // The terminal isn't an RPC operation, so it can't declare a node on a
+            // feature — it's gated here instead. `panel.terminal` is sensitive, so
+            // no wildcard reaches it; the host-user mapping check in
+            // openTerminalShell still applies on top of this.
+            if (url.pathname === `${API_PREFIX}/terminal` && !userCan(user, "panel.terminal")) {
+                return new Response("Forbidden", { status: 403, headers: corsHeaders });
+            }
 
             if (url.pathname === `${API_PREFIX}/events`) {
-                if (serverCtx.upgrade(req, { data: { channel: "events" } satisfies WsData })) {
+                if (serverCtx.upgrade(req, { data: { channel: "events", user } satisfies WsData })) {
                     return undefined as unknown as Response;
                 }
                 return new Response("Upgrade failed", { status: 400, headers: corsHeaders });
@@ -460,8 +481,26 @@ const server = Bun.serve<WsData>({
 
             const token = bearerToken(req);
             const user = await auth.authenticate(token);
-            if (!PUBLIC_COMMANDS.has(command) && !user) {
-                return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+
+            // One gate for every operation. `fn` above proves the command exists;
+            // this proves the caller may run it. Order matters: no session is a
+            // 401 (the client should log in and retry), a session without the
+            // node is a 403 (retrying will never help).
+            // Fail closed on anything not explicitly classified. Startup asserts
+            // this can't happen; the check stays because the cost of being wrong
+            // here is an open endpoint, and `undefined` would otherwise fall
+            // through to the permission comparison below.
+            const required: OpRequirement | undefined = OP_REQUIREMENTS[command];
+            if (required === undefined) {
+                return Response.json({ error: "Forbidden" }, { status: 403, headers: corsHeaders });
+            }
+            if (required !== "public") {
+                if (!user) {
+                    return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
+                }
+                if (required !== "authenticated" && !userCan(user, required)) {
+                    return Response.json({ error: `Requires the "${required}" permission` }, { status: 403, headers: corsHeaders });
+                }
             }
 
             const ip = clientIp(req, serverCtx);
@@ -493,9 +532,18 @@ const server = Bun.serve<WsData>({
         open(ws) {
             if (ws.data.channel === "events") {
                 eventSockets.add(ws);
+                // Same filter as broadcast, applied to the snapshot. The two
+                // halves are independent permissions on purpose: reading task
+                // history and reading the fleet are separate grants everywhere
+                // else, and this is the one place they'd otherwise be bundled.
+                const canSeeServers = userCan(ws.data.user, "panel.servers.read");
                 ws.send(JSON.stringify({
                     kind: "init",
-                    data: { servers: fleet.entries(), metricsHistory: fleet.metricsHistory(), tasks: taskStore.list() },
+                    data: {
+                        servers: canSeeServers ? fleet.entries() : [],
+                        metricsHistory: canSeeServers ? fleet.metricsHistory() : {},
+                        tasks: userCan(ws.data.user, "panel.tasks.read") ? taskStore.list() : [],
+                    },
                 } satisfies ApiEvent));
             } else {
                 void openTerminal(ws);

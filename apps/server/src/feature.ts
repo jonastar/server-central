@@ -46,16 +46,6 @@ export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = n
 
     taskHandlers?(): FeatureTaskHandlers<TKinds>;
 
-    /**
-     * Task kinds this feature restricts to owners (`runTask` enforces it before
-     * starting the run). Declared here rather than hard-coded in the tasks
-     * feature so the gate travels with the code that knows why it exists — see
-     * ZFS's pool/vdev mutations. `composeTaskHandlers` rejects a kind listed
-     * here that the same feature doesn't actually handle, so a typo or a renamed
-     * kind can't silently drop the gate.
-     */
-    ownerOnlyTaskKinds?: readonly TaskKind[];
-
     /** Only present for features with actual settings beyond their own store's
      *  data (a stack registry isn't "config" in this sense — it's the feature's
      *  data). */
@@ -233,24 +223,11 @@ export function composeApiHandlers<F extends readonly AnyFeature[]>(features: F)
 
 export interface ComposedTaskHandlers<K extends TaskKind> {
     handlers: FeatureTaskHandlers<K>;
-    /** Union of every feature's `ownerOnlyTaskKinds`, for `runTask`'s gate. */
-    ownerOnlyKinds: ReadonlySet<TaskKind>;
 }
 
 /** Same composition (and the same completeness guarantee) for task kinds. */
 export function composeTaskHandlers<F extends readonly AnyFeature[]>(features: F): ComposedTaskHandlers<FeatureKinds<F[number]>> {
     const slices = features.map((f) => ({ id: f.descriptor.id, slice: f.taskHandlers?.() }));
     const handlers = mergeSlices("task kind", slices);
-
-    const ownerOnlyKinds = new Set<TaskKind>();
-    for (const feature of features) {
-        const own = feature.taskHandlers?.() ?? {};
-        for (const kind of feature.ownerOnlyTaskKinds ?? []) {
-            if (!(kind in own)) {
-                throw new Error(`Feature "${feature.descriptor.id}" gates task kind "${kind}" to owners but doesn't handle it`);
-            }
-            ownerOnlyKinds.add(kind);
-        }
-    }
-    return { handlers: handlers as FeatureTaskHandlers<FeatureKinds<F[number]>>, ownerOnlyKinds };
+    return { handlers: handlers as FeatureTaskHandlers<FeatureKinds<F[number]>> };
 }

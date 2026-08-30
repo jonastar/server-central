@@ -2,9 +2,13 @@ import { useState, useEffect } from "react";
 import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import { UsersTab } from "./settings/UsersTab";
+import { RolesTab } from "./settings/RolesTab";
 import { OidcClientsTab } from "./settings/OidcClientsTab";
 import { DebugTab } from "./settings/DebugTab";
 import { cx } from "../utils";
+import { SETTINGS_TABS, type SettingsTab } from "../routes";
+import { EmptyState } from "./ui";
+import { useCan } from "../hooks/usePermissions";
 import shared from "../styles/shared.module.css";
 import uiStyles from "./ui.module.css";
 import { colorVars } from "../styles/colorVars";
@@ -16,14 +20,7 @@ interface ControlPlaneStatus {
     updateAvailable: boolean;
 }
 
-type SettingsTab = "general" | "users" | "oidc" | "debug";
 
-const TABS: Array<{ id: SettingsTab; label: string }> = [
-    { id: "general", label: "General" },
-    { id: "users", label: "Users" },
-    { id: "oidc", label: "SSO Clients" },
-    { id: "debug", label: "Debug" },
-];
 
 function GeneralSettings() {
     const [domain, setDomain] = useState<string>("");
@@ -544,7 +541,22 @@ function GeneralSettings() {
 }
 
 export function SettingsView() {
-    const [tab, setTab] = useState<SettingsTab>("general");
+    const can = useCan();
+    // Which tabs this user may open at all. The first visible one is the landing
+    // tab rather than a hardcoded "general", so someone granted only Users
+    // doesn't arrive on a blank page.
+    const tabs = SETTINGS_TABS.filter((t) => can(t.permission));
+    const [tab, setTab] = useState<SettingsTab | null>(null);
+    const active = tab && tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? null;
+
+    if (!active) {
+        return (
+            <div className={shared.view}>
+                <header className={shared["view-header"]}><h1>Settings</h1></header>
+                <EmptyState>You don't have access to any settings.</EmptyState>
+            </div>
+        );
+    }
 
     return (
         <div className={shared.view}>
@@ -553,10 +565,10 @@ export function SettingsView() {
             </header>
 
             <nav className={shared["sub-tabs"]} style={{ marginBottom: 20 }}>
-                {TABS.map((t) => (
+                {tabs.map((t) => (
                     <button
                         key={t.id}
-                        className={cx(shared["sub-tab"], tab === t.id && shared.active)}
+                        className={cx(shared["sub-tab"], active === t.id && shared.active)}
                         onClick={() => setTab(t.id)}
                     >
                         {t.label}
@@ -564,10 +576,11 @@ export function SettingsView() {
                 ))}
             </nav>
 
-            {tab === "general" && <GeneralSettings />}
-            {tab === "users" && <UsersTab />}
-            {tab === "oidc" && <OidcClientsTab />}
-            {tab === "debug" && <DebugTab />}
+            {active === "general" && <GeneralSettings />}
+            {active === "users" && <UsersTab />}
+            {active === "roles" && <RolesTab />}
+            {active === "oidc" && <OidcClientsTab />}
+            {active === "debug" && <DebugTab />}
         </div>
     );
 }

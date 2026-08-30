@@ -1,5 +1,6 @@
-import type { AssignableRole, UserDetail, UserInfo } from "@central/shared";
-import { requireOwner, type AuthContext, type AuthStore } from "../../auth";
+import type { Permission, RoleDef, UserDetail, UserInfo } from "@central/shared";
+import type { AuthContext, AuthStore } from "../../auth";
+import type { RoleStore } from "../../roles";
 import type { Feature, FeatureApiHandlers } from "../../feature";
 
 // The AuthStore itself stays at src/auth.ts: it's cross-cutting infra, not this
@@ -7,25 +8,26 @@ import type { Feature, FeatureApiHandlers } from "../../feature";
 // it, and system-users reads the OS-account mapping off it. This file is only the
 // feature's slice of the API, same split as servers/ over fleet.ts.
 
-export function createAuthFeature(auth: AuthStore): Feature<AuthOps> {
+export function createAuthFeature(auth: AuthStore, roles: RoleStore): Feature<AuthOps> {
     return {
         descriptor: {
             id: "auth",
             name: "Accounts",
-            description: "Local user accounts, sessions, and role assignment.",
+            description: "Local user accounts, sessions, roles, and permission grants.",
             experimental: false,
         },
         apiHandlers() {
-            return authApiHandlers(auth);
+            return authApiHandlers(auth, roles);
         },
     };
 }
 
 export type AuthOps = "getAuthState" | "setupOwner" | "login" | "logout" | "me"
-    | "listUsers" | "createUser" | "deleteUser" | "updateUserRole" | "getUserDetail"
-    | "revokeUserSession" | "adminSetPassword" | "setUserSystemUser";
+    | "listUsers" | "createUser" | "deleteUser" | "setUserRoles" | "getUserDetail"
+    | "revokeUserSession" | "adminSetPassword" | "setUserSystemUser" | "setUserPermissions"
+    | "listRoles" | "createRole" | "updateRole" | "deleteRole" | "resetRole";
 
-export function authApiHandlers(auth: AuthStore): FeatureApiHandlers<AuthOps> {
+export function authApiHandlers(auth: AuthStore, roles: RoleStore): FeatureApiHandlers<AuthOps> {
     return {
         // ---- Session (getAuthState/setupOwner/login are the PUBLIC_COMMANDS) ----
 
@@ -52,46 +54,66 @@ export function authApiHandlers(auth: AuthStore): FeatureApiHandlers<AuthOps> {
             return ctx.user;
         },
 
-        // ---- User administration (owner-only) ----------------------------------
+        // ---- User administration (panel.users.*, declared above) ---------------
 
         async handleListUsers(_data: void, ctx?: AuthContext): Promise<UserInfo[]> {
-            requireOwner(ctx);
             return auth.listUsers();
         },
 
-        async handleCreateUser(data: { username: string; password: string; role: AssignableRole }, ctx?: AuthContext): Promise<UserInfo> {
-            requireOwner(ctx);
-            return auth.addUser(data.username, data.password, data.role);
+        async handleCreateUser(data: { username: string; password: string; roleIds: string[] }): Promise<UserInfo> {
+            return auth.addUser(data.username, data.password, data.roleIds);
         },
 
         async handleDeleteUser(data: { userId: string }, ctx?: AuthContext): Promise<void> {
-            requireOwner(ctx);
             await auth.deleteUser(data.userId, ctx!.user!.id);
         },
 
-        async handleUpdateUserRole(data: { userId: string; role: AssignableRole }, ctx?: AuthContext): Promise<void> {
-            requireOwner(ctx);
-            await auth.updateUserRole(data.userId, data.role);
+        async handleSetUserRoles(data: { userId: string; roleIds: string[] }): Promise<void> {
+            await auth.setUserRoles(data.userId, data.roleIds);
         },
 
         async handleGetUserDetail(data: { userId: string }, ctx?: AuthContext): Promise<UserDetail> {
-            requireOwner(ctx);
             return auth.getUserDetail(data.userId, ctx!.token);
         },
 
         async handleRevokeUserSession(data: { userId: string; sessionId: string }, ctx?: AuthContext): Promise<void> {
-            requireOwner(ctx);
             await auth.revokeSession(data.userId, data.sessionId, ctx!.token);
         },
 
         async handleAdminSetPassword(data: { userId: string; password: string }, ctx?: AuthContext): Promise<void> {
-            requireOwner(ctx);
             await auth.adminSetPassword(data.userId, data.password);
         },
 
         async handleSetUserSystemUser(data: { userId: string; systemUser: string | null }, ctx?: AuthContext): Promise<void> {
-            requireOwner(ctx);
             await auth.setSystemUser(data.userId, data.systemUser);
+        },
+
+        async handleSetUserPermissions(data: { userId: string; permissions: Permission[] }): Promise<void> {
+            await auth.setPermissions(data.userId, data.permissions);
+        },
+
+        // ---- Roles (panel.roles.*) ---------------------------------------------
+
+        async handleListRoles(): Promise<RoleDef[]> {
+            return roles.list();
+        },
+
+        async handleCreateRole(data: { name: string; description: string; permissions: Permission[] }): Promise<RoleDef> {
+            return roles.create(data.name, data.description, data.permissions);
+        },
+
+        async handleUpdateRole(data: { role: RoleDef }): Promise<void> {
+            await roles.update(data.role);
+        },
+
+        async handleResetRole(data: { roleId: string }): Promise<RoleDef> {
+            return roles.resetToSeed(data.roleId);
+        },
+
+        async handleDeleteRole(data: { roleId: string }): Promise<void> {
+            // The store refuses while anyone still holds it, rather than
+            // stripping the role from them with no record of what they had.
+            await roles.delete(data.roleId, auth.countRoleHolders(data.roleId));
         },
     };
 }

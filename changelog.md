@@ -14,6 +14,55 @@ feature may run longer; most don't earn it.
 
 ### Added
 
+- **Permission nodes replace unenforced roles.** Every API operation declares what it requires
+  (`panel.docker.write`, `panel.terminal`, …) and the dispatcher enforces it — previously any
+  authenticated user could do anything. [doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md) §1
+- **Roles are now bundles of those nodes**, with a new `none` role that reaches nothing in the
+  control plane — the account shape for someone who only signs into an app via SSO.
+- **Per-user grants on top of the role** (`setUserPermissions`), so `app.immich.user` can be
+  assigned without granting any panel access. Edited in Settings → Users.
+- **Prefix wildcards** (`panel.*`, `app.immich.*`) — except on sensitive nodes (terminal,
+  container exec, host-account and user administration), which need an exact grant.
+- **The UI hides what you can't reach** — sidebar entries, per-host tabs and settings tabs are
+  filtered by permission, and a stale deep link lands on a refusal instead of a wall of 403s.
+- **Editable roles, and users hold any number of them.** Roles are seeded on first run
+  ("Control panel viewer/operator/admin") and owned by the installation after — an update never
+  widens an existing role. Settings → Roles edits them with a permission tree.
+- **No roles is the floor** — the account shape for someone who only signs into an app via SSO.
+  Replaces the old `none` role; `owner` is now a flag rather than a role, since a role you can
+  remove from yourself is a lockout.
+- **The seeded viewer role grants no path to root**, which meant dropping file reads from it:
+  reading any path as root includes Server Central's own session and agent tokens. Host
+  inventory split out as `panel.mounts.read` so viewers keep the Mounts tab; the file browser
+  is now an explicit grant.
+- **Permissions that grant implicit root are marked as such**, each with how — a compose bind
+  mount of `/`, a file in `/etc/sudoers.d`, replacing the control-plane binary. The role editor
+  totals it up: "this role grants root on managed hosts, through N of its permissions".
+- **Docker permissions split**: `panel.docker.control` (start/stop/restart what exists) vs
+  `panel.docker.deploy` (bring stacks up, pull images — root-equivalent) vs
+  `panel.docker.prune` (remove images and volumes). Replaces `panel.docker.write`.
+- **Search field in the role editor's permission tree**, matching id, label and description.
+- **Reset a seeded role to its default**, with a "modified" badge showing which have drifted.
+  Also how a role picks up a permission added in a later release, since updates never widen one.
+  A seeded role that was deleted can be restored the same way.
+- **One authorization registry** (`shared/src/permissions.ts`): each permission node declares
+  its label, description, and the operations, task kinds and events it grants. The grants
+  editor renders it, so "what does this permission do" has an answer in the UI.
+- **Per-task-kind permissions** (`TASK_KIND_PERMISSIONS`): `runTask` now gates on the kind, not
+  just the operation. ZFS pool/vdev surgery keeps its owner-only default via `panel.zfs.admin`,
+  which is now grantable rather than hardcoded.
+
+### Fixed
+
+- **The OIDC `groups` claim leaked control-plane structure.** It carried the user's role name,
+  and would have carried every `panel.*` node; it now carries only their `app.*` grants.
+- **`panel.tasks.run` granted arbitrary shell.** The `cmd` task kind runs any command on any
+  host, and nothing distinguished it from restarting a container. It now needs `panel.exec`,
+  a sensitive node no wildcard reaches.
+- **The events websocket leaked the whole fleet.** It authenticated but never checked
+  permissions, so any account — including a role-`none` app user — received the full server
+  inventory, metrics history and task log. Pushed events are now gated like the equivalent pull.
+
 - **Host dashboards.** The per-host overview is now a grid of widgets features contribute, not a
   fixed page. Drag to reorder, resize 1–3 columns, add/remove cards. [doc/idea_host_dashboard.md](doc/idea_host_dashboard.md)
 - **Compose stacks on the host overview**, plus cards for one pinned stack, Docker totals and

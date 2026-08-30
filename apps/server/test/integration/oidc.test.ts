@@ -4,6 +4,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { AuthStore } from "../../src/auth";
+import { RoleStore } from "../../src/roles";
+
+/** AuthStore resolves role ids to permissions, so tests need a seeded store. */
+async function makeRoles(dir: string): Promise<RoleStore> {
+    const roles = new RoleStore(dir);
+    await roles.init();
+    return roles;
+}
 import { OidcStore } from "../../src/features/oidc/store";
 import { buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "../../src/features/oidc/tokens";
 import { discoveryDocument } from "../../src/features/oidc/discovery";
@@ -24,7 +32,7 @@ describe("OIDC provider", () => {
 
     beforeEach(async () => {
         dir = await fs.mkdtemp(path.join(os.tmpdir(), "sc-oidc-test-"));
-        auth = new AuthStore(dir);
+        auth = new AuthStore(await makeRoles(dir), dir);
         await auth.init();
         oidc = new OidcStore(dir);
         await oidc.init();
@@ -127,11 +135,33 @@ describe("OIDC provider", () => {
             aud: client.id,
             nonce: "n-123",
             preferred_username: "alice",
-            groups: ["owner"],
+            // Only the `app.*` half of the caller's grants — a relying party has
+            // no use for the control plane's own nodes, and sending them would
+            // leak its structure to every app the owner registers. The owner
+            // holds none by default: owning the control plane deliberately
+            // doesn't make you an admin inside every app connected to it.
+            groups: [],
         });
 
         const accessPayload = verifyJwt(accessToken, key.publicKeyPem);
         expect(accessPayload).toMatchObject({ iss: ISSUER, sub: user.id, aud: client.id, scope: "openid profile groups" });
+    });
+
+    test("app grants reach the groups claim; panel grants never do", async () => {
+        const withGrants = {
+            id: "u1",
+            username: "alice",
+            isOwner: true,
+            roleIds: [],
+            createdAt: 0,
+            systemUser: null,
+            permissions: ["*", "panel.files.write", "app.immich.admin", "app.jellyfin.user"],
+        };
+        const payload = verifyJwt(
+            buildIdToken(withGrants, { issuer: ISSUER, clientId: "c1", nonce: null, authTime: 0 }, oidc.key),
+            oidc.key.publicKeyPem,
+        );
+        expect(payload?.groups).toEqual(["app.immich.admin", "app.jellyfin.user"]);
     });
 
     test("verifyJwt rejects a tampered signature and a token signed by a different key", async () => {

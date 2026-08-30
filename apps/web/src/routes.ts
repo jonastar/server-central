@@ -1,4 +1,4 @@
-import type { HostCapability } from "@central/shared";
+import type { HostCapability, Permission } from "@central/shared";
 
 export type ServerTab = "overview" | "files" | "docker" | "processes" | "network" | "services" | "users" | "zfs" | "mounts" | "terminal";
 
@@ -65,17 +65,50 @@ const ZFS_SECTIONS = new Set<ZfsSection>(["pools", "datasets", "snapshots"]);
  * the same `HostCapability` ids from @central/shared, so this collapses into a
  * descriptor lookup the moment that pipeline exists.
  */
-export const SERVER_TABS: Array<{ id: ServerTab; label: string; requires?: HostCapability }> = [
-    { id: "overview", label: "Overview" },
-    { id: "files", label: "Files" },
-    { id: "docker", label: "Docker", requires: "docker" },
-    { id: "zfs", label: "ZFS", requires: "zfs" },
-    { id: "mounts", label: "Mounts" },
-    { id: "processes", label: "Processes" },
-    { id: "network", label: "Network" },
-    { id: "services", label: "Services", requires: "systemd" },
-    { id: "users", label: "Users" },
-    { id: "terminal", label: "Terminal" },
+export const SERVER_TABS: Array<{ id: ServerTab; label: string; requires?: HostCapability; permission: Permission }> = [
+    { id: "overview", label: "Overview", permission: "panel.servers.read" },
+    { id: "files", label: "Files", permission: "panel.files.read" },
+    { id: "docker", label: "Docker", requires: "docker", permission: "panel.docker.read" },
+    { id: "zfs", label: "ZFS", requires: "zfs", permission: "panel.zfs.read" },
+    { id: "mounts", label: "Mounts", permission: "panel.mounts.read" },
+    { id: "processes", label: "Processes", permission: "panel.processes.read" },
+    { id: "network", label: "Network", permission: "panel.network.read" },
+    { id: "services", label: "Services", requires: "systemd", permission: "panel.systemd.read" },
+    { id: "users", label: "Users", permission: "panel.systemUsers.read" },
+    { id: "terminal", label: "Terminal", permission: "panel.terminal" },
+];
+
+/**
+ * The sidebar's fixed destinations, with what each one needs.
+ *
+ * `permission` names the *read* node of whatever the view opens with, which is
+ * the right granularity for navigation: hiding a section someone can look at but
+ * not change would be wrong, and showing one whose every request 403s is the
+ * thing this exists to stop. Finer-grained gating (a disabled button) belongs in
+ * the view, next to the action it guards.
+ */
+export type SettingsTab = "general" | "users" | "roles" | "oidc" | "debug";
+
+export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; permission: Permission }> = [
+    { id: "general", label: "General", permission: "panel.settings.read" },
+    { id: "users", label: "Users", permission: "panel.users.read" },
+    { id: "roles", label: "Roles", permission: "panel.roles.read" },
+    { id: "oidc", label: "SSO Clients", permission: "panel.oidc.read" },
+    { id: "debug", label: "Debug", permission: "panel.settings.admin" },
+];
+
+/**
+ * `anyOf` rather than a single node, because a destination is reachable when
+ * *any* of its contents is. Settings is the case that forces it: someone granted
+ * `panel.users.read` alone should still find the Users tab, and gating the whole
+ * section behind `panel.settings.read` would hide it from them.
+ */
+export const NAV_ITEMS: Array<{ view: Route["view"]; label: string; anyOf: Permission[] }> = [
+    { view: "dashboard", label: "Dashboard", anyOf: ["panel.servers.read"] },
+    { view: "agents", label: "Agents", anyOf: ["panel.servers.read"] },
+    { view: "proxy", label: "Proxy", anyOf: ["panel.proxy.read"] },
+    { view: "tasks", label: "Tasks", anyOf: ["panel.tasks.read"] },
+    { view: "settings", label: "Settings", anyOf: SETTINGS_TABS.map((t) => t.permission) },
 ];
 
 const TAB_IDS = new Set<ServerTab>(SERVER_TABS.map((t) => t.id));

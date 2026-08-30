@@ -1,7 +1,9 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
-import type { AssignableRole, Role, UserDetail, UserInfo, UserSession } from "@central/shared";
+import type { Permission, UserDetail, UserInfo, UserSession } from "@central/shared";
+import { effectivePermissions, isValidPermission } from "@central/shared";
+import type { RoleStore } from "./roles";
 import { CONFIG_DIR, writeFileAtomic } from "./config";
 import { assertSystemUsername } from "./features/system-users/system-users";
 
@@ -12,10 +14,20 @@ interface UserRecord {
     id: string;
     username: string;
     passwordHash: string;
-    role: Role;
+    /** The first account. Bypasses permission checks entirely. */
+    isOwner?: boolean;
+    /** Roles held, by id — additive, in any number. */
+    roleIds?: string[];
+    /** Pre-multi-role records carried a single role name here. Read once at
+     *  startup and migrated to `isOwner`/`roleIds`; see `migrateRoles`. */
+    role?: string;
     createdAt: number;
     /** Mapped OS account (see UserInfo.systemUser). Absent on older records. */
     systemUser?: string | null;
+    /** Ad-hoc permission nodes on top of the role's bundle. Absent on older
+     *  records, which is the same as none — the role alone then decides, so
+     *  existing accounts keep exactly the access their role implies. */
+    extraPermissions?: Permission[];
 }
 
 interface SessionRecord {
@@ -42,8 +54,20 @@ export interface AuthContext {
 const MAX_LOGIN_FAILURES = 10;
 const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 
-function toUserInfo(rec: UserRecord): UserInfo {
-    return { id: rec.id, username: rec.username, role: rec.role, createdAt: rec.createdAt, systemUser: rec.systemUser ?? null };
+function toUserInfo(rec: UserRecord, roles: RoleStore): UserInfo {
+    const roleIds = rec.roleIds ?? [];
+    return {
+        id: rec.id,
+        username: rec.username,
+        isOwner: rec.isOwner === true,
+        roleIds,
+        // Effective set, merged on read rather than stored: editing a role takes
+        // effect for its holders immediately, and there's no second copy to
+        // drift. Unknown role ids resolve to nothing rather than throwing.
+        permissions: effectivePermissions(rec.isOwner === true, roles.resolve(roleIds), rec.extraPermissions ?? []),
+        createdAt: rec.createdAt,
+        systemUser: rec.systemUser ?? null,
+    };
 }
 
 /**
@@ -63,7 +87,7 @@ export class AuthStore {
     private readonly usersFile: string;
     private readonly sessionsFile: string;
 
-    constructor(dataDir: string = CONFIG_DIR) {
+    constructor(private readonly roles: RoleStore, dataDir: string = CONFIG_DIR) {
         this.usersFile = path.join(dataDir, "users.json");
         this.sessionsFile = path.join(dataDir, "sessions.json");
     }
@@ -73,8 +97,36 @@ export class AuthStore {
         console.log(this.users);
         this.sessions = await readJson<Record<string, SessionRecord>>(this.sessionsFile);
         this.dummyHash = await Bun.password.hash(randomBytes(16).toString("hex"));
+        await this.migrateRoles();
         await this.backfillSessionIds();
         await this.pruneExpired();
+    }
+
+    /**
+     * Carry pre-multi-role records over: a single `role` name becomes an owner
+     * flag or a one-element `roleIds`.
+     *
+     * The seeded role ids match the old names exactly (`viewer`, `operator`,
+     * `admin`), which is why this is a rename rather than a mapping table. The
+     * old `"none"` and the owner both become an empty role list — for the owner
+     * because it bypasses checks anyway, and holding a role would imply it could
+     * be taken away.
+     */
+    private async migrateRoles(): Promise<void> {
+        let changed = false;
+        for (const rec of Object.values(this.users)) {
+            if (rec.roleIds !== undefined || rec.role === undefined) {
+                continue;
+            }
+            rec.isOwner = rec.role === "owner";
+            rec.roleIds = rec.role === "owner" || rec.role === "none" ? [] : [rec.role];
+            delete rec.role;
+            changed = true;
+        }
+        if (changed) {
+            await this.persistUsers();
+            console.log("Migrated user records to multi-role");
+        }
     }
 
     /** Sessions written before `id`/`ip`/`userAgent` existed are missing them —
@@ -104,7 +156,7 @@ export class AuthStore {
         if (!this.needsSetup()) {
             throw new Error("Setup already completed");
         }
-        const user = await this.createUser(username, password, "owner");
+        const user = await this.createUser(username, password, [], true);
         const token = await this.createSession(user.id, ip, userAgent);
         return { token, user };
     }
@@ -125,7 +177,7 @@ export class AuthStore {
         }
         this.loginFailures.delete(key);
         const token = await this.createSession(rec.id, ip, userAgent);
-        return { token, user: toUserInfo(rec) };
+        return { token, user: toUserInfo(rec, this.roles) };
     }
 
     /** Count a failed login for `key`, arming a cooldown once the threshold is hit. */
@@ -148,7 +200,7 @@ export class AuthStore {
 
     /** All accounts, for the owner-only Users admin screen. */
     listUsers(): UserInfo[] {
-        return Object.values(this.users).map(toUserInfo);
+        return Object.values(this.users).map((r) => toUserInfo(r, this.roles));
     }
 
     /** Look up a user directly by id — used by the OIDC token/userinfo endpoints,
@@ -156,12 +208,12 @@ export class AuthStore {
      *  than a session bearer token. */
     getUserById(userId: string): UserInfo | null {
         const rec = this.users[userId];
-        return rec ? toUserInfo(rec) : null;
+        return rec ? toUserInfo(rec, this.roles) : null;
     }
 
-    /** Create an additional account. Only the owner can do this (enforced by the caller). */
-    async addUser(username: string, password: string, role: AssignableRole): Promise<UserInfo> {
-        return this.createUser(username, password, role);
+    /** Create an additional account. Gated by `panel.users.admin` on the caller. */
+    async addUser(username: string, password: string, roleIds: string[]): Promise<UserInfo> {
+        return this.createUser(username, password, this.knownRoleIds(roleIds));
     }
 
     /** Remove an account. The owner is a singleton and can't be deleted, nor can a
@@ -171,7 +223,7 @@ export class AuthStore {
         if (!rec) {
             return;
         }
-        if (rec.role === "owner") {
+        if (rec.isOwner) {
             throw new Error("The owner account can't be deleted");
         }
         if (userId === callerId) {
@@ -182,16 +234,64 @@ export class AuthStore {
         await this.deleteSessionsForUser(userId);
     }
 
-    /** Reassign a non-owner account's role. The owner's role is fixed at setup. */
-    async updateUserRole(userId: string, role: AssignableRole): Promise<void> {
+    /** Replace the set of roles an account holds. The owner holds none by
+     *  design — it bypasses checks, and a role it could lose would be a way to
+     *  lock the installation out of its own admin screens. */
+    async setUserRoles(userId: string, roleIds: string[]): Promise<void> {
         const rec = this.users[userId];
         if (!rec) {
             throw new Error("User not found");
         }
-        if (rec.role === "owner") {
-            throw new Error("The owner's role can't be changed");
+        if (rec.isOwner) {
+            throw new Error("The owner holds every permission and can't be assigned roles");
         }
-        rec.role = role;
+        rec.roleIds = this.knownRoleIds(roleIds);
+        await this.persistUsers();
+    }
+
+    /** How many accounts hold a given role — what `deleteRole` refuses on. */
+    countRoleHolders(roleId: string): number {
+        return Object.values(this.users).filter((u) => (u.roleIds ?? []).includes(roleId)).length;
+    }
+
+    /** Reject role ids that don't exist, rather than storing a dangling
+     *  reference that silently grants nothing. */
+    private knownRoleIds(roleIds: readonly string[]): string[] {
+        const out: string[] = [];
+        for (const id of roleIds) {
+            if (!this.roles.get(id)) {
+                throw new Error(`Unknown role: ${id}`);
+            }
+            if (!out.includes(id)) {
+                out.push(id);
+            }
+        }
+        return out;
+    }
+
+    /** Replace a user's ad-hoc permission grants (the role bundle is untouched).
+     *  Nodes are shape-validated only: `panel.*` could be checked against the
+     *  registry, but `app.*` deliberately has none, and rejecting an app role
+     *  because the app isn't installed yet would be wrong. */
+    async setPermissions(userId: string, permissions: Permission[]): Promise<void> {
+        const rec = this.users[userId];
+        if (!rec) {
+            throw new Error("User not found");
+        }
+        const cleaned: Permission[] = [];
+        for (const raw of permissions) {
+            const node = raw.trim();
+            if (!node) {
+                continue;
+            }
+            if (!isValidPermission(node)) {
+                throw new Error(`Invalid permission node: ${node}`);
+            }
+            if (!cleaned.includes(node)) {
+                cleaned.push(node);
+            }
+        }
+        rec.extraPermissions = cleaned;
         await this.persistUsers();
     }
 
@@ -229,7 +329,12 @@ export class AuthStore {
                 current: token === currentToken,
             }))
             .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
-        return { ...toUserInfo(rec), sessions, lastActiveAt: sessions[0]?.lastSeenAt ?? null };
+        return {
+            ...toUserInfo(rec, this.roles),
+            extraPermissions: rec.extraPermissions ?? [],
+            sessions,
+            lastActiveAt: sessions[0]?.lastSeenAt ?? null,
+        };
     }
 
     /** Revoke one of a user's sessions (e.g. an admin force-logging-out a stale
@@ -297,10 +402,10 @@ export class AuthStore {
         session.lastSeenAt = Date.now();
         // Persist last-seen lazily; a missed write only shortens the session window.
         this.persistSessions().catch(() => { /* best-effort */ });
-        return toUserInfo(rec);
+        return toUserInfo(rec, this.roles);
     }
 
-    private async createUser(username: string, password: string, role: Role): Promise<UserInfo> {
+    private async createUser(username: string, password: string, roleIds: string[], isOwner = false): Promise<UserInfo> {
         const name = normalizeUsername(username);
         if (!name) {
             throw new Error("Username is required");
@@ -315,12 +420,13 @@ export class AuthStore {
             id: randomUUID(),
             username: name,
             passwordHash: await Bun.password.hash(password),
-            role,
+            isOwner,
+            roleIds,
             createdAt: Date.now(),
         };
         this.users[rec.id] = rec;
         await this.persistUsers();
-        return toUserInfo(rec);
+        return toUserInfo(rec, this.roles);
     }
 
     private async createSession(userId: string, ip: string | null = null, userAgent: string | null = null): Promise<string> {
@@ -371,12 +477,14 @@ async function writeJson(file: string, value: unknown): Promise<void> {
     await writeFileAtomic(file, JSON.stringify(value, null, 2));
 }
 
-/** Throws unless the caller is the owner. Used to gate Users/OIDC-client admin
- *  ops and other owner-only actions across features — the only place role
- *  enforcement exists today (see Role's doc comment in @central/shared for the
- *  broader per-operation RBAC that's still pending). */
+/** Throws unless the caller is the owner.
+ *
+ *  Per-operation gating is no longer this function's job — the permission
+ *  registry in `@central/shared` classifies every operation and the dispatcher
+ *  enforces it. Kept for the few places that are owner-only *within* an
+ *  already-permitted operation. */
 export function requireOwner(ctx?: AuthContext): void {
-    if (ctx?.user?.role !== "owner") {
+    if (!ctx?.user?.isOwner) {
         throw new Error("Only the owner can do this");
     }
 }

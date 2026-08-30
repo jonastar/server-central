@@ -19,7 +19,6 @@ export function createDebugFeature(): Feature<never, "debug_fake"> {
         taskHandlers() {
             return debugTaskHandlers();
         },
-        ownerOnlyTaskKinds: ["debug_fake"],
     };
 }
 

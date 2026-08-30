@@ -64,8 +64,11 @@ export function buildIdToken(
         iat: now,
         auth_time: opts.authTime,
         preferred_username: user.username,
-        // Custom claim (not OIDC-standard) — this is how roles are exposed for SSO.
-        groups: [user.role],
+        // Custom claim (not OIDC-standard) — how grants are exposed for SSO.
+        // Only the `app.*` half: a relying party has no use for the control
+        // plane's internal nodes, and sending them leaks its structure to every
+        // app the owner registers.
+        groups: user.permissions.filter((p) => p.startsWith("app.")),
     };
     if (opts.nonce) {
         payload.nonce = opts.nonce;

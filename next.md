@@ -39,20 +39,31 @@ Two ways to close it, roughly in order of preference:
   the same trick the Volumes tab already plays). But it's overlay2-only and only valid while
   the container runs, so it's a shortcut, not the answer.
 
-### RBAC gap
+### RBAC follow-ups
 
-Only the Users/OIDC-client admin endpoints (`requireOwner` in `handler.ts`) have any permission
-check. Every other endpoint (servers, files, docker, systemd, network, tasks, config, install)
-runs for any authenticated user regardless of role — admin/operator/viewer are currently
-indistinguishable once logged in. See the `Role` doc comment in `shared/src/index.ts`. Close
-this before leaning on roles for anything real.
+Control-plane authorization landed (permission nodes on every operation, roles as bundles of
+them, `none` as the floor). What's left:
 
-Terminals are the exception (2026-07-04): they run as the caller's mapped system user,
-deny-by-default for unmapped operator/viewer. Files/exec/docker/systemd still bypass this.
-
-This is now the first step of a longer chain — see
-[doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md), which needs roles to
-separate control-panel users from people who only ever sign into an app.
+- **Per-host scoping.** A node grants an operation on every host; "operator on A, nothing on B"
+  can't be expressed. Same shape as the host-user mapping below —
+  [doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md) §1 has the three options.
+- **`app.*` has no discovery.** Role and user editors take app permission strings as free
+  text with no autocomplete or validation, because SC can't enumerate another app's role
+  names. A per-OIDC-client list of expected role names, registered with the client, would give
+  a dropdown and typo detection — see [doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md) §1.
+- **In-view gating.** Navigation is filtered and every task-running control is guarded at the
+  `useTaskAction` funnel, but individual buttons still render: an operator sees "Remove volume"
+  and gets a refusal rather than not seeing it. `useCan()` and `useTaskAction().canRun()` are
+  there — the per-button pass across DockerView/ZfsView/ServicesView/FilesView is what's left.
+- **Host identity** (`doc/idea_rbac_host_users.md` Part 2): files/exec/docker/systemd still run
+  as root regardless of caller. Terminals already map to a system user. This is what would turn
+  the permission registry's escalation notes from *documented* into *bounded* — see
+  [doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md) §1 "Where this model is
+  deliberately incomplete" for the three complications, including that docker doesn't benefit.
+- **No audit log.** Task runs record who started them; nothing else does — not file reads, not
+  terminal sessions, not any other API call. It's the prerequisite for treating some
+  permissions as policy boundaries rather than technical ones, and for grading the escalation
+  marks instead of rendering three different hazards as one word.
 
 ### System users
 

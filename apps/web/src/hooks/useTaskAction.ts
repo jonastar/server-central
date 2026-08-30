@@ -1,6 +1,8 @@
 import { useCallback, useState } from "react";
 import type { TaskRun, TaskSpec } from "@central/shared";
+import { canRunTask } from "@central/shared";
 import type { TaskFeedback } from "../taskFeedback";
+import { useCurrentUser } from "./usePermissions";
 import { runTaskAndWait } from "../taskRun";
 
 /**
@@ -16,8 +18,16 @@ import { runTaskAndWait } from "../taskRun";
  *
  * `start` resolves with the finished run, or null if it failed — the error is in
  * `error`, so a caller's follow-up work reads as `if (await start(…)) reload()`.
+ *
+ * Every task-running control in the app goes through here, which makes it the
+ * one place worth checking permission before the request leaves: `runTask` gates
+ * on the *kind*, not just the operation, so a control the view forgot to hide
+ * would otherwise fail with a server error the operator can do nothing about.
+ * `canRun` is exposed so views can hide or disable those controls properly —
+ * this guard is the floor, not a substitute.
  */
 export function useTaskAction() {
+    const user = useCurrentUser();
     const [busyKey, setBusyKey] = useState<string | null>(null);
     const [taskId, setTaskId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -28,6 +38,10 @@ export function useTaskAction() {
         target: string | null,
         opts?: { feedback?: TaskFeedback },
     ): Promise<TaskRun | null> => {
+        if (!canRunTask(user, spec.kind)) {
+            setError("You don't have permission to run this.");
+            return null;
+        }
         setBusyKey(key);
         setTaskId(null);
         setError(null);
@@ -40,7 +54,9 @@ export function useTaskAction() {
             setBusyKey(null);
             setTaskId(null);
         }
-    }, []);
+    }, [user]);
 
-    return { busyKey, taskId, error, setError, start, busy: busyKey !== null };
+    const canRun = useCallback((kind: TaskSpec["kind"]) => canRunTask(user, kind), [user]);
+
+    return { busyKey, taskId, error, setError, start, canRun, busy: busyKey !== null };
 }

@@ -1,5 +1,5 @@
 import type { SystemUserHostStatus, SystemUsersState } from "@central/shared";
-import { requireOwner, type AuthContext, type AuthStore } from "../../auth";
+import type { AuthContext, AuthStore } from "../../auth";
 import type { Feature, FeatureApiHandlers } from "../../feature";
 import type { Fleet } from "../../fleet";
 import { systemUserCreate, systemUserLookup, systemUserSetGroups, systemUsersList } from "./system-users";
@@ -27,7 +27,6 @@ export function systemUsersApiHandlers(fleet: Fleet, auth: AuthStore): FeatureAp
         },
 
         async handleSystemUserCreate(data: { serverId: string; username: string; groups: string[] }, ctx?: AuthContext): Promise<void> {
-            requireOwner(ctx);
             await systemUserCreate(fleet.get(data.serverId), data.username, data.groups ?? []);
         },
 
@@ -50,7 +49,6 @@ export function systemUsersApiHandlers(fleet: Fleet, auth: AuthStore): FeatureAp
         },
 
         async handleSystemUserSetGroups(data: { serverId: string; username: string; groups: string[] }, ctx?: AuthContext): Promise<void> {
-            requireOwner(ctx);
             await systemUserSetGroups(fleet.get(data.serverId), data.username, data.groups ?? []);
         },
     };

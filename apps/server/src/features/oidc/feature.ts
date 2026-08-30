@@ -1,5 +1,5 @@
 import type { OidcAuthorizeParams, OidcClient } from "@central/shared";
-import { requireOwner, type AuthContext } from "../../auth";
+import type { AuthContext } from "../../auth";
 import { readConfig } from "../../config";
 import type { Feature, FeatureApiHandlers } from "../../feature";
 import type { OidcStore } from "./store";
@@ -34,12 +34,10 @@ export function oidcApiHandlers(oidc: OidcStore): FeatureApiHandlers<OidcOps> {
         // ---- Client registrations (owner-only admin) ---------------------------
 
         async handleListOidcClients(_data: void, ctx?: AuthContext): Promise<OidcClient[]> {
-            requireOwner(ctx);
             return oidc.listClients();
         },
 
         async handleCreateOidcClient(data: { name: string; redirectUris: string[] }, ctx?: AuthContext): Promise<{ client: OidcClient; clientSecret: string }> {
-            requireOwner(ctx);
             const config = await readConfig();
             if (!config.primaryUrl) {
                 throw new Error("Set a Primary URL in Settings before registering OIDC clients");
@@ -48,7 +46,6 @@ export function oidcApiHandlers(oidc: OidcStore): FeatureApiHandlers<OidcOps> {
         },
 
         async handleDeleteOidcClient(data: { clientId: string }, ctx?: AuthContext): Promise<void> {
-            requireOwner(ctx);
             await oidc.deleteClient(data.clientId);
         },
 

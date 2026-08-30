@@ -1,4 +1,5 @@
 import type { SystemUserInfo, SystemUsersState, UserInfo } from "@central/shared";
+import { userCan } from "@central/shared";
 import type { HostAgent } from "../../host-agent";
 
 /** Standard POSIX username shape (also what useradd accepts by default). Doubles
@@ -13,9 +14,15 @@ export function assertSystemUsername(name: string): void {
 
 /**
  * Which OS account a Server Central user's terminal runs as. A mapping always
- * wins (map someone to "root" to grant an explicit root terminal). Unmapped
- * owner/admin keep the agent's own user (root) so first-run setup and admins
- * aren't locked out; unmapped operator/viewer get no terminal at all.
+ * wins (map someone to "root" to grant an explicit root terminal). Unmapped,
+ * only a user who could already run arbitrary host commands keeps the agent's
+ * own user (root); everyone else gets no terminal at all.
+ *
+ * `panel.exec` is the right marker for that, rather than a role name: running
+ * any command on the host as the agent's user is the same power as a root shell,
+ * so anyone holding it gains nothing from the fallback, and anyone without it
+ * would be escalating. (Opening a terminal at all needs `panel.terminal`, which
+ * is checked at the websocket upgrade before this is reached.)
  *
  * Returns the account username, or null for "the agent's own user".
  */
@@ -23,7 +30,7 @@ export function resolveShellUser(user: UserInfo): string | null {
     if (user.systemUser) {
         return user.systemUser;
     }
-    if (user.role === "owner" || user.role === "admin") {
+    if (userCan(user, "panel.exec")) {
         return null;
     }
     throw new Error("No system user is mapped to your account — ask an admin to set one in Settings → Users");

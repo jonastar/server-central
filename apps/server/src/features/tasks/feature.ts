@@ -1,6 +1,7 @@
 import type { TaskLogLine, TaskRun, TaskSpec } from "@central/shared";
-import { requireOwner, type AuthContext } from "../../auth";
-import type { Feature, FeatureApiHandlers, TaskKind } from "../../feature";
+import { TASK_KIND_PERMISSIONS, canRunTask } from "@central/shared";
+import type { AuthContext } from "../../auth";
+import type { Feature, FeatureApiHandlers } from "../../feature";
 import type { TaskRunner } from "../../tasks/runner";
 import type { TaskStore } from "../../tasks/store";
 
@@ -8,7 +9,7 @@ import type { TaskStore } from "../../tasks/store";
 // itself (runner, store, the kind→handler map) stays at src/tasks/, since every
 // feature contributes kinds to it; this is only its API slice.
 
-export function createTasksFeature(tasks: TaskRunner, store: TaskStore, ownerOnlyKinds: ReadonlySet<TaskKind>): Feature<TasksOps> {
+export function createTasksFeature(tasks: TaskRunner, store: TaskStore): Feature<TasksOps> {
     return {
         descriptor: {
             id: "tasks",
@@ -17,24 +18,23 @@ export function createTasksFeature(tasks: TaskRunner, store: TaskStore, ownerOnl
             experimental: false,
         },
         apiHandlers() {
-            return tasksApiHandlers(tasks, store, ownerOnlyKinds);
+            return tasksApiHandlers(tasks, store);
         },
     };
 }
 
 export type TasksOps = "runTask" | "listTasks" | "getTask" | "getTaskLogs";
 
-/**
- * `ownerOnlyKinds` is composed from the features' own `ownerOnlyTaskKinds`
- * declarations rather than listed here, so the gate lives next to the code that
- * knows why a kind is dangerous (ZFS pool/vdev mutations, today) and this slice
- * needs no per-domain imports.
- */
-export function tasksApiHandlers(tasks: TaskRunner, store: TaskStore, ownerOnlyKinds: ReadonlySet<TaskKind>): FeatureApiHandlers<TasksOps> {
+export function tasksApiHandlers(tasks: TaskRunner, store: TaskStore): FeatureApiHandlers<TasksOps> {
     return {
         async handleRunTask(data: { spec: TaskSpec; target: string | null }, ctx?: AuthContext): Promise<{ id: string }> {
-            if (ownerOnlyKinds.has(data.spec.kind)) {
-                requireOwner(ctx);
+            // `panel.tasks.run` got the caller as far as this handler; it says
+            // nothing about *which* kind, and the kinds range from restarting a
+            // container to running arbitrary shell. The spec arrives off the
+            // wire, so an unrecognised kind is refused rather than run.
+            const required = TASK_KIND_PERMISSIONS[data.spec.kind];
+            if (!required || !canRunTask(ctx?.user, data.spec.kind)) {
+                throw new Error(`Requires the "${required ?? "unknown"}" permission`);
             }
             const run = await tasks.start(data.spec, data.target, { kind: "manual", userId: ctx?.user?.id });
             return { id: run.id };

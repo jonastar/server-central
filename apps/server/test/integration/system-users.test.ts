@@ -3,7 +3,15 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { UserInfo } from "@central/shared";
+import { SEED_ROLES, effectivePermissions } from "@central/shared";
 import { AuthStore } from "../../src/auth";
+import { RoleStore } from "../../src/roles";
+
+async function makeRoles(dir: string): Promise<RoleStore> {
+    const roles = new RoleStore(dir);
+    await roles.init();
+    return roles;
+}
 import type { HostAgent } from "../../src/host-agent";
 import { parseSystemUsers, resolveShellUser, systemUserLookup, systemUserSetGroups } from "../../src/features/system-users/system-users";
 
@@ -132,23 +140,36 @@ describe("systemUserSetGroups", () => {
 });
 
 describe("resolveShellUser", () => {
-    function user(role: UserInfo["role"], systemUser: string | null): UserInfo {
-        return { id: "u1", username: "someone", role, createdAt: 0, systemUser };
+    /** `seeded` names a seed role whose permissions this user holds. */
+    function user(opts: { isOwner?: boolean; seeded?: string; systemUser: string | null }): UserInfo {
+        const role = SEED_ROLES.find((r) => r.id === opts.seeded);
+        return {
+            id: "u1",
+            username: "someone",
+            isOwner: opts.isOwner === true,
+            roleIds: role ? [role.id] : [],
+            permissions: effectivePermissions(opts.isOwner === true, role ? [role] : []),
+            createdAt: 0,
+            systemUser: opts.systemUser,
+        };
     }
 
-    test("a mapping always wins, regardless of role", () => {
-        expect(resolveShellUser(user("owner", "jonas"))).toBe("jonas");
-        expect(resolveShellUser(user("viewer", "deploy"))).toBe("deploy");
+    test("a mapping always wins, whatever the user holds", () => {
+        expect(resolveShellUser(user({ isOwner: true, systemUser: "jonas" }))).toBe("jonas");
+        expect(resolveShellUser(user({ seeded: "viewer", systemUser: "deploy" }))).toBe("deploy");
     });
 
-    test("unmapped owner/admin fall back to the agent's own user", () => {
-        expect(resolveShellUser(user("owner", null))).toBeNull();
-        expect(resolveShellUser(user("admin", null))).toBeNull();
+    test("unmapped, the agent's own user is for those who could already run host commands", () => {
+        // panel.exec, not a role name: a root shell is the same power as running
+        // arbitrary commands on the host, so this grants nothing new to holders.
+        expect(resolveShellUser(user({ isOwner: true, systemUser: null }))).toBeNull();
+        expect(resolveShellUser(user({ seeded: "admin", systemUser: null }))).toBeNull();
     });
 
-    test("unmapped operator/viewer are denied", () => {
-        expect(() => resolveShellUser(user("operator", null))).toThrow(/no system user/i);
-        expect(() => resolveShellUser(user("viewer", null))).toThrow(/no system user/i);
+    test("unmapped without panel.exec is denied", () => {
+        expect(() => resolveShellUser(user({ seeded: "operator", systemUser: null }))).toThrow(/no system user/i);
+        expect(() => resolveShellUser(user({ seeded: "viewer", systemUser: null }))).toThrow(/no system user/i);
+        expect(() => resolveShellUser(user({ systemUser: null }))).toThrow(/no system user/i);
     });
 });
 
@@ -164,7 +185,7 @@ describe("AuthStore.setSystemUser", () => {
     });
 
     test("sets, persists across reload, and clears the mapping", async () => {
-        const store = new AuthStore(dir);
+        const store = new AuthStore(await makeRoles(dir), dir);
         await store.init();
         const { user } = await store.setupOwner("alice", "supersecret");
         expect(user.systemUser).toBeNull();
@@ -172,7 +193,7 @@ describe("AuthStore.setSystemUser", () => {
         await store.setSystemUser(user.id, "deploy");
         expect(store.listUsers()[0].systemUser).toBe("deploy");
 
-        const reloaded = new AuthStore(dir);
+        const reloaded = new AuthStore(await makeRoles(dir), dir);
         await reloaded.init();
         expect(reloaded.listUsers()[0].systemUser).toBe("deploy");
 
@@ -181,7 +202,7 @@ describe("AuthStore.setSystemUser", () => {
     });
 
     test("trims input and treats empty as clearing", async () => {
-        const store = new AuthStore(dir);
+        const store = new AuthStore(await makeRoles(dir), dir);
         await store.init();
         const { user } = await store.setupOwner("alice", "supersecret");
 
@@ -193,7 +214,7 @@ describe("AuthStore.setSystemUser", () => {
     });
 
     test("rejects names that aren't valid system usernames", async () => {
-        const store = new AuthStore(dir);
+        const store = new AuthStore(await makeRoles(dir), dir);
         await store.init();
         const { user } = await store.setupOwner("alice", "supersecret");
 

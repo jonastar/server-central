@@ -53,6 +53,13 @@ is exhaustive by construction.
 
 ## Part 2 — Host-user mapping
 
+> Part 1 shipped 2026-08-30 as a permission registry (`shared/src/permissions.ts`), which
+> supersedes the capability-tier sketch below. Part 2 is unchanged and is now the piece that
+> would make those permissions *bounded* rather than merely documented — see
+> [idea_proxy_auth_gateway.md](idea_proxy_auth_gateway.md) §1 for what that does and doesn't
+> fix (docker, notably, it does not).
+
+
 Each Server Central user optionally maps to a host username **per host** (the
 mapping is host-scoped because uids/accounts differ between machines):
 

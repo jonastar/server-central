@@ -75,8 +75,11 @@ root shell.
 
 ### The model: dotted permission nodes
 
-Direction chosen 2026-08-29: one namespace of dotted permission strings held per user,
-with prefix wildcards, replacing the ordered ladder as the enforcement primitive.
+**Implemented 2026-08-29** (`shared/src/permissions.ts`, `Feature.opPermissions`, enforcement in
+`index.ts`'s dispatcher). One namespace of dotted permission strings held per user, with prefix
+wildcards, replacing the ordered ladder as the enforcement primitive. What shipped matches the
+design below, with `app.*` inert until §4 gives it a consumer. Still open from this section: the
+per-host scoping question, UI gating, and per-task-kind nodes — tracked in `next.md`.
 
 ```
 panel.terminal
@@ -151,7 +154,109 @@ incident rather than a surprise.
 exactly where it isn't. Independently, an operation with **no declared node at all** must
 deny for everyone including `*` holders — undeclared is a bug, not a grant.
 
-### Roles survive as bundles
+### Most write permissions are implicitly root, and the registry says so
+
+The agent runs as root, so a permission's blast radius is routinely larger than its name
+suggests: `panel.files.write` reaches `/etc/sudoers.d`, `panel.compose.write` writes container
+definitions that can bind-mount `/`, `panel.settings.admin` replaces the control plane's own
+binary, and `panel.files.read` reaches SC's data directory — session tokens and the agent
+enrolment token included.
+
+Each such node carries an `escalation` string saying *how*. The string is the mark; there is no
+separate boolean, because "which permissions are secretly root" has no useful answer that isn't
+the route itself. The role editor sums it per bundle ("grants root on managed hosts, through 6
+of its permissions"), since that's a property of the whole role and the individual marks are
+easy to scroll past.
+
+The first thing this surfaced was in the seeded roles themselves: `viewer` held
+`panel.files.read`, so "read-only across the fleet" included reading SC's own data directory —
+session tokens and the agent enrolment token, which is enough to act as another user. The
+viewer role now grants **no marked permission at all**, which is the property that makes a
+read-only tier worth having, and there's a test asserting it stays that way. Host inventory
+(mounts, mappable devices) split out as `panel.mounts.read` so the tier keeps what was never
+the problem; the file browser is an explicit grant.
+
+`escalation` is a **different axis from `sensitive`** and deliberately doesn't imply it.
+Sensitive means a wildcard must not reach this — it's about grants nobody intended. Escalation
+is a consequence of a grant someone did intend. Making every root-equivalent node
+wildcard-exempt would leave `panel.*` granting almost nothing without making anyone safer.
+
+This is also why docker splits three ways rather than one `write`: restarting a container
+someone else defined is not the same act as instantiating a definition of your own.
+`panel.docker.control` is lifecycle, `panel.docker.deploy` is instantiation (marked),
+`panel.docker.prune` is destruction. Worth knowing that SC has no "run arbitrary container"
+operation at all — creation happens only through a compose stack, which is why
+`panel.compose.write` is the sharpest edge in the docker story rather than anything named
+"docker".
+
+### Where this model is deliberately incomplete
+
+Two gaps, both accepted for now, both recorded here so the next person doesn't mistake them
+for oversights.
+
+**Escalation is documented, not bounded.** Every action runs as the agent's user, which is
+root, so the marks describe a hazard rather than contain it. The real fix is Part 2 of
+[idea_rbac_host_users.md](idea_rbac_host_users.md): run file operations, `exec`, docker and
+systemd as the Server Central user's *mapped host account*, so what a permission reaches is
+bounded by ordinary OS permissions rather than by a sentence in a registry. Three
+complications worth knowing before anyone starts:
+
+1. **The marks become conditional.** `panel.files.write` is root-equivalent only when the
+   holder maps to a privileged account; mapped to `deploy`, it reaches what `deploy` reaches.
+   So `escalation` stops being a property of the node and becomes a property of
+   (node × user × host) — which the UI can't state as flatly as it does today.
+2. **Docker doesn't benefit.** Membership of the `docker` group is root-equivalent by
+   construction: the socket will run a container that mounts `/`. Mapping a user changes
+   nothing for `panel.docker.*` unless the host runs rootless Docker, so the sharpest
+   escalation in the set is the one host-user mapping doesn't fix.
+3. **Some operations legitimately need root** — installing an agent, writing a systemd unit,
+   `zpool` — so the agent can't simply drop privileges wholesale. It becomes a per-operation
+   decision about which identity to act as, which is a bigger change than it first looks.
+
+**Degrees of control, and the audit trail they need.** Not every boundary has to be a wall.
+A key on a manager's desk is a real control: it is obviously not yours to take, and taking it
+has consequences. Several permissions here fit that shape better than a hard technical
+boundary — `panel.files.read` reaching Server Central's own session tokens is a policy problem
+as much as a mechanism problem, and the mechanism fix (bounding reads by OS permissions)
+doesn't exist yet.
+
+Adopting it would mean grading the marks rather than making them binary: *bounded by OS
+permissions* / *discloses credentials* / *root by construction* are three genuinely different
+things currently all rendered as "root".
+
+The prerequisite is the part that doesn't exist. "You will be caught" requires that you can
+be caught, and Server Central's audit trail today is partial: task runs record the user who
+started them (`runTask` stores `userId`), and nothing else does. File reads, terminal
+sessions, and every other API call leave no record — including, precisely, the node that
+prompted this discussion. A graded model without an audit log is a label that says "we would
+have noticed", when we would not have. So the order is: audit log first, degrees second.
+Both are open questions in this doc and in
+[idea_rbac_host_users.md](idea_rbac_host_users.md); neither is scheduled.
+
+### Roles are editable bundles, and users hold several
+
+**Decided 2026-08-30.** A role is a named bundle of nodes, stored in the control plane and
+editable; a user holds any number, and their grants union. Union needs no precedence rules —
+that falls straight out of the model being grant-only, which is most of what that decision
+bought. `owner` stays outside the system entirely as a flag: a role you can remove from
+yourself is a lockout waiting to happen. "No roles" is then the floor, which retires the
+`none` placeholder.
+
+Built-ins are **seeded, not code-defined**: written once on first run, owned by the
+installation after. The reasoning is the user's and it's the same shape as the sensitive-node
+rule — an update must never silently widen a role someone already holds. The cost is the
+mirror image: a node added in a later release reaches nobody and nothing says so. That's
+answered by `unassignedPermissions`, surfaced on the Roles screen as "N permissions are in no
+role", so a new capability is discovered deliberately rather than never.
+
+They're named "Control panel viewer/operator/admin" because the namespace has two halves, and
+an installation will grow roles that grant only `app.*` to people who never open the panel.
+
+Editing roles needs `panel.roles.admin`, sensitive and in no seeded role: anyone who can
+define a role can define one granting everything and assign it to themselves. Assigning
+existing roles is `panel.users.admin` — a different power, a different node.
+
+### Roles survive as bundles (superseded by the above)
 
 Permissions are the enforcement primitive; roles become named, editable **bundles** of
 them. Users hold roles (and, if useful, ad-hoc extra nodes). This is not a compromise —
@@ -172,6 +277,45 @@ at compile time that every operation has exactly one handler; the same machinery
 every operation declares exactly one permission node, and **the union of declared nodes is
 the registry** — which is what lets the UI render a real tree instead of a text box, and
 what makes an unknown `panel.*` string detectable as a typo.
+
+**Reversed 2026-08-30.** Per-feature declaration was built first and then replaced by a
+central, node-first registry in `shared/src/permissions.ts`:
+
+```ts
+"panel.zfs.admin": {
+    label: "Pool & vdev surgery",
+    description: "Create, destroy, import and export pools, add vdevs, replace devices…",
+    ops: [], tasks: ["zfs_pool_create", "zfs_pool_destroy", …],
+}
+```
+
+Three reasons it wins, in order of weight:
+
+1. **The things it classifies are already central.** `CentralApiOperations` and `TaskSpec`
+   live in shared; a feature owns the *handler*, not the operation's existence. Annotating a
+   central registry centrally is the consistent placement, not the exception to it.
+2. **The UI can explain a grant.** The web app reads the same registry, so the grants editor
+   lists every node with what it actually does and whether it's wildcard-exempt. A per-feature
+   map on the server could never reach the browser, and a hand-written second copy would drift.
+3. **Descriptions have somewhere to live**, next to what they describe.
+
+The cost, which is real: reading `zfs/feature.ts` no longer tells you what gates its
+operations. Node names carry that weight instead.
+
+**What must not be lost in the inversion.** `Record<TOps, …>` was total by construction; a
+list of operation names is not, and an unclassified operation would reach the dispatcher as
+`undefined` — neither `"public"` nor `"authenticated"`, so it falls through to the permission
+comparison, which the owner passes unconditionally. The person most likely to be testing sees
+it work. Restored with derived checks:
+
+```ts
+type UnclassifiedOps = Exclude<ApiOp, ClassifiedOp>;
+const _opsAreExhaustive: UnclassifiedOps extends never ? true : UnclassifiedOps = true;
+```
+
+That fails the build naming the missing operation (verified by deleting one). Same for task
+kinds. Double-classification — two nodes listing one operation — is what `Exclude` cannot
+see, so the lookup builders throw on it at module load.
 
 Granularity is a judgement call worth making explicitly: 84 operations must not become 84
 nodes. Node granularity should be "a thing a person would think to grant" — roughly

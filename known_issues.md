@@ -20,11 +20,14 @@ decision.
 
 ### Authorization / RBAC (host user mapping)
 
-Every authenticated user currently has the full surface: root shell, root file
-read/write across `/`, arbitrary `exec`, on every host. There's a `role` field
-on users that's never enforced. Design mockup in
-`doc/idea_rbac_host_users.md` (host-user mapping, account/group management,
-sudo-nopasswd "admin" mapping). Needs implementation.
+Control-plane authorization is **done** — every operation declares a permission
+node and the dispatcher enforces it (see changelog, `shared/src/permissions.ts`).
+What remains from `doc/idea_rbac_host_users.md` is Part 2, host identity: file
+operations, `exec`, docker and systemd still run as the agent's uid (root)
+regardless of who asked, so a permitted action has no host-level audit trail and
+no host-level limit. Terminals are the exception and already map to a system user.
+
+Also still fleet-wide: a node grants an operation on *every* host, not per host.
 
 ## Accepted for now (small scale)
 

@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useConnection } from "./hooks/useConnection";
 import { useHashRoute } from "./hooks/useHashRoute";
-import { leavesTerminalSession, SERVER_TABS, type Route } from "./routes";
+import { leavesTerminalSession, NAV_ITEMS, SERVER_TABS, type Route } from "./routes";
+import { CurrentUserProvider, useCan } from "./hooks/usePermissions";
 import { hostCapability } from "./utils";
 import { HostCapabilityNotice } from "./components/HostCapabilityNotice";
 import { terminalNeedsLeaveConfirm } from "./terminalSession";
@@ -39,6 +40,7 @@ function guardRouteChange(from: Route, to: Route): boolean {
 
 function AuthedApp({ onLogout }: { onLogout: () => void }) {
     const conn = useConnection();
+    const can = useCan();
     const [route, setRoute] = useHashRoute(guardRouteChange);
 
     // The events socket only runs while a user is signed in.
@@ -52,6 +54,20 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
         : null;
 
     function renderMain() {
+        // A hash is a URL: it survives bookmarks, reloads, and a permission being
+        // taken away while a tab sits open. Checking here — rather than trusting
+        // the sidebar to only ever offer reachable destinations — is what keeps a
+        // stale link from rendering a view whose every request 403s.
+        const nav = NAV_ITEMS.find((item) => item.view === route.view);
+        if (nav && !nav.anyOf.some(can)) {
+            return <EmptyState>You don't have access to this section.</EmptyState>;
+        }
+        if (route.view === "server") {
+            const tabMeta = SERVER_TABS.find((t) => t.id === route.tab);
+            if (tabMeta && !can(tabMeta.permission)) {
+                return <EmptyState>You don't have access to this section.</EmptyState>;
+            }
+        }
         if (route.view === "dashboard") {
             return (
                 <Dashboard
@@ -201,7 +217,11 @@ export default function App() {
     if (!auth.user) {
         return <LoginView mode="login" onSubmit={auth.login} />;
     }
-    return <AuthedApp onLogout={auth.logout} />;
+    return (
+        <CurrentUserProvider user={auth.user}>
+            <AuthedApp onLogout={auth.logout} />
+        </CurrentUserProvider>
+    );
 }
 
 console.log("hello world", import.meta.env);

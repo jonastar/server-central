@@ -72,25 +72,10 @@ export function createZfsFeature(fleet: Fleet): Feature<ZfsOps, ZfsTaskKind> {
         taskHandlers() {
             return zfsTaskHandlers();
         },
-        ownerOnlyTaskKinds: ZFS_OWNER_ONLY_TASK_KINDS,
     };
 }
 
 export type ZfsOps = "getZfsState" | "getZfsDatasets" | "getZfsSnapshots" | "getZfsBlockDevices" | "setDatasetProperty";
-
-/** ZFS pool/vdev topology mutations — the highest blast-radius task kinds —
- *  are owner-only (see doc/idea_zfs.md's safety model). Dataset/snapshot
- *  mutations aren't gated, consistent with the rest of the task system today
- *  (docker/systemd actions aren't role-gated either). Declared on the feature
- *  above, which is what `runTask` enforces against. */
-const ZFS_OWNER_ONLY_TASK_KINDS = [
-    "zfs_pool_create",
-    "zfs_pool_destroy",
-    "zfs_pool_import",
-    "zfs_pool_export",
-    "zfs_vdev_add",
-    "zfs_device_replace",
-] as const satisfies readonly ZfsTaskKind[];
 
 export function zfsApiHandlers(fleet: Fleet): FeatureApiHandlers<ZfsOps> {
     return {

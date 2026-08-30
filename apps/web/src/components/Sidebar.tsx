@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { ServerEntry } from "@central/shared";
 import { cx, hostCapability, hostCapabilityUnavailable, isAgentOutdated } from "../utils";
-import { SERVER_TABS, type Route } from "../routes";
+import { NAV_ITEMS, SERVER_TABS, type Route } from "../routes";
+import { useCan } from "../hooks/usePermissions";
 import { ExperimentalBadge, StatusDot } from "./ui";
 import { AddNodeModal } from "./AddNodeModal";
 import { BrandLockup } from "./Brand";
@@ -17,6 +18,13 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
 }) {
     const [addingNode, setAddingNode] = useState(false);
     const updatesAvailable = servers.some(isAgentOutdated);
+    const can = useCan();
+    // Hidden, not greyed out. Greying is right for a host capability — that's
+    // "this machine can't", which is information the operator wants. A section
+    // someone will never be allowed into is just noise, and advertising it
+    // invites them to ask why.
+    const navItems = NAV_ITEMS.filter((item) => item.anyOf.some(can));
+    const canSeeServers = can("panel.servers.read");
 
     return (
         <aside className={styles.sidebar}>
@@ -25,37 +33,21 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                 <BrandLockup height={20} />
             </div>
 
-            <button
-                className={cx(styles["nav-item"], route.view === "dashboard" && styles.active)}
-                onClick={() => onNavigate({ view: "dashboard" })}
-            >
-                Dashboard
-            </button>
+            {navItems.filter((item) => item.view !== "settings").map((item) => (
+                <button
+                    key={item.view}
+                    className={cx(styles["nav-item"], route.view === item.view && styles.active)}
+                    onClick={() => onNavigate({ view: item.view } as Route)}
+                >
+                    {item.label}
+                    {item.view === "proxy" && <> <ExperimentalBadge compact /></>}
+                    {item.view === "agents" && updatesAvailable && (
+                        <span className={styles["nav-badge"]} title="An agent update is available">⚠</span>
+                    )}
+                </button>
+            ))}
 
-            <button
-                className={cx(styles["nav-item"], route.view === "agents" && styles.active)}
-                onClick={() => onNavigate({ view: "agents" })}
-            >
-                Agents
-                {updatesAvailable && (
-                    <span className={styles["nav-badge"]} title="An agent update is available">⚠</span>
-                )}
-            </button>
-
-            <button
-                className={cx(styles["nav-item"], route.view === "proxy" && styles.active)}
-                onClick={() => onNavigate({ view: "proxy" })}
-            >
-                Proxy <ExperimentalBadge compact />
-            </button>
-
-            <button
-                className={cx(styles["nav-item"], route.view === "tasks" && styles.active)}
-                onClick={() => onNavigate({ view: "tasks" })}
-            >
-                Tasks
-            </button>
-
+            {canSeeServers && (
             <div className={styles["sidebar-section"]}>
                 <span>Servers</span>
                 <button
@@ -67,12 +59,13 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                     +
                 </button>
             </div>
+            )}
 
-            {servers.length === 0 && (
+            {canSeeServers && servers.length === 0 && (
                 <div className={styles["sidebar-empty"]}>No agents connected.</div>
             )}
 
-            {servers.map((entry) => {
+            {canSeeServers && servers.map((entry) => {
                 const selected = route.view === "server" && route.serverId === entry.id;
                 const ip = entry.status.info?.primaryIp ?? "—";
                 return (
@@ -89,7 +82,7 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
                         </button>
                         {selected && (
                             <div>
-                                {SERVER_TABS.map((tab) => {
+                                {SERVER_TABS.filter((tab) => can(tab.permission)).map((tab) => {
                                     const unavailable = hostCapabilityUnavailable(entry.status, tab.requires);
                                     const detail = tab.requires && hostCapability(entry.status, tab.requires)?.detail;
                                     return (
@@ -115,12 +108,14 @@ export function Sidebar({ servers, route, backendConnected, onNavigate, onLogout
             })}
 
             <div className={styles["sidebar-footer"]}>
-                <button
-                    className={cx(styles["nav-item"], route.view === "settings" && styles.active)}
-                    onClick={() => onNavigate({ view: "settings" })}
-                >
-                    Settings
-                </button>
+                {navItems.some((item) => item.view === "settings") && (
+                    <button
+                        className={cx(styles["nav-item"], route.view === "settings" && styles.active)}
+                        onClick={() => onNavigate({ view: "settings" })}
+                    >
+                        Settings
+                    </button>
+                )}
                 <button className={styles["nav-item"]} onClick={onLogout}>
                     Sign out
                 </button>
