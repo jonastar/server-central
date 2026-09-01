@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ProxyConfig, ProxyRoute } from "@central/shared";
-import { deployStatusFromLog, PROXY_DEPLOY_DONE, proxyDeployCommand, renderCaddyConfig } from "../../src/features/proxy/caddy";
+import { deployStatusFromLog, PROXY_DEPLOY_DONE, proxyDeployScript, renderCaddyConfig } from "../../src/features/proxy/caddy";
 
 // The renderer is the contract between SC's route model and Caddy: what it
 // emits is exactly what gets POSTed to /load. These pin the parts that would
@@ -92,9 +92,9 @@ test("cert modes: internal CA policy, or ACME with the configured email", () => 
 });
 
 test("deploy command publishes on 80/443 by default, or the configured host ports", () => {
-    expect(proxyDeployCommand(config)).toContain("-p 80:80 -p 443:443");
+    expect(proxyDeployScript(config)).toContain("-p 80:80 -p 443:443");
     // Container-internal side stays 80/443 — only the host side moves.
-    expect(proxyDeployCommand({ ...config, httpPort: 8080, httpsPort: 8443 })).toContain("-p 8080:80 -p 8443:443");
+    expect(proxyDeployScript({ ...config, httpPort: 8080, httpsPort: 8443 })).toContain("-p 8080:80 -p 8443:443");
 });
 
 test("resolving an unknown target node fails the render (not a silent bad dial)", () => {
@@ -106,9 +106,13 @@ test("resolving an unknown target node fails the render (not a silent bad dial)"
 // container's `error`, so every deploy flashed red until the image landed.
 
 test("the deploy chain announces itself and marks its own end", () => {
-    const cmd = proxyDeployCommand(config);
+    const cmd = proxyDeployScript(config);
     expect(cmd.indexOf("echo \"deploying")).toBeLessThan(cmd.indexOf("docker pull"));
     expect(cmd).toContain(`echo "${PROXY_DEPLOY_DONE} rc=$?"`);
+    // The backgrounding and the redirect belong to the agent's `detach` now, not
+    // to a `nohup … >log &` wrapper the control plane pastes around the chain.
+    expect(cmd).not.toContain("nohup");
+    expect(cmd).not.toContain(">/tmp/");
 });
 
 test("a log with no end marker is a deploy in progress, not a failure", () => {

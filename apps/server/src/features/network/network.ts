@@ -34,12 +34,12 @@ function parseJson<T>(text: string): T | null {
 export async function getNetworkInfo(server: HostAgent): Promise<NetworkInfo> {
     const remoteIp = server.remoteIp;
 
-    const addr = await server.exec("ip -j addr 2>&1");
+    const addr = await server.run(["ip", "-j", "addr"]);
     const rows = addr.code === 0 ? parseJson<IpAddrRow[]>(addr.stdout) : null;
     if (!rows) {
         return {
             available: false,
-            error: (addr.stdout || "`ip -j addr` unavailable").trim().split("\n")[0],
+            error: (addr.stderr || addr.stdout || "`ip -j addr` unavailable").trim().split("\n")[0],
             interfaces: [],
             routes: [],
             remoteIp,
@@ -64,7 +64,7 @@ export async function getNetworkInfo(server: HostAgent): Promise<NetworkInfo> {
         };
     });
 
-    const routeRes = await server.exec("ip -j route 2>&1");
+    const routeRes = await server.run(["ip", "-j", "route"]);
     const routeRows = routeRes.code === 0 ? parseJson<IpRouteRow[]>(routeRes.stdout) : null;
     const routes: NetworkRoute[] = (routeRows ?? []).map((r) => ({
         dst: r.dst,

@@ -90,7 +90,7 @@ export function parseSystemUsers(passwdOut: string, groupOut: string, includeSys
 }
 
 export async function systemUsersList(server: HostAgent, scUsers: UserInfo[]): Promise<SystemUsersState> {
-    const passwd = await server.exec("getent passwd 2>&1");
+    const passwd = await server.run(["getent", "passwd"]);
     if (passwd.code !== 0) {
         return {
             available: false,
@@ -98,7 +98,7 @@ export async function systemUsersList(server: HostAgent, scUsers: UserInfo[]): P
             users: [],
         };
     }
-    const group = await server.exec("getent group");
+    const group = await server.run(["getent", "group"]);
 
     const users = parseSystemUsers(passwd.stdout, group.stdout).map((u) => ({
         ...u,
@@ -117,14 +117,17 @@ export async function systemUserCreate(server: HostAgent, username: string, grou
 
     // Prefer bash as the login shell when the host has it; useradd's default is
     // often /bin/sh or even nologin, which makes for a poor terminal.
-    const shellProbe = await server.exec("test -x /bin/bash && echo /bin/bash || echo /bin/sh");
-    const shell = shellProbe.stdout.trim() || "/bin/sh";
+    // The shell's `&&`/`||` chain became an exit-code check. A host without a
+    // `test` binary at all fails to spawn (127), which lands on the same
+    // /bin/sh default as a host without bash.
+    const bash = await server.run(["test", "-x", "/bin/bash"]);
+    const shell = bash.code === 0 ? "/bin/bash" : "/bin/sh";
 
-    const flags = ["-m", `-s ${shell}`];
+    const flags = ["-m", "-s", shell];
     if (groups.length > 0) {
-        flags.push(`-G ${groups.join(",")}`);
+        flags.push("-G", groups.join(","));
     }
-    const res = await server.exec(`useradd ${flags.join(" ")} ${username} 2>&1`);
+    const res = await server.run(["useradd", ...flags, username]);
     if (res.code !== 0) {
         throw new Error((res.stdout + res.stderr).trim().split("\n").pop() || "useradd failed");
     }
@@ -138,14 +141,14 @@ export async function systemUserLookup(
     username: string,
 ): Promise<{ found: boolean; user?: Omit<SystemUserInfo, "mappedBy">; error?: string }> {
     assertSystemUsername(username);
-    const passwd = await server.exec(`getent passwd ${username} 2>&1`);
+    const passwd = await server.run(["getent", "passwd", username]);
     if (passwd.code === 2) {
         return { found: false };
     }
     if (passwd.code !== 0) {
         return { found: false, error: (passwd.stdout + passwd.stderr).trim().split("\n")[0] || "getent unavailable" };
     }
-    const group = await server.exec("getent group");
+    const group = await server.run(["getent", "group"]);
     const user = parseSystemUsers(passwd.stdout, group.stdout, true).find((u) => u.username === username);
     if (!user) {
         return { found: false, error: "unparseable passwd entry" };
@@ -160,7 +163,7 @@ export async function systemUserSetGroups(server: HostAgent, username: string, g
     for (const group of groups) {
         assertSystemUsername(group);
     }
-    const res = await server.exec(`usermod -G "${groups.join(",")}" ${username} 2>&1`);
+    const res = await server.run(["usermod", "-G", groups.join(","), username]);
     if (res.code !== 0) {
         throw new Error((res.stdout + res.stderr).trim().split("\n").pop() || "usermod failed");
     }

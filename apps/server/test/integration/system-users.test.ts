@@ -65,15 +65,18 @@ describe("parseSystemUsers", () => {
     });
 });
 
-/** A HostAgent stub whose exec replays canned results and records commands. */
-function stubHost(responses: Record<string, { code: number; stdout: string; stderr: string }>): { host: HostAgent; commands: string[] } {
-    const commands: string[] = [];
+/** A HostAgent stub whose `run` replays canned results and records argvs. The
+ *  response keys stay written as command lines and are matched against the
+ *  joined argv, which reads better than a key per array. */
+function stubHost(responses: Record<string, { code: number; stdout: string; stderr: string }>): { host: HostAgent; commands: string[][] } {
+    const commands: string[][] = [];
     const host = {
-        exec: async (command: string) => {
-            commands.push(command);
-            const match = Object.entries(responses).find(([prefix]) => command.startsWith(prefix));
+        run: async (argv: string[]) => {
+            commands.push(argv);
+            const line = argv.join(" ");
+            const match = Object.entries(responses).find(([prefix]) => line.startsWith(prefix));
             if (!match) {
-                throw new Error(`Unexpected command: ${command}`);
+                throw new Error(`Unexpected command: ${line}`);
             }
             return match[1];
         },
@@ -123,13 +126,15 @@ describe("systemUserSetGroups", () => {
     test("replaces the supplementary list via usermod -G", async () => {
         const { host, commands } = stubHost({ usermod: { code: 0, stdout: "", stderr: "" } });
         await systemUserSetGroups(host, "deploy", ["docker", "wheel"]);
-        expect(commands[0]).toContain(`usermod -G "docker,wheel" deploy`);
+        expect(commands[0]).toEqual(["usermod", "-G", "docker,wheel", "deploy"]);
     });
 
     test("an empty list clears supplementary groups", async () => {
         const { host, commands } = stubHost({ usermod: { code: 0, stdout: "", stderr: "" } });
         await systemUserSetGroups(host, "deploy", []);
-        expect(commands[0]).toContain(`usermod -G "" deploy`);
+        // The empty list is a real empty argument now, not a pair of quotes the
+        // shell had to strip back off.
+        expect(commands[0]).toEqual(["usermod", "-G", "", "deploy"]);
     });
 
     test("rejects invalid group names and surfaces usermod failures", async () => {

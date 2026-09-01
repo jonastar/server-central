@@ -7,11 +7,16 @@ import type { HostAgent } from "../../src/host-agent";
 // empty (no services declared, so the status badge said "down" even with
 // containers running). Both output shapes have to work.
 
-/** A HostAgent stand-in that replays canned exec output — no docker, no fleet. */
-function fakeAgent(reply: (command: string) => { stdout: string; stderr?: string; code?: number }): HostAgent {
+/** A HostAgent stand-in that replays canned output — no docker, no fleet. The
+ *  reply sees the argv joined into a command line, which reads better in a
+ *  predicate than an array, plus the options: `cwd` is set for exactly the
+ *  commands that run inside the stack's directory. */
+function fakeAgent(
+    reply: (command: string, opts?: { cwd?: string }) => { stdout: string; stderr?: string; code?: number },
+): HostAgent {
     return {
-        exec: async (command: string) => {
-            const res = reply(command);
+        run: async (argv: string[], opts?: { cwd?: string }) => {
+            const res = reply(argv.join(" "), opts);
             return { stdout: res.stdout, stderr: res.stderr ?? "", code: res.code ?? 0 };
         },
     } as unknown as HostAgent;
@@ -86,11 +91,12 @@ test("getComposeStackStatus merges YAML-shaped config with compose ps", async ()
 
 // ---- status when the stack's directory is gone ------------------------------
 //
-// Every compose command runs as `cd <dir> && docker compose …`, so all of them
-// fail at `cd` once that directory disappears — which says nothing about whether
-// the containers are still up, and they usually are (folder deleted out from
-// under a live stack, unmounted volume). The compose labels on the containers
-// survive, so status falls back to plain `docker ps` filtered by project.
+// Every compose command runs with the stack's directory as its cwd, so none of
+// them can start once that directory disappears — which says nothing about
+// whether the containers are still up, and they usually are (folder deleted out
+// from under a live stack, unmounted volume). The compose labels on the
+// containers survive, so status falls back to plain `docker ps` filtered by
+// project.
 
 const PS_JSON_LINE = JSON.stringify({
     ID: "b672416efadf",
@@ -104,10 +110,11 @@ const PS_JSON_LINE = JSON.stringify({
 });
 
 test("a running stack whose directory is gone still reports running", async () => {
-    const agent = fakeAgent((command) => {
-        // Both compose invocations die at `cd` — that's what a missing dir does.
-        if (command.startsWith("cd ")) {
-            return { stdout: "", stderr: "no such file or directory", code: 1 };
+    const agent = fakeAgent((command, opts) => {
+        // Anything that runs in the stack dir can't start — that's what a
+        // missing dir does; plain `docker ps` has no cwd and still works.
+        if (opts?.cwd) {
+            return { stdout: "", stderr: "no such file or directory", code: 127 };
         }
         if (command.includes("docker ps -a --filter label=com.docker.compose.project=static-page-test")) {
             return { stdout: PS_JSON_LINE };
@@ -128,9 +135,9 @@ test("a running stack whose directory is gone still reports running", async () =
 });
 
 test("a gone directory with no containers left is genuinely down", async () => {
-    const agent = fakeAgent((command) => {
-        if (command.startsWith("cd ")) {
-            return { stdout: "", stderr: "no such file or directory", code: 1 };
+    const agent = fakeAgent((_command, opts) => {
+        if (opts?.cwd) {
+            return { stdout: "", stderr: "no such file or directory", code: 127 };
         }
         return { stdout: "" };   // docker ps: nothing carries the label
     });

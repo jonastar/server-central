@@ -1,7 +1,37 @@
 import type { ProxyApplyResult, ProxyConfig, ProxyContainerStatus, ProxyRoute, ProxyState } from "@central/shared";
 import type { Fleet } from "../../fleet";
-import { deployStatusFromLog, PROXY_ADMIN_URL, PROXY_CONTAINER, PROXY_DEPLOY_LOG, PROXY_LABEL, proxyDeployCommand, renderCaddyConfig } from "./caddy";
+import { deployStatusFromLog, PROXY_ADMIN_URL, PROXY_CONTAINER, PROXY_DEPLOY_LOG, PROXY_LABEL, proxyDeployScript, renderCaddyConfig } from "./caddy";
+import type { HostAgent } from "../../host-agent";
 import type { ProxyStore } from "./store";
+
+/** How recent the deploy log has to be to say anything about *this* deploy.
+ *  Older than this and it's noise about a previous one. */
+const DEPLOY_LOG_MAX_AGE_MS = 15 * 60_000;
+
+/**
+ * The tail of the deploy log, or nothing when it's stale or absent — the
+ * `find -mmin -15 | grep -q . && tail -n 5` this replaces, as two file reads.
+ * The freshness check comes off the directory listing because that's where the
+ * modification time is; reading the file itself only says how big it is.
+ */
+async function readDeployLog(agent: HostAgent): Promise<string> {
+    const slash = PROXY_DEPLOY_LOG.lastIndexOf("/");
+    const entry = await agent.listDir(PROXY_DEPLOY_LOG.slice(0, slash))
+        .then((d) => d.entries.find((e) => e.name === PROXY_DEPLOY_LOG.slice(slash + 1)))
+        .catch(() => undefined);
+    if (!entry || Date.now() - entry.modifiedAt > DEPLOY_LOG_MAX_AGE_MS) {
+        return "";
+    }
+    const file = await agent.readFile(PROXY_DEPLOY_LOG).catch(() => null);
+    if (!file) {
+        return "";
+    }
+    const lines = file.content.split("\n");
+    if (lines[lines.length - 1] === "") {
+        lines.pop();
+    }
+    return lines.slice(-5).join("\n");
+}
 
 /**
  * Drives the managed Caddy container on the configured proxy node: detached
@@ -55,7 +85,10 @@ export class ProxyManager {
      *  pull+run chain is launched; progress shows up as container status. */
     async deploy(): Promise<void> {
         const config = this.requireConfig();
-        const res = await this.fleet.get(config.nodeId).exec(proxyDeployCommand(config));
+        const res = await this.fleet.get(config.nodeId).run(
+            ["sh", "-c", proxyDeployScript(config)],
+            { detach: { logPath: PROXY_DEPLOY_LOG } },
+        );
         if (res.code !== 0) {
             throw new Error((res.stdout + res.stderr).trim().split("\n")[0] || "Failed to launch the proxy deploy");
         }
@@ -65,7 +98,7 @@ export class ProxyManager {
      *  survive, so a later deploy resumes where it left off. */
     async remove(): Promise<void> {
         const config = this.requireConfig();
-        const res = await this.fleet.get(config.nodeId).exec(`docker rm -f ${PROXY_CONTAINER} 2>&1`);
+        const res = await this.fleet.get(config.nodeId).run(["docker", "rm", "-f", PROXY_CONTAINER]);
         if (res.code !== 0 && !/no such container/i.test(res.stdout + res.stderr)) {
             throw new Error((res.stdout + res.stderr).trim().split("\n")[0] || "Failed to remove the proxy container");
         }
@@ -110,7 +143,7 @@ export class ProxyManager {
     private async containerStatus(nodeId: string): Promise<ProxyContainerStatus> {
         try {
             const agent = this.fleet.get(nodeId);
-            const res = await agent.exec(`docker ps -a --filter label=${PROXY_LABEL} --format '{{json .}}' 2>&1`);
+            const res = await agent.run(["docker", "ps", "-a", "--filter", `label=${PROXY_LABEL}`, "--format", "{{json .}}"]);
             if (res.code !== 0) {
                 return { present: false, error: (res.stdout + res.stderr).trim().split("\n")[0] || "docker unavailable" };
             }
@@ -120,15 +153,14 @@ export class ProxyManager {
                 // and left nothing behind. Its log tells them apart — see
                 // deployStatusFromLog. A log older than 15 minutes is stale
                 // noise about a previous deploy, so it isn't read at all.
-                const log = await agent.exec(`find ${PROXY_DEPLOY_LOG} -mmin -15 2>/dev/null | grep -q . && tail -n 5 ${PROXY_DEPLOY_LOG}`);
-                return deployStatusFromLog(log.stdout);
+                return deployStatusFromLog(await readDeployLog(agent));
             }
             const row = JSON.parse(line) as { State?: string; Status?: string; Image?: string };
             const status: ProxyContainerStatus = { present: true, state: row.State, status: row.Status, image: row.Image };
             if (row.State && row.State !== "running") {
                 // Why it isn't running lives in the container's State.Error
                 // (e.g. "failed to bind host port …: address already in use").
-                const inspect = await agent.exec(`docker inspect ${PROXY_CONTAINER} --format '{{.State.Error}}' 2>/dev/null`);
+                const inspect = await agent.run(["docker", "inspect", PROXY_CONTAINER, "--format", "{{.State.Error}}"]);
                 const detail = inspect.code === 0 ? inspect.stdout.trim() : "";
                 if (detail) {
                     status.error = detail;

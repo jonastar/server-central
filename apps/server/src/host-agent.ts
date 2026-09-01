@@ -1,5 +1,6 @@
-import type { AgentMode, ControlMessage, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ServerStatus, SystemInfo } from "@central/shared";
+import type { AgentMode, ControlMessage, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ResolvedPath, ServerStatus, SystemInfo } from "@central/shared";
 import { METRICS_HISTORY_MAX } from "@central/shared";
+import { shellCommandFor, shQuote } from "./shell-quote";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 /**
@@ -23,6 +24,27 @@ export interface ExecResult {
     stderr: string;
     code: number;
 }
+
+/** Where and with what environment an argv runs — see {@link HostAgent.run}. */
+export interface ExecOptions {
+    /** Working directory. Replaces the `cd <dir> && …` prefix a command string needed. */
+    cwd?: string;
+    /** Extra environment variables, layered over the agent's own environment
+     *  (not replacing it). */
+    env?: Record<string, string>;
+    /**
+     * Start the command and let go of it, both streams appended to `logPath`.
+     * The result then means "started" — exit code 0 and no output — and whatever
+     * the command has to say it says in the log. For work that outlives the
+     * request that began it; the caller is responsible for reading the log back.
+     */
+    detach?: { logPath: string };
+}
+
+/** Absolute paths made of characters a glob pattern needs, and nothing a shell
+ *  would treat as syntax — the one place a value still reaches an old agent's
+ *  shell unquoted (see {@link HostAgent.resolvePaths}). */
+const SAFE_GLOB_RE = /^\/[A-Za-z0-9_.\-/*?]*$/;
 
 /** An interactive PTY session on the agent's host. */
 export interface ShellSession {
@@ -201,7 +223,17 @@ export class HostAgent {
 
     // ---- Host operations --------------------------------------------------------
 
-    async exec(command: string): Promise<ExecResult> {
+    /**
+     * Run a command string through the host's shell.
+     *
+     * Private, and staying that way: a caller with a string builds it, and
+     * building a shell command out of values is where command injection comes
+     * from. {@link run} is the way in — it takes an argv, and reaches this only
+     * to render one for an agent too old to accept argv directly. The single
+     * deliberate shell in the product names it in its own argv (`sh -c <typed
+     * command>`, the `cmd` task) rather than arriving here.
+     */
+    private async exec(command: string): Promise<ExecResult> {
         const resp = await this.request<Extract<NodeMessage, { type: "execResponse" }>>({
             type: "execRequest", requestId: crypto.randomUUID(), command,
         });
@@ -222,7 +254,7 @@ export class HostAgent {
      * `execStream` — same result, just delivered in one piece at the end (and
      * still bound by the 30s request timeout, as it was before).
      */
-    async execStream(command: string, onChunk: (stream: "stdout" | "stderr", data: string) => void): Promise<ExecResult> {
+    private async execStream(command: string, onChunk: (stream: "stdout" | "stderr", data: string) => void): Promise<ExecResult> {
         if (!this.capabilities.has("execStream")) {
             const res = await this.exec(command);
             if (res.stdout) {
@@ -233,7 +265,80 @@ export class HostAgent {
             }
             return res;
         }
+        return this.streamExec((requestId) => ({ type: "execStreamRequest", requestId, command }), onChunk);
+    }
 
+    /**
+     * Run a command with no shell involved: argv[0] is resolved on PATH and the
+     * rest reach it as literal arguments. Nothing in them can be read as syntax,
+     * so a value that happens to contain `&&`, a quote or a newline is just that
+     * value — which is the property {@link exec} can't offer, since it hands
+     * `sh -c` a string every caller had to escape correctly on its own.
+     *
+     * Prefer this for anything the control plane builds. {@link exec} remains for
+     * the two places a shell is the point rather than an accident: the `cmd` task
+     * (arbitrary operator-typed shell, by permission) and `docker exec … sh -c`,
+     * where the shell being invoked is the container's.
+     *
+     * `opts.cwd`/`opts.env` cover what the shell was doing at the call sites this
+     * replaces. There's no redirection because none is needed: stdout and stderr
+     * come back separately, which is what merging them with `2>&1` was
+     * approximating — and separating them is what lets a caller parse stdout as
+     * JSON while a tool writes warnings to stderr.
+     *
+     * Falls back to a quoted command string against an agent too old to advertise
+     * `execArgv` — same result, one more layer of escaping to be right about,
+     * which {@link shellCommandFor} is.
+     */
+    async run(argv: readonly string[], opts?: ExecOptions): Promise<ExecResult> {
+        if (argv.length === 0) {
+            throw new Error("Cannot run an empty argv");
+        }
+        if (!this.capabilities.has("execArgv")) {
+            const command = shellCommandFor(argv, opts);
+            // The shell's own way of letting go of a command, for an agent that
+            // can't be asked to do it directly.
+            return this.exec(opts?.detach
+                ? `nohup ${command} >${shQuote(opts.detach.logPath)} 2>&1 &`
+                : command);
+        }
+        const resp = await this.request<Extract<NodeMessage, { type: "execResponse" }>>({
+            type: "execArgvRequest",
+            requestId: crypto.randomUUID(),
+            argv: [...argv],
+            cwd: opts?.cwd,
+            env: opts?.env,
+            detach: opts?.detach,
+        });
+        return resp.result;
+    }
+
+    /** Streaming {@link run}: {@link execStream}'s live output with {@link run}'s
+     *  shell-free argv. The idle timeout and chunk semantics are execStream's. */
+    async runStream(
+        argv: readonly string[],
+        onChunk: (stream: "stdout" | "stderr", data: string) => void,
+        opts?: ExecOptions,
+    ): Promise<ExecResult> {
+        if (argv.length === 0) {
+            throw new Error("Cannot run an empty argv");
+        }
+        if (!this.capabilities.has("execArgv")) {
+            return this.execStream(shellCommandFor(argv, opts), onChunk);
+        }
+        return this.streamExec(
+            (requestId) => ({ type: "execArgvStreamRequest", requestId, argv: [...argv], cwd: opts?.cwd, env: opts?.env }),
+            onChunk,
+        );
+    }
+
+    /** The shared half of {@link execStream} and {@link runStream}: route chunks,
+     *  time out on silence, and resolve once the exit code arrives. `request`
+     *  builds the message to send for the requestId this allocates. */
+    private async streamExec(
+        request: (requestId: string) => ControlMessage,
+        onChunk: (stream: "stdout" | "stderr", data: string) => void,
+    ): Promise<ExecResult> {
         const requestId = crypto.randomUUID();
         const stdout: string[] = [];
         const stderr: string[] = [];
@@ -263,10 +368,41 @@ export class HostAgent {
                 reject: (err) => { cleanup(); reject(err); },
             });
             arm();
-            this.sendControl({ type: "execStreamRequest", requestId, command });
+            this.sendControl(request(requestId));
         });
 
         return { stdout: stdout.join(""), stderr: stderr.join(""), code: end.code };
+    }
+
+    /**
+     * Expand glob patterns on the host and follow each match to its real path.
+     * Only `*` and `?`, only in the last segment. Ordered by pattern, sorted
+     * within each, deduplicated by path.
+     *
+     * Falls back to the shell loop this replaces against an agent too old to
+     * advertise `resolvePaths` — which is why the patterns are shape-checked:
+     * they can't be quoted on that path without stopping the glob from
+     * expanding, so they have to be safe unquoted.
+     */
+    async resolvePaths(patterns: readonly string[]): Promise<ResolvedPath[]> {
+        for (const pattern of patterns) {
+            if (!SAFE_GLOB_RE.test(pattern)) {
+                throw new Error(`Invalid path pattern: ${JSON.stringify(pattern)}`);
+            }
+        }
+        if (!this.capabilities.has("resolvePaths")) {
+            const loop = `for p in ${patterns.join(" ")}; do [ -e "$p" ] || continue;`
+                + ` printf '%s\\t%s\\n' "$p" "$(readlink -f "$p" 2>/dev/null || echo "$p")"; done`;
+            const res = await this.exec(loop);
+            return res.stdout.split("\n").flatMap((line) => {
+                const tab = line.indexOf("\t");
+                return tab === -1 ? [] : [{ path: line.slice(0, tab), realPath: line.slice(tab + 1).trim() }];
+            });
+        }
+        const resp = await this.request<Extract<NodeMessage, { type: "resolvePathsResponse" }>>({
+            type: "resolvePathsRequest", requestId: crypto.randomUUID(), patterns: [...patterns],
+        });
+        return resp.result;
     }
 
     async listDir(dirPath: string): Promise<{ path: string; entries: DirEntry[] }> {

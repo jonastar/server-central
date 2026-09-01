@@ -62,29 +62,24 @@ function labelFor(path: string): string | undefined {
 /**
  * Device nodes on the host that can be mapped into a container.
  *
- * One `sh` loop rather than a command per glob — a glob that matches nothing
- * expands to itself in `sh`, which the `-e` test filters back out. Each line is
- * `<path>\t<resolved node>`; resolution matters because several paths routinely
- * reach the same node (a by-id symlink and the raw tty), and mapping both into a
- * container would be the same device twice under two names.
+ * The agent expands the globs and follows each match to the device node it
+ * resolves to. Resolution matters because several paths routinely reach the same
+ * node (a by-id symlink and the raw tty), and mapping both into a container
+ * would be the same device twice under two names.
  */
 export async function listHostDevices(server: HostAgent): Promise<HostDevices> {
-    const script = `for p in ${DEVICE_GLOBS.join(" ")}; do [ -e "$p" ] || continue; printf '%s\\t%s\\n' "$p" "$(readlink -f "$p" 2>/dev/null || echo "$p")"; done`;
-    const res = await server.exec(`${script} 2>/dev/null`);
-    if (res.code !== 0) {
-        const detail = (res.stderr || res.stdout).trim().split("\n").pop() ?? "";
-        return { devices: [], error: detail || "Could not scan /dev on this host" };
+    let found;
+    try {
+        found = await server.resolvePaths(DEVICE_GLOBS);
+    } catch (e) {
+        return { devices: [], error: e instanceof Error ? e.message : "Could not scan /dev on this host" };
     }
 
     // Keyed by resolved node: the first path seen for a node wins (DEVICE_GLOBS
     // is ordered so that's the stable by-id name when the device has one) and
     // every later path for the same node becomes an alias.
     const byNode = new Map<string, HostDevice>();
-    for (const line of res.stdout.split("\n")) {
-        const [path, node] = line.split("\t");
-        if (!path || !node) {
-            continue;
-        }
+    for (const { path, realPath: node } of found) {
         const existing = byNode.get(node);
         if (existing) {
             if (existing.path !== path && !existing.aliases.includes(path)) {

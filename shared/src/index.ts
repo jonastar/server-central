@@ -125,7 +125,7 @@ export const AGENT_VERSION: string = pkg.version;
  * it would silently do the wrong thing about, rather than merely less of it
  * ("shellAsUser": an agent that drops `openShell.asUser` opens a root shell).
  */
-export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream", "shellAsUser"];
+export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream", "shellAsUser", "execArgv", "resolvePaths"];
 
 /**
  * Common Name (and a baseline SAN entry) of the control-plane leaf cert. Agents

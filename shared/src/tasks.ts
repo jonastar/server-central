@@ -14,7 +14,33 @@
 
 import type { ContainerAction, ServiceAction, StackAction, ZfsVdevType } from "./index";
 
-/** Run something on a shell. */
+/**
+ * Run a program directly: `argv[0]` is resolved on PATH and the rest reach it as
+ * literal arguments. The form for anything a *caller* builds — a value
+ * interpolated into an argument stays a value, so there is no way to get an
+ * injection wrong here, and no quoting to remember.
+ *
+ * Prefer this to {@link TaskCmd} everywhere except a command a person typed.
+ */
+export interface TaskExec {
+    kind: "exec";
+    argv: string[];
+    /** Working directory, instead of a `cd … &&` prefix. */
+    cwd?: string;
+    /** Extra environment, layered over the agent's own. */
+    env?: Record<string, string>;
+}
+
+/**
+ * Run a command line through the host's shell.
+ *
+ * For free text an operator typed, where the pipes, globs and redirects are the
+ * point — the task-shaped equivalent of the terminal that `panel.exec` already
+ * grants. Code that *assembles* a command wants {@link TaskExec} instead: this
+ * one takes a string, so every value put into it is one escaping mistake away
+ * from being syntax, and a caller that reaches for the convenient shape
+ * shouldn't be the thing that reintroduces command injection.
+ */
 export interface TaskCmd {
     kind: "cmd";
     command: string;
@@ -198,6 +224,7 @@ export interface TaskZfsSnapshotClone {
 /** Every task kind. Add a variant here + a handler + a result variant. */
 export type TaskSpec =
     | TaskCmd
+    | TaskExec
     | TaskFindWanIp
     | TaskServiceAction
     | TaskDockerStackAction
@@ -231,6 +258,13 @@ export type TaskKind = TaskSpec["kind"];
 
 export interface TaskCmdResult {
     kind: "cmd";
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+}
+
+export interface TaskExecResult {
+    kind: "exec";
     exitCode: number;
     stdout: string;
     stderr: string;
@@ -336,6 +370,7 @@ export interface TaskZfsSnapshotCloneResult {
 
 export type TaskResult =
     | TaskCmdResult
+    | TaskExecResult
     | TaskFindWanIpResult
     | TaskServiceActionResult
     | TaskDockerStackActionResult

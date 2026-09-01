@@ -86,6 +86,8 @@ export function specSummary(spec: TaskSpec): string {
     switch (spec.kind) {
         case "cmd":
             return spec.command;
+        case "exec":
+            return spec.argv.join(" ");
         case "find_wan_ip":
             return "Discover external IP (STUN)";
         case "service_action":
@@ -142,6 +144,7 @@ export function resultSummary(run: TaskRun): string {
     }
     switch (run.result.kind) {
         case "cmd":
+        case "exec":
             return `exit ${run.result.exitCode}`;
         case "find_wan_ip":
             return run.result.ip ?? "not detected";

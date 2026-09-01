@@ -8,14 +8,21 @@ const JOURNAL_SINCE: Record<Exclude<LogSince, "">, string> = {
     "24h": "24 hours ago",
 };
 
+/** The recognised window tokens. Both accessors check membership here rather
+ *  than trusting the caller's `LogSince` type: the API surface casts a parsed
+ *  JSON body to its declared type without validating it, so an arbitrary string
+ *  reaches these — and both values are interpolated into a shell command. */
+const SINCE_TOKENS = new Set<string>(Object.keys(JOURNAL_SINCE));
+
 /** journald `--since` value, or null when no window is requested. */
 export function journalSince(since: LogSince | undefined): string | null {
-    return since ? JOURNAL_SINCE[since] : null;
+    return since && SINCE_TOKENS.has(since) ? JOURNAL_SINCE[since] : null;
 }
 
-/** docker `--since` value — Docker accepts Go-duration tokens (e.g. "15m") directly. */
+/** docker `--since` value — Docker accepts Go-duration tokens (e.g. "15m")
+ *  directly, so the token passes through as-is once it's known to be one. */
 export function dockerSince(since: LogSince | undefined): string | null {
-    return since ? since : null;
+    return since && SINCE_TOKENS.has(since) ? since : null;
 }
 
 /** journald priority names accepted by `-p` (everything at or above the level). */

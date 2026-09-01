@@ -82,16 +82,17 @@ function autoMountFor(row: FindmntRow, fstab: Map<string, string[]>, canmount: M
  * separate filter list needs maintaining here.
  */
 export async function getMounts(server: HostAgent): Promise<MountsState> {
-    const probe = await server.exec("findmnt --version 2>&1");
+    const probe = await server.run(["findmnt", "--version"]);
     if (probe.code !== 0) {
         return { available: false, error: firstErrorLine(probe) || "findmnt is not available on this host", mounts: [] };
     }
 
     const [findmntRes, fstabRes, canmountRes] = await Promise.all([
-        server.exec("findmnt -J -l --real -b -o SOURCE,TARGET,FSTYPE,OPTIONS,SIZE,USED,AVAIL 2>&1"),
-        server.exec("cat /etc/fstab 2>/dev/null"),
-        // Fails harmlessly (empty stdout) on hosts without ZFS — no exit-code check needed.
-        server.exec("zfs get -H -p -o name,value canmount 2>/dev/null"),
+        server.run(["findmnt", "-J", "-l", "--real", "-b", "-o", "SOURCE,TARGET,FSTYPE,OPTIONS,SIZE,USED,AVAIL"]),
+        server.run(["cat", "/etc/fstab"]),
+        // Fails harmlessly (empty stdout) on hosts without ZFS — no exit-code check
+        // needed, and its complaint stays on stderr where nothing reads it.
+        server.run(["zfs", "get", "-H", "-p", "-o", "name,value", "canmount"]),
     ]);
     if (findmntRes.code !== 0) {
         return { available: false, error: firstErrorLine(findmntRes) || "findmnt failed", mounts: [] };

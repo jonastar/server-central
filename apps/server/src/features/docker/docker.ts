@@ -20,10 +20,34 @@ import type {
     StackAction,
 } from "@central/shared";
 import type { ExecResult, HostAgent } from "../../host-agent";
+import { runStreamingLines } from "../../exec-lines";
 import { dockerSince, reverseLines } from "../../log-query";
 
-const SAFE_ID_RE = /^[A-Za-z0-9_.-]+$/;
-const SAFE_REF_RE = /^[A-Za-z0-9_./:@-]+$/;
+// Container ids/names, volume names, compose project and service names, image
+// refs. The leading character is alphanumeric because docker requires that of
+// all of them anyway — and because argv stops a value being read as *shell*
+// syntax but not as docker's own option: `docker rm -f` would still parse a
+// leading `-` as a flag.
+const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+const SAFE_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_./:@-]*$/;
+
+// Action → the docker/compose verb it runs as. These double as the runtime guard
+// on the action itself: an operation's declared union is a compile-time claim,
+// and the API surface casts a parsed JSON body to it without checking, so an
+// arbitrary string reaches these functions and would otherwise be interpolated
+// straight into the command. Maps, not plain objects, so a key like
+// "constructor" misses instead of finding something up the prototype chain.
+// Built from an exhaustive Record so adding a union member fails to compile
+// until its verb is named here.
+const CONTAINER_VERBS = new Map<string, readonly string[]>(Object.entries({
+    start: ["start"], stop: ["stop"], restart: ["restart"], remove: ["rm", "-f"], pause: ["pause"], unpause: ["unpause"],
+} satisfies Record<ContainerAction, readonly string[]>));
+const STACK_VERBS = new Map<string, readonly string[]>(Object.entries({
+    start: ["start"], stop: ["stop"], restart: ["restart"], down: ["rm", "-f"],
+} satisfies Record<StackAction, readonly string[]>));
+const COMPOSE_VERBS = new Map<string, readonly string[]>(Object.entries({
+    up: ["up", "-d"], restart: ["restart"], stop: ["stop"], down: ["down"], pull: ["pull"],
+} satisfies Record<ComposeAction, readonly string[]>));
 
 function parseJsonLines<T>(text: string): T[] {
     const out: T[] = [];
@@ -60,41 +84,15 @@ function parseLabel(labels: string | undefined, key: string): string | undefined
  * cause — return everything, newlines collapsed for one-banner display.
  */
 function errorText(res: { stdout: string; stderr: string }): string {
-    const text = (res.stdout + res.stderr).trim().split("\n").map((l) => l.trim()).filter(Boolean).join(" — ");
+    const text = [res.stdout, res.stderr].join("\n").trim().split("\n").map((l) => l.trim()).filter(Boolean).join(" — ");
     return text.length > 600 ? `${text.slice(0, 600)}…` : text;
 }
 
-/**
- * Run a slow docker command with its output reaching `onLog` a line at a time,
- * as the command produces it, instead of in one lump once it finishes.
- *
- * The line buffering is the point: `execStream` hands over raw chunks, which
- * split lines at arbitrary byte boundaries, while a task log line is supposed to
- * be a line. Everything here runs with `2>&1`, so stdout carries both streams in
- * the order docker wrote them and stderr stays empty.
- *
- * Against an agent too old for `execStream` this degrades to exactly the old
- * behavior — one call to `onLog` with everything, at the end.
- */
-async function execStreamingLines(server: HostAgent, command: string, onLog?: (text: string) => void): Promise<ExecResult> {
-    if (!onLog) {
-        return server.execStream(command, () => { /* nobody listening; still streamed, just not forwarded */ });
-    }
-    let buffered = "";
-    const res = await server.execStream(command, (_stream, data) => {
-        buffered += data;
-        const lines = buffered.split("\n");
-        // The trailing element is whatever came after the last newline — an
-        // incomplete line, held back until the rest of it arrives.
-        buffered = lines.pop() ?? "";
-        for (const line of lines) {
-            onLog(line);
-        }
-    });
-    if (buffered.trim()) {
-        onLog(buffered);
-    }
-    return res;
+/** Log text as a viewer should show it: the command's output on success, its
+ *  error on failure — which is what folding stderr into stdout with `2>&1` was
+ *  really buying at the two log readers below. */
+function logOutput(res: ExecResult): string {
+    return res.code === 0 ? res.stdout : [res.stdout, res.stderr].filter(Boolean).join("\n").trim();
 }
 
 type PsRow = {
@@ -123,7 +121,7 @@ function toContainer(r: PsRow): ContainerInfo {
 }
 
 async function probe(server: HostAgent): Promise<string | null> {
-    const res = await server.exec("docker version --format '{{.Server.Version}}' 2>&1");
+    const res = await server.run(["docker", "version", "--format", "{{.Server.Version}}"]);
     if (res.code !== 0) {
         return (res.stdout + res.stderr).trim().split("\n")[0] || "docker unavailable";
     }
@@ -137,9 +135,9 @@ export async function dockerList(server: HostAgent): Promise<DockerState> {
     }
 
     const [ps, volumes, images] = await Promise.all([
-        server.exec("docker ps -a --format '{{json .}}'"),
-        server.exec("docker volume ls --format '{{json .}}'"),
-        server.exec("docker images --format '{{json .}}'"),
+        server.run(["docker", "ps", "-a", "--format", "{{json .}}"]),
+        server.run(["docker", "volume", "ls", "--format", "{{json .}}"]),
+        server.run(["docker", "images", "--format", "{{json .}}"]),
     ]);
 
     type VolRow = { Name: string; Driver: string; Mountpoint?: string };
@@ -169,10 +167,10 @@ export async function dockerOverview(server: HostAgent): Promise<DockerOverview>
     }
 
     const [ps, vols, imgs, df] = await Promise.all([
-        server.exec("docker ps -a --format '{{json .}}'"),
-        server.exec("docker volume ls --format '{{json .}}'"),
-        server.exec("docker images --format '{{json .}}'"),
-        server.exec("docker system df --format '{{json .}}'"),
+        server.run(["docker", "ps", "-a", "--format", "{{json .}}"]),
+        server.run(["docker", "volume", "ls", "--format", "{{json .}}"]),
+        server.run(["docker", "images", "--format", "{{json .}}"]),
+        server.run(["docker", "system", "df", "--format", "{{json .}}"]),
     ]);
 
     const containers = parseJsonLines<PsRow>(ps.stdout);
@@ -212,7 +210,7 @@ export async function dockerStacks(server: HostAgent): Promise<DockerStacksState
         return { available: false, error: err, stacks: [] };
     }
 
-    const ps = await server.exec("docker ps -a --format '{{json .}}'");
+    const ps = await server.run(["docker", "ps", "-a", "--format", "{{json .}}"]);
     const containers = parseJsonLines<PsRow>(ps.stdout);
 
     const byProject = new Map<string, DockerStack>();
@@ -254,28 +252,33 @@ export async function dockerStackAction(
     if (!SAFE_ID_RE.test(project)) {
         throw new Error(`Invalid stack name: ${project}`);
     }
-    const ids = await server.exec(`docker ps -aq --filter label=com.docker.compose.project=${project}`);
+    const ids = await server.run(["docker", "ps", "-aq", "--filter", `label=com.docker.compose.project=${project}`]);
     const containerIds = ids.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
     if (containerIds.length === 0) {
         throw new Error(`No containers found for stack ${project}`);
     }
-    const cmd = action === "down" ? "rm -f" : action;
-    const res = await server.exec(`docker ${cmd} ${containerIds.join(" ")} 2>&1`);
+    const cmd = STACK_VERBS.get(action);
+    if (cmd === undefined) {
+        throw new Error(`Unsupported stack action: ${action}`);
+    }
+    const res = await server.run(["docker", ...cmd, ...containerIds]);
     onLog?.(res.stdout);
     if (res.code !== 0) {
         throw new Error(errorText(res) || `docker ${action} failed`);
     }
 }
 
-/** Single-quote a string for safe inclusion in a shell command, escaping any
- *  embedded single quotes. Used for stack directories/compose paths, which come
- *  from SC-created or operator-picked (`DirectoryPicker`) locations — real
- *  filesystem paths, not `SAFE_ID_RE`-shaped identifiers. */
-function shQuote(value: string): string {
-    return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
 export type ComposeAction = "up" | "restart" | "stop" | "down" | "pull";
+
+/**
+ * The argv every compose command in this file starts with. Its counterpart is
+ * the `{ cwd: dir }` each call passes: compose resolves relative bind mounts and
+ * `env_file` paths against the working directory, which is why these ran as
+ * `cd <dir> && …` before there was a way to just say so.
+ */
+function composeArgv(composeFile: string, project: string, ...rest: string[]): string[] {
+    return ["docker", "compose", "-f", composeFile, "-p", project, ...rest];
+}
 
 /**
  * Run a compose verb against a registered stack's compose file directly (`cd <dir> &&
@@ -310,10 +313,16 @@ export async function composeStackAction(
     if (service !== undefined && !SAFE_ID_RE.test(service)) {
         throw new Error(`Invalid service name: ${service}`);
     }
-    const svc = service ? ` ${service}` : "";
-    const base = `cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project}`;
+    // Up front, not at the `verb` lookup below: the pull and scoped-down branches
+    // both run commands of their own before that point.
+    const verb = COMPOSE_VERBS.get(action);
+    if (verb === undefined) {
+        throw new Error(`Unsupported compose action: ${action}`);
+    }
+    const svc = service ? [service] : [];
+    const inDir = { cwd: dir };
     if (pullFirst || action === "pull") {
-        const pull = await execStreamingLines(server, `${base} pull${svc} 2>&1`, onLog);
+        const pull = await runStreamingLines(server, composeArgv(composeFile, project, "pull", ...svc), onLog, inDir);
         if (pull.code !== 0) {
             throw new Error(errorText(pull) || "docker compose pull failed");
         }
@@ -322,18 +331,17 @@ export async function composeStackAction(
         }
     }
     if (action === "down" && service) {
-        const stop = await execStreamingLines(server, `${base} stop${svc} 2>&1`, onLog);
+        const stop = await runStreamingLines(server, composeArgv(composeFile, project, "stop", ...svc), onLog, inDir);
         if (stop.code !== 0) {
             throw new Error(errorText(stop) || "docker compose stop failed");
         }
-        const rm = await execStreamingLines(server, `${base} rm -f${svc} 2>&1`, onLog);
+        const rm = await runStreamingLines(server, composeArgv(composeFile, project, "rm", "-f", ...svc), onLog, inDir);
         if (rm.code !== 0) {
             throw new Error(errorText(rm) || "docker compose rm failed");
         }
         return;
     }
-    const verb = action === "up" ? "up -d" : action;
-    const res = await execStreamingLines(server, `${base} ${verb}${svc} 2>&1`, onLog);
+    const res = await runStreamingLines(server, composeArgv(composeFile, project, ...verb, ...svc), onLog, inDir);
     if (res.code !== 0) {
         throw new Error(errorText(res) || `docker compose ${action} failed`);
     }
@@ -359,11 +367,11 @@ export interface ComposeConfigResult {
  * file on disk. `config` is null if the file is missing, invalid, or docker
  * compose fails for any other reason (the caller treats that as "nothing usable found" —
  * see `ComposeStackDetection.composeFound`/`getComposeStackStatus`'s `"down"` fallback); `error`
- * carries why. Deliberately doesn't merge stderr into stdout (unlike most other
- * commands in this file) — compose v2 writes deprecation warnings (e.g. the
- * legacy top-level `version:` key) to stderr even on success, and merging them
- * in front of the JSON broke `JSON.parse` for any real-world compose file that
- * still had one.
+ * carries why. Keeping stderr out of stdout is what makes the parse reliable:
+ * compose v2 writes deprecation warnings (e.g. the legacy top-level `version:`
+ * key) to stderr even on success, and folding them in front of the JSON broke
+ * `JSON.parse` for any real-world compose file that still had one. That used to
+ * be this function's exception to make; the streams arrive separately now.
  */
 export async function composeConfig(
     server: HostAgent,
@@ -374,7 +382,7 @@ export async function composeConfig(
     if (!SAFE_ID_RE.test(project)) {
         throw new Error(`Invalid project name: ${project}`);
     }
-    const res = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} config --format json`);
+    const res = await server.run(composeArgv(composeFile, project, "config", "--format", "json"), { cwd: dir });
     if (res.code !== 0) {
         return { config: null, error: errorText(res) || "docker compose config failed" };
     }
@@ -434,7 +442,7 @@ export async function validateComposeContent(
     const tempPath = dir.endsWith("/") ? `${dir}${tempName}` : `${dir}/${tempName}`;
     await server.writeFile(tempPath, content);
     try {
-        const res = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(tempName)} -p ${project} config --format json 2>&1`);
+        const res = await server.run(composeArgv(tempName, project, "config", "--format", "json"), { cwd: dir });
         return res.code === 0 ? { valid: true } : { valid: false, error: errorText(res) || "docker compose config failed" };
     } finally {
         await server.deletePath(tempPath).catch(() => { /* best-effort cleanup */ });
@@ -491,7 +499,7 @@ async function psByProjectLabel(server: HostAgent, project: string): Promise<Com
     if (!SAFE_ID_RE.test(project)) {
         return [];
     }
-    const res = await server.exec(`docker ps -a --filter label=com.docker.compose.project=${project} --format '{{json .}}'`);
+    const res = await server.run(["docker", "ps", "-a", "--filter", `label=com.docker.compose.project=${project}`, "--format", "{{json .}}"]);
     if (res.code !== 0) {
         return [];
     }
@@ -528,9 +536,9 @@ export async function getComposeStackStatus(
     const { config } = await composeConfig(server, dir, composeFile, project);
     const declared = config ? Object.keys(config.services ?? {}) : [];
 
-    const psRes = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} ps --format json --all 2>&1`);
+    const psRes = await server.run(composeArgv(composeFile, project, "ps", "--format", "json", "--all"), { cwd: dir });
     // Every compose command is run from the stack's directory, so all of them
-    // fail at `cd` if that directory is gone — which says nothing about whether
+    // fail to start at all if that directory is gone — which says nothing about whether
     // the containers are still running, and they very often are (a folder
     // deleted out from under a live stack, or a volume that didn't remount).
     // The compose *labels* on the containers survive either way, so fall back to
@@ -594,9 +602,16 @@ export async function getComposeStackLogs(
     if (service && !SAFE_ID_RE.test(service)) {
         throw new Error(`Invalid service name: ${service}`);
     }
-    const svc = service ? ` ${service}` : "";
-    const res = await server.exec(`cd ${shQuote(dir)} && docker compose -f ${shQuote(composeFile)} -p ${project} logs --no-color --tail ${Math.max(1, Math.floor(tail))}${svc} 2>&1`);
-    return res.stdout;
+    const svc = service ? [service] : [];
+    // No stream-merging needed here, unlike {@link dockerContainerLogs}: compose
+    // demultiplexes its services itself and writes the lot to its own stdout,
+    // prefixed with the service name. Its stderr carries compose's own errors
+    // and nothing else — which is all the `2>&1` here was ever collecting.
+    const res = await server.run(
+        composeArgv(composeFile, project, "logs", "--no-color", "--tail", String(Math.max(1, Math.floor(tail))), ...svc),
+        { cwd: dir },
+    );
+    return logOutput(res);
 }
 
 export async function dockerContainerAction(
@@ -608,8 +623,11 @@ export async function dockerContainerAction(
     if (!SAFE_ID_RE.test(containerId)) {
         throw new Error(`Invalid container id: ${containerId}`);
     }
-    const cmd = action === "remove" ? "rm -f" : action;
-    const res = await server.exec(`docker ${cmd} ${containerId} 2>&1`);
+    const cmd = CONTAINER_VERBS.get(action);
+    if (cmd === undefined) {
+        throw new Error(`Unsupported container action: ${action}`);
+    }
+    const res = await server.run(["docker", ...cmd, containerId]);
     onLog?.(res.stdout);
     if (res.code !== 0) {
         throw new Error(errorText(res) || `docker ${action} failed`);
@@ -620,7 +638,7 @@ export async function dockerContainerInspect(server: HostAgent, containerId: str
     if (!SAFE_ID_RE.test(containerId)) {
         throw new Error(`Invalid container id: ${containerId}`);
     }
-    const res = await server.exec(`docker inspect ${containerId}`);
+    const res = await server.run(["docker", "inspect", containerId]);
     if (res.code !== 0) {
         throw new Error(errorText(res) || "docker inspect failed");
     }
@@ -683,7 +701,7 @@ export async function dockerContainerExec(server: HostAgent, containerId: string
     if (!SAFE_ID_RE.test(containerId)) {
         throw new Error(`Invalid container id: ${containerId}`);
     }
-    return server.exec(`docker exec ${containerId} sh -c ${shQuote(command)}`);
+    return server.run(["docker", "exec", containerId, "sh", "-c", command]);
 }
 
 /**
@@ -707,6 +725,53 @@ export function dockerContainerShellCommand(containerId: string): string {
     return `docker exec -it ${containerId} sh -c "command -v bash >/dev/null 2>&1 && exec bash -l; exec sh"`;
 }
 
+/** The `--timestamps` prefix docker puts on each line: RFC3339 with a
+ *  fixed-width nanosecond field. Fixed-width is the part that matters — docker
+ *  formats it that way (its own `RFC3339NanoFixed`, not Go's variable-width
+ *  `RFC3339Nano`) specifically so timestamps compare as strings. */
+const LOG_TIMESTAMP_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z) /;
+
+/**
+ * Put a container's two log streams back into one chronological sequence.
+ *
+ * `docker logs` demultiplexes the container's stdout and stderr onto its own
+ * two fds, so an argv run receives them as two separate pipes — nginx's access
+ * log on one and its error log on the other, no longer interleaved. Sorting by
+ * the timestamp docker stamps each line with restores the order, and restores
+ * it from data rather than from the arrival order of two pipes: the daemon
+ * assigned those timestamps when it read each line, which is as close to the
+ * container's own write order as anything downstream can get. Verified against
+ * a real container's mixed log: identical, line for line, to what `2>&1` gave.
+ *
+ * Ties keep stdout ahead of stderr, since the sort is stable and stdout goes in
+ * first; a line docker didn't stamp (a continuation) inherits the timestamp
+ * above it, so a multi-line entry stays together instead of scattering.
+ */
+function mergeLogStreams(stdout: string, stderr: string, keepTimestamps: boolean): string {
+    const stamped = (text: string): { ts: string; line: string; prefix: number }[] => {
+        const lines = text.split("\n");
+        // Only the trailing element after the final newline is dropped — a blank
+        // line inside the log is a real line (and carries a timestamp of its own).
+        if (lines[lines.length - 1] === "") {
+            lines.pop();
+        }
+        let last = "";
+        return lines.map((line) => {
+            const m = LOG_TIMESTAMP_RE.exec(line);
+            if (!m) {
+                return { ts: last, line, prefix: 0 };
+            }
+            last = m[1];
+            return { ts: m[1], line, prefix: m[0].length };
+        });
+    };
+
+    return [...stamped(stdout), ...stamped(stderr)]
+        .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
+        .map((l) => (keepTimestamps ? l.line : l.line.slice(l.prefix)))
+        .join("\n");
+}
+
 export async function dockerContainerLogs(
     server: HostAgent,
     containerId: string,
@@ -715,16 +780,20 @@ export async function dockerContainerLogs(
     if (!SAFE_ID_RE.test(containerId)) {
         throw new Error(`Invalid container id: ${containerId}`);
     }
-    const flags = [`--tail ${Math.floor(opts.limit ?? 500)}`];
+    // `--timestamps` unconditionally, even when the caller doesn't want them
+    // shown: they're how the two streams get put back in order below, and they're
+    // stripped again on the way out. See {@link mergeLogStreams}.
+    const args = ["logs", "--timestamps", "--tail", String(Math.floor(opts.limit ?? 500))];
     const since = dockerSince(opts.since);
     if (since) {
-        flags.push(`--since ${since}`);
+        args.push("--since", since);
     }
-    if (opts.timestamps) {
-        flags.push("--timestamps");
+    const res = await server.run(["docker", ...args, containerId]);
+    if (res.code !== 0) {
+        return logOutput(res);
     }
-    const res = await server.exec(`docker logs ${flags.join(" ")} ${containerId} 2>&1`);
-    return opts.order === "newest" ? reverseLines(res.stdout) : res.stdout;
+    const merged = mergeLogStreams(res.stdout, res.stderr, opts.timestamps === true);
+    return opts.order === "newest" ? reverseLines(merged) : merged;
 }
 
 export async function dockerVolumeInspect(server: HostAgent, name: string): Promise<DockerVolumeDetail> {
@@ -732,8 +801,8 @@ export async function dockerVolumeInspect(server: HostAgent, name: string): Prom
         throw new Error(`Invalid volume name: ${name}`);
     }
     const [inspect, attached] = await Promise.all([
-        server.exec(`docker volume inspect ${name}`),
-        server.exec(`docker ps -a --filter volume=${name} --format '{{json .}}'`),
+        server.run(["docker", "volume", "inspect", name]),
+        server.run(["docker", "ps", "-a", "--filter", `volume=${name}`, "--format", "{{json .}}"]),
     ]);
     if (inspect.code !== 0) {
         throw new Error(errorText(inspect) || "docker volume inspect failed");
@@ -757,7 +826,7 @@ export async function dockerVolumeRemove(server: HostAgent, name: string): Promi
     if (!SAFE_ID_RE.test(name)) {
         throw new Error(`Invalid volume name: ${name}`);
     }
-    const res = await server.exec(`docker volume rm ${name} 2>&1`);
+    const res = await server.run(["docker", "volume", "rm", name]);
     if (res.code !== 0) {
         throw new Error(errorText(res) || "docker volume rm failed");
     }
@@ -770,7 +839,7 @@ export async function dockerImageAction(server: HostAgent, imageId: string, acti
     if (action !== "remove") {
         throw new Error(`Unsupported image action: ${action}`);
     }
-    const res = await server.exec(`docker rmi ${imageId} 2>&1`);
+    const res = await server.run(["docker", "rmi", imageId]);
     if (res.code !== 0) {
         throw new Error(errorText(res) || "docker rmi failed");
     }
@@ -784,7 +853,7 @@ export async function dockerImagePull(
     if (!SAFE_REF_RE.test(ref)) {
         throw new Error(`Invalid image reference: ${ref}`);
     }
-    const res = await execStreamingLines(server, `docker pull ${ref} 2>&1`, onLog);
+    const res = await runStreamingLines(server, ["docker", "pull", ref], onLog);
     const message = (res.stdout + res.stderr).trim();
     if (res.code !== 0) {
         return { ok: false, message: message.split("\n").filter(Boolean).pop() || "docker pull failed" };
@@ -812,7 +881,7 @@ export async function imageDefaults(server: HostAgent, image: string): Promise<I
     if (!SAFE_REF_RE.test(image)) {
         throw new Error(`Invalid image reference: ${image}`);
     }
-    const res = await server.exec(`docker image inspect ${image} --format '{{json .Config}}' 2>&1`);
+    const res = await server.run(["docker", "image", "inspect", image, "--format", "{{json .Config}}"]);
     if (res.code !== 0) {
         return EMPTY_IMAGE_DEFAULTS;
     }

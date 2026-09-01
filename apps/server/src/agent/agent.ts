@@ -41,6 +41,109 @@ function normalizePath(p: string): string {
     return path.resolve("/", p || "/");
 }
 
+/** Spawn an argv directly — no shell, so nothing in the arguments is parsed as
+ *  syntax. `env` layers over the agent's own environment rather than replacing
+ *  it: a caller adding one variable still wants PATH. */
+function spawnArgv(argv: string[], cwd?: string, env?: Record<string, string>) {
+    return Bun.spawn(argv, {
+        stdout: "pipe",
+        stderr: "pipe",
+        cwd,
+        env: env ? { ...process.env, ...env } : undefined,
+    });
+}
+
+/**
+ * Why a spawn never started. Bun reports every such failure as a posix_spawn
+ * error naming the binary, which points at the wrong thing when the real problem
+ * is the working directory — the common case being a compose stack whose folder
+ * has been deleted out from under it, where "posix_spawn 'docker'" reads as
+ * "docker isn't installed".
+ */
+async function spawnFailure(cwd: string | undefined, e: unknown): Promise<string> {
+    if (cwd !== undefined) {
+        const missing = await fs.stat(cwd).then(() => false, () => true);
+        if (missing) {
+            return `Working directory ${cwd} is unavailable`;
+        }
+    }
+    return String(e);
+}
+
+/** Shell-style wildcards, as a matcher for one path segment. Only `*` and `?`
+ *  are meaningful — everything else in the pattern is literal, including the
+ *  regex metacharacters a device path is full of (`.`, `+`). */
+function segmentMatcher(segment: string): RegExp {
+    const escaped = segment
+        .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+        .replace(/\*/g, "[^/]*")
+        .replace(/\?/g, "[^/]");
+    return new RegExp(`^${escaped}$`);
+}
+
+/**
+ * Expand glob patterns and follow each match to its real path — the agent-side
+ * answer to `for f in /dev/disk/by-id/*; do readlink -f "$f"; done`.
+ *
+ * Only the last segment may be a pattern, which is all either caller needs
+ * (`/dev/ttyACM*`, `/dev/serial/by-id/*`, a bare `/dev/net/tun`) and keeps this
+ * from becoming a directory walker. Matches come back in pattern order, sorted
+ * within each pattern, deduplicated by path: `listHostDevices` relies on that
+ * order to prefer a stable by-id name over the `/dev/ttyACM0` it points at.
+ *
+ * A pattern whose directory is missing contributes nothing rather than failing —
+ * hosts without `/dev/serial` are the common case, not an error.
+ */
+async function runResolvePaths(patterns: string[]): Promise<{ path: string; realPath: string }[]> {
+    const out: { path: string; realPath: string }[] = [];
+    const seen = new Set<string>();
+
+    const add = async (p: string): Promise<void> => {
+        if (seen.has(p)) {
+            return;
+        }
+        seen.add(p);
+        // realpath fails on a dangling symlink; the path itself is still the
+        // answer for anything that only needs the name.
+        const realPath = await fs.realpath(p).catch(() => p);
+        out.push({ path: p, realPath });
+    };
+
+    for (const pattern of patterns) {
+        const slash = pattern.lastIndexOf("/");
+        const dir = pattern.slice(0, slash) || "/";
+        const leaf = pattern.slice(slash + 1);
+
+        if (!leaf.includes("*") && !leaf.includes("?")) {
+            if (await fs.stat(pattern).then(() => true, () => false)) {
+                await add(pattern);
+            }
+            continue;
+        }
+
+        const names = await fs.readdir(dir).catch((): string[] => []);
+        const match = segmentMatcher(leaf);
+        for (const name of names.filter((n) => match.test(n)).sort()) {
+            await add(`${dir}/${name}`);
+        }
+    }
+    return out;
+}
+
+/** Drain a spawned process's pipes and wait for it to exit. */
+async function collectProc(proc: {
+    stdout: ReadableStream<Uint8Array>;
+    stderr: ReadableStream<Uint8Array>;
+    exited: Promise<number>;
+}): Promise<{ stdout: string; stderr: string; code: number }> {
+    const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+    ]);
+    return { stdout, stderr, code };
+}
+
 function permString(mode: number): string {
     const flags = ["r", "w", "x"];
     let out = "";
@@ -182,6 +285,30 @@ export class Agent {
                 // as the command produces them, and the message loop must stay
                 // free to handle everything else meanwhile.
                 void this.runExecStream(msg.requestId, msg.command);
+                break;
+            }
+
+            case "execArgvRequest": {
+                const result = msg.detach
+                    ? await this.runDetached(msg.argv, msg.detach.logPath, msg.cwd, msg.env)
+                    : await this.runExecArgv(msg.argv, msg.cwd, msg.env);
+                this.transport.send({ type: "execResponse", requestId: msg.requestId, result });
+                break;
+            }
+
+            case "execArgvStreamRequest": {
+                // Not awaited, for the same reason as execStreamRequest above.
+                void this.runExecStream(msg.requestId, msg.argv, msg.cwd, msg.env);
+                break;
+            }
+
+            case "resolvePathsRequest": {
+                try {
+                    const result = await runResolvePaths(msg.patterns);
+                    this.transport.send({ type: "resolvePathsResponse", requestId: msg.requestId, result });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
                 break;
             }
 
@@ -364,29 +491,98 @@ export class Agent {
     // ---- Runner methods ----------------------------------------------------------
 
     private async runExec(command: string): Promise<{ stdout: string; stderr: string; code: number }> {
-        const proc = Bun.spawn(["sh", "-c", command], { stdout: "pipe", stderr: "pipe" });
-        const [stdout, stderr, code] = await Promise.all([
-            new Response(proc.stdout).text(),
-            new Response(proc.stderr).text(),
-            proc.exited,
-        ]);
-        return { stdout, stderr, code };
+        return collectProc(Bun.spawn(["sh", "-c", command], { stdout: "pipe", stderr: "pipe" }));
     }
 
     /**
-     * Streaming counterpart of {@link runExec}: forwards output as the command
-     * produces it, then reports the exit code separately. What this buys over
-     * runExec is progress on a slow command (a `docker pull`'s per-layer lines
-     * reaching the task log while it runs) and a control plane that can time the
-     * request out on silence rather than on total duration.
+     * Shell-free counterpart of {@link runExec}: argv[0] is resolved on PATH and
+     * the remaining elements reach it as literal arguments, so no character in
+     * them is syntax. See the `execArgvRequest` protocol comment for why that's
+     * the form the control plane should be building.
+     *
+     * A command that can't start (no such binary, unusable cwd) comes back as
+     * exit 127 with the reason on stderr rather than as a protocol error: that's
+     * what the shell path reports for the same condition, and callers already
+     * read a non-zero code as "this didn't work" — the alternative would make an
+     * absent `zpool` fail differently depending on the agent's age.
+     */
+    private async runExecArgv(argv: string[], cwd?: string, env?: Record<string, string>): Promise<{ stdout: string; stderr: string; code: number }> {
+        if (argv.length === 0) {
+            return { stdout: "", stderr: "Cannot run an empty argv", code: 127 };
+        }
+        try {
+            return await collectProc(spawnArgv(argv, cwd, env));
+        } catch (e) {
+            return { stdout: "", stderr: await spawnFailure(cwd, e), code: 127 };
+        }
+    }
+
+    /**
+     * Start a command and let go of it, with both its streams appended to
+     * `logPath` — `nohup … >log 2>&1 &` without the shell. The reply says the
+     * command *started*: it outlives this request, and whatever it has to report
+     * it reports into the log, which the control plane reads later.
+     *
+     * Both fds point at the same open file, so the two streams interleave in the
+     * file exactly as the shell redirect had them.
+     */
+    private async runDetached(argv: string[], logPath: string, cwd?: string, env?: Record<string, string>): Promise<{ stdout: string; stderr: string; code: number }> {
+        if (argv.length === 0) {
+            return { stdout: "", stderr: "Cannot run an empty argv", code: 127 };
+        }
+        let log;
+        try {
+            log = await fs.open(logPath, "w");
+        } catch (e) {
+            return { stdout: "", stderr: `Cannot write ${logPath}: ${e}`, code: 127 };
+        }
+        try {
+            const proc = Bun.spawn(argv, {
+                cwd,
+                env: env ? { ...process.env, ...env } : undefined,
+                stdin: "ignore",
+                stdout: log.fd,
+                stderr: log.fd,
+            });
+            // Nothing here waits for it, and the process must not keep the agent's
+            // event loop alive on its own.
+            proc.unref();
+            return { stdout: "", stderr: "", code: 0 };
+        } catch (e) {
+            return { stdout: "", stderr: await spawnFailure(cwd, e), code: 127 };
+        } finally {
+            // The child holds its own duplicate of the descriptor.
+            await log.close();
+        }
+    }
+
+    /**
+     * Streaming counterpart of {@link runExec} and {@link runExecArgv} — a string
+     * `command` runs under `sh -c`, an argv array spawns directly. Forwards
+     * output as the command produces it, then reports the exit code separately.
+     * What this buys over the buffered runners is progress on a slow command (a
+     * `docker pull`'s per-layer lines reaching the task log while it runs) and a
+     * control plane that can time the request out on silence rather than on total
+     * duration.
      *
      * Errors go back as a protocol `error` for the requestId, which the control
      * plane already treats as the request failing — a half-streamed command
      * doesn't need a distinct failure shape.
      */
-    private async runExecStream(requestId: string, command: string): Promise<void> {
+    private async runExecStream(requestId: string, command: string | string[], cwd?: string, env?: Record<string, string>): Promise<void> {
+        let proc;
         try {
-            const proc = Bun.spawn(["sh", "-c", command], { stdout: "pipe", stderr: "pipe" });
+            proc = Array.isArray(command)
+                ? spawnArgv(command, cwd, env)
+                : Bun.spawn(["sh", "-c", command], { stdout: "pipe", stderr: "pipe" });
+        } catch (e) {
+            // Couldn't start at all — reported as output + exit 127 rather than a
+            // protocol error, for the reason {@link runExecArgv} gives.
+            this.transport.send({ type: "execChunk", requestId, stream: "stderr", data: await spawnFailure(cwd, e) });
+            this.transport.send({ type: "execStreamEnd", requestId, code: 127 });
+            return;
+        }
+        try {
             const pump = async (stream: ReadableStream<Uint8Array>, which: "stdout" | "stderr"): Promise<void> => {
                 // Streaming decode: a chunk boundary can land mid-UTF-8-sequence,
                 // and decoding each buffer independently would corrupt it.

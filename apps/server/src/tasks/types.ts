@@ -11,6 +11,8 @@ import type {
     TaskDockerImagePullResult,
     TaskDockerStackAction,
     TaskDockerStackActionResult,
+    TaskExec,
+    TaskExecResult,
     TaskFindWanIp,
     TaskFindWanIpResult,
     TaskResult,
@@ -49,7 +51,8 @@ import type {
 import { AGENT_VERSION } from "@central/shared";
 import type { ComposeStackStore } from "../features/compose/store";
 import type { Fleet } from "../fleet";
-import type { HostAgent } from "../host-agent";
+import type { ExecOptions, ExecResult, HostAgent } from "../host-agent";
+import { runStreamingLines } from "../exec-lines";
 import { discoverWanIp } from "../stun";
 
 // ---- Task handlers: the server half of the spec union ------------------------
@@ -135,6 +138,7 @@ async function waitForAgentReconnect(ctx: TaskCtx, target: string, before: HostA
  */
 export interface TaskHandlers {
     cmd(spec: TaskCmd, ctx: TaskCtx): Promise<TaskCmdResult>;
+    exec(spec: TaskExec, ctx: TaskCtx): Promise<TaskExecResult>;
     find_wan_ip(spec: TaskFindWanIp, ctx: TaskCtx): Promise<TaskFindWanIpResult>;
     service_action(spec: TaskServiceAction, ctx: TaskCtx): Promise<TaskServiceActionResult>;
     docker_stack_action(spec: TaskDockerStackAction, ctx: TaskCtx): Promise<TaskDockerStackActionResult>;
@@ -176,17 +180,41 @@ export type TaskHandlerFor<K extends TaskSpec["kind"]> = TaskHandlers[K];
  * instead, composed into the full registry alongside this at boot — see
  * index.ts and doc/idea_feature_convention.md §3.
  */
-export const taskHandlers: Pick<TaskHandlers, "cmd" | "find_wan_ip" | "update_agent"> = {
+/**
+ * Run a command for a task, with its output reaching the run's log as it
+ * appears rather than all at once at the end. Runs against `ctx.agent` when the
+ * task is targeted at a host.
+ */
+async function runForTask(ctx: TaskCtx, argv: string[], opts?: ExecOptions): Promise<ExecResult> {
+    if (!ctx.agent) {
+        return { stdout: "", stderr: "", code: 0 }; // control-plane exec TBD
+    }
+    return runStreamingLines(ctx.agent, argv, (text, stream) => ctx.log(text, stream), opts);
+}
+
+export const taskHandlers: Pick<TaskHandlers, "cmd" | "exec" | "find_wan_ip" | "update_agent"> = {
+    /**
+     * The one place in the codebase that still hands a shell a command string,
+     * and the one place where that's the feature rather than an oversight: the
+     * command is free text an operator typed, `panel.exec` already means
+     * terminal access, and pipes and redirects are what they're asking for.
+     *
+     * It goes through the same argv path as everything else — the shell is now
+     * named in the argv (`sh -c <command>`) instead of being what the host does
+     * to a string by default. Anything the control plane *builds* uses `exec`
+     * below, where a value can't turn into syntax.
+     */
     async cmd(spec, ctx) {
-        // Runs against ctx.agent when targeted, else on the control plane host.
-        const res = ctx.agent
-            ? await ctx.agent.exec(spec.command)
-            : { stdout: "", stderr: "", code: 0 }; // control-plane exec TBD
-        ctx.log(res.stdout);
-        if (res.stderr) {
-            ctx.log(res.stderr, "stderr");
-        }
+        const res = await runForTask(ctx, ["sh", "-c", spec.command]);
         return { kind: "cmd", exitCode: res.code, stdout: res.stdout, stderr: res.stderr };
+    },
+
+    async exec(spec, ctx) {
+        if (spec.argv.length === 0) {
+            throw new Error("An exec task needs a command to run");
+        }
+        const res = await runForTask(ctx, spec.argv, { cwd: spec.cwd, env: spec.env });
+        return { kind: "exec", exitCode: res.code, stdout: res.stdout, stderr: res.stderr };
     },
 
     async find_wan_ip(_spec, ctx) {

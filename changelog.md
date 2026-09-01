@@ -51,6 +51,8 @@ feature may run longer; most don't earn it.
 - **Per-task-kind permissions** (`TASK_KIND_PERMISSIONS`): `runTask` now gates on the kind, not
   just the operation. ZFS pool/vdev surgery keeps its owner-only default via `panel.zfs.admin`,
   which is now grantable rather than hardcoded.
+- **`exec` task kind** runs a program from an argv, with `cwd`/`env` — the form for a command the
+  control plane builds. `cmd` stays for a typed command line; both need `panel.exec`.
 
 ### Fixed
 
@@ -62,6 +64,11 @@ feature may run longer; most don't earn it.
 - **The events websocket leaked the whole fleet.** It authenticated but never checked
   permissions, so any account — including a role-`none` app user — received the full server
   inventory, metrics history and task log. Pushed events are now gated like the equivalent pull.
+- **Six command injections through unvalidated request bodies.** Action verbs and log windows
+  reached the host shell as typed — `docker logs --since` made the read-only `panel.docker.read`
+  root on any host.
+- **Docker and ZFS identifiers can no longer start with `-`**, which those tools read as a flag
+  rather than as a name.
 
 - **Host dashboards.** The per-host overview is now a grid of widgets features contribute, not a
   fixed page. Drag to reorder, resize 1–3 columns, add/remove cards. [doc/idea_host_dashboard.md](doc/idea_host_dashboard.md)
@@ -106,6 +113,10 @@ feature may run longer; most don't earn it.
   the run's status was already being broadcast to the page.
 - **External domain** renamed "External domain for agents" — it's the address agents dial on
   `:4142`, which differs from the UI's hostname when the proxy is a separate machine.
+- **Host commands run as an argv instead of a shell string**, so nothing in a name or path can be
+  read as syntax. `cwd`/`env` replace `cd …&&` prefixes, and stdout/stderr stay separate.
+- **Agents gained `execArgv`, `detach` and `resolvePaths`.** An agent too old for one still gets a
+  correctly-quoted command string, so nothing breaks before it updates.
 
 ### Fixed
 

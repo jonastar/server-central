@@ -9,6 +9,13 @@ export interface NodeExecResult {
 /** Response to an httpRequest — the status and (size-capped) body of an HTTP
  *  request the agent performed from its host. Network-level failures come back
  *  as a protocol `error` message instead, like other request kinds. */
+/** A path a glob matched, with the symlink chain followed to its real target
+ *  (`/dev/disk/by-id/ata-X` → `/dev/sda`). Equal to `path` when it isn't a link. */
+export interface ResolvedPath {
+    path: string;
+    realPath: string;
+}
+
 export interface NodeHttpResult {
     status: number;
     body: string;
@@ -46,6 +53,7 @@ export type NodeMessage =
     | { type: "installServiceResponse"; requestId: string; startCommand: string | null }
     | { type: "updateServiceResponse"; requestId: string }
     | { type: "hostCapabilitiesResponse"; requestId: string; report: HostCapabilityReport }
+    | { type: "resolvePathsResponse"; requestId: string; result: ResolvedPath[] }
     // Reply to a control-plane `ping`. The control plane doesn't need it for
     // liveness (metrics already flow every 5s) — it exists so the exchange is a
     // real round trip, and older control planes ignore it (no requestId).
@@ -65,6 +73,41 @@ export type ControlMessage =
     // agents advertising the "execStream" capability; older ones get a buffered
     // execRequest instead (see HostAgent.execStream).
     | { type: "execStreamRequest"; requestId: string; command: string }
+    // Run a command with no shell involved: argv[0] is resolved on PATH and the
+    // rest are handed to it as literal arguments, so nothing in them can be read
+    // as syntax. This is the form every control-plane-built command should use —
+    // `execRequest` composes a string that `sh -c` then re-parses, which puts the
+    // burden of escaping on every call site that interpolates a value.
+    //
+    // What the shell was doing at those call sites is covered by the fields here:
+    // `cwd` replaces `cd <dir> && …`, `env` replaces a `K=v …` prefix (merged over
+    // the agent's own environment, not replacing it). Redirection has no
+    // equivalent and needs none — stdout and stderr come back separately in the
+    // reply, which is what `2>&1` was approximating.
+    //
+    // Replies are the same messages `execRequest`/`execStreamRequest` get
+    // (`execResponse`, and `execChunk` + `execStreamEnd`) — this changes how a
+    // command is described, not how its output comes back. Sent only to agents
+    // advertising the "execArgv" capability; for older ones the control plane
+    // renders the argv into a properly quoted command string and falls back to
+    // `execRequest` (see HostAgent.run).
+    //
+    // `detach` is the last thing the shell was doing that argv had no answer for:
+    // `nohup … >log 2>&1 &`. The agent starts the command with both its streams
+    // pointed at `logPath`, lets go of it, and replies immediately — the reply
+    // means "started", not "finished". For work that outlives the request and
+    // reports through a file rather than a result (the proxy bring-up, whose
+    // image pull can take minutes). It needs no capability of its own: it
+    // arrived with `execArgv`, so any agent that handles the message handles the
+    // field.
+    | { type: "execArgvRequest"; requestId: string; argv: string[]; cwd?: string; env?: Record<string, string>; detach?: { logPath: string } }
+    | { type: "execArgvStreamRequest"; requestId: string; argv: string[]; cwd?: string; env?: Record<string, string> }
+    // Expand shell-style globs on the host and follow each match to its real
+    // path — what `for f in /dev/disk/by-id/*; do readlink -f "$f"; done` was
+    // for. Only `*` and `?` are meaningful, and only in the last segment.
+    // Sent only to agents advertising "resolvePaths"; older ones get the shell
+    // loop instead (see HostAgent.resolvePaths).
+    | { type: "resolvePathsRequest"; requestId: string; patterns: string[] }
     | { type: "listDirRequest"; requestId: string; path: string }
     | { type: "readFileRequest"; requestId: string; path: string }
     | { type: "writeFileRequest"; requestId: string; path: string; content: string }

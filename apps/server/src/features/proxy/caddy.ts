@@ -84,7 +84,7 @@ export function renderCaddyConfig(
  * Host ports come from validated config ints; everything else is a constant —
  * nothing user-controlled is interpolated.
  */
-export function proxyDeployCommand(config: ProxyConfig): string {
+export function proxyDeployScript(config: ProxyConfig): string {
     const run = [
         "docker run -d",
         `--name ${PROXY_CONTAINER}`,
@@ -111,8 +111,15 @@ export function proxyDeployCommand(config: ProxyConfig): string {
     // both leave no container behind, and only the finished one says so.
     // The opening echo guarantees the log is non-empty the moment the chain
     // starts, so "launched, nothing printed yet" reads as in-progress too.
-    const chain = `echo "deploying ${PROXY_IMAGE}"; docker pull ${PROXY_IMAGE}; docker rm -f ${PROXY_CONTAINER}; ${run}; echo "${PROXY_DEPLOY_DONE} rc=$?"`;
-    return `nohup sh -c '${chain}' >${PROXY_DEPLOY_LOG} 2>&1 &`;
+    //
+    // Still a shell script, deliberately: four commands in sequence with a
+    // completion marker is what a shell is *for*, and unlike the string this
+    // used to be wrapped in (`nohup sh -c '<chain>' >log 2>&1 &`) it now goes
+    // over as a single argv element, so there's no nesting to quote correctly.
+    // The backgrounding and the redirect are the agent's job — see the `detach`
+    // option on `HostAgent.run`. Nothing interpolated below is free text: the
+    // ports are integer-validated by the store, the rest are constants.
+    return `echo "deploying ${PROXY_IMAGE}"; docker pull ${PROXY_IMAGE}; docker rm -f ${PROXY_CONTAINER}; ${run}; echo "${PROXY_DEPLOY_DONE} rc=$?"`;
 }
 
 /**

@@ -21,7 +21,7 @@ export type ProcessesOps = "getProcesses";
 export function processesApiHandlers(fleet: Fleet): FeatureApiHandlers<ProcessesOps> {
     return {
         async handleGetProcesses(data: { serverId: string }): Promise<ProcessInfo[]> {
-            const res = await fleet.get(data.serverId).exec("ps aux");
+            const res = await fleet.get(data.serverId).run(["ps", "aux"]);
             const out: ProcessInfo[] = [];
             for (const line of res.stdout.split("\n").slice(1)) {
                 const f = line.trim().split(/\s+/);

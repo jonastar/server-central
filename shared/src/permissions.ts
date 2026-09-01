@@ -224,9 +224,12 @@ export const PANEL_PERMISSIONS = {
     },
     "panel.exec": {
         label: "Run host commands",
-        description: "Run arbitrary shell commands on any host as a task. Equivalent to terminal access.",
+        description: "Run arbitrary commands on any host as a task, with or without a shell. Equivalent to terminal access.",
         ops: [],
-        tasks: ["cmd"],
+        // Both forms of the same power: `exec` runs an argv, `cmd` runs a shell
+        // command line. The split is about which is easy to *build* safely, not
+        // about privilege — either one reaches root, so either one needs this.
+        tasks: ["cmd", "exec"],
         escalation: "Runs any command as the agent's user, which is root.",
         sensitive: true,
     },

@@ -14,16 +14,25 @@ import type { HostAgent } from "../../host-agent";
 
 // Pool/dataset/snapshot names — ZoL is lenient enough to allow spaces in a name
 // (seen in the wild, e.g. a TrueNAS pool named "sata ssds"), so this can't be as
-// strict as docker.ts's SAFE_ID_RE. It still excludes every shell metacharacter;
-// every use below wraps the value in double quotes on top of this check.
-const SAFE_NAME_RE = /^[A-Za-z0-9 _.:/-]+$/;
-const SAFE_SNAPSHOT_RE = /^[A-Za-z0-9 _.:/-]+@[A-Za-z0-9 _.:-]+$/;
-const SAFE_PROP_KEY_RE = /^[A-Za-z0-9_:.-]+$/;
+// strict as docker.ts's SAFE_ID_RE.
+//
+// These are no longer what stands between a name and a shell: every command in
+// this file runs as an argv (see `runOrThrow`), so a name reaches zfs as one
+// literal argument whatever it contains. What they still do is guard the layer
+// argv can't reach — zfs's *own* option parsing, which would read a leading `-`
+// as a flag — and fail early with a legible message instead of a tool error.
+// Hence the leading character being alphanumeric: ZFS requires that of pool and
+// dataset components anyway, so nothing legitimate is refused by it.
+const SAFE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 _.:/-]*$/;
+const SAFE_SNAPSHOT_RE = /^[A-Za-z0-9][A-Za-z0-9 _.:/-]*@[A-Za-z0-9][A-Za-z0-9 _.:-]*$/;
+const SAFE_PROP_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9_:.-]*$/;
+// No leading-character rule here: a value is never an argument by itself — it
+// only ever appears as the tail of a `key=value` element, which `key` starts.
 const SAFE_PROP_VALUE_RE = /^[A-Za-z0-9_./:%-]+$/;
 /** A device *reference* as zpool status prints it: a `/dev/...` path, a bare
  *  disk/by-id name, or a partition GUID. Permissive — this identifies an
  *  *existing* pool member, not something the caller free-types. */
-const SAFE_DEVICE_REF_RE = /^[A-Za-z0-9_.:/-]+$/;
+const SAFE_DEVICE_REF_RE = /^[A-Za-z0-9/][A-Za-z0-9_.:/-]*$/;
 /** A *new* device being added to a pool — must be a `/dev/...` path (by-id,
  *  per the safety model in doc/idea_zfs.md — never bare `/dev/sdX`). */
 const SAFE_NEW_DEVICE_RE = /^\/dev\/[A-Za-z0-9_./-]+$/;
@@ -58,24 +67,41 @@ function assertDeviceRef(device: string): void {
     }
 }
 
+/** The vdev types `vdevArgs` will emit. `ZfsVdevType` is a compile-time claim
+ *  only — the API surface casts a parsed JSON body to it without checking — and
+ *  unlike the devices beside it, the type is written into the command as a bare
+ *  word (it's a zpool keyword, not a quotable value), so it needs its own check. */
+const VDEV_TYPES: readonly ZfsVdevType[] = ["stripe", "mirror", "raidz1", "raidz2", "raidz3", "spare", "log", "cache"];
+
+function assertVdevType(type: ZfsVdevType): void {
+    if (!VDEV_TYPES.includes(type)) {
+        throw new Error(`Invalid vdev type: ${JSON.stringify(type)}`);
+    }
+}
+
 function assertNewDevice(device: string): void {
     if (!device || !SAFE_NEW_DEVICE_RE.test(device)) {
         throw new Error(`New pool devices must be a /dev/disk/by-id path, got: ${JSON.stringify(device)}`);
     }
 }
 
-/** Double-quote a value already validated against one of the SAFE_*_RE above
- *  (none of which permit `"`, so no escaping is needed on top of the quotes). */
-function q(value: string): string {
-    return `"${value}"`;
-}
-
 function firstErrorLine(res: { stdout: string; stderr: string }): string {
-    return (res.stdout + res.stderr).trim().split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";
+    // Joined, not concatenated: the two streams arrive separately now, and a
+    // stdout that doesn't end in a newline would otherwise glue its last line to
+    // the first line of the error.
+    return [res.stdout, res.stderr].join("\n").trim().split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";
 }
 
-async function runOrThrow(server: HostAgent, command: string, onLog?: (text: string, stream?: "stdout" | "stderr") => void): Promise<void> {
-    const res = await server.exec(command);
+/**
+ * Run a zfs/zpool command as an argv — no shell, so a pool named `sata ssds` or
+ * anything else is one literal argument rather than something to quote. Every
+ * mutation in this file goes through here.
+ *
+ * There's no `2>&1` to carry errors any more either: stdout and stderr come back
+ * separately, and {@link firstErrorLine} reads both.
+ */
+async function runOrThrow(server: HostAgent, argv: string[], onLog?: (text: string, stream?: "stdout" | "stderr") => void): Promise<void> {
+    const res = await server.run(argv);
     if (res.stdout) {
         onLog?.(res.stdout, "stdout");
     }
@@ -83,7 +109,7 @@ async function runOrThrow(server: HostAgent, command: string, onLog?: (text: str
         onLog?.(res.stderr, "stderr");
     }
     if (res.code !== 0) {
-        throw new Error(firstErrorLine(res) || `Command failed: ${command}`);
+        throw new Error(firstErrorLine(res) || `Command failed: ${argv.join(" ")}`);
     }
 }
 
@@ -359,14 +385,14 @@ function parsePoolStatus(stdout: string): Map<string, PoolStatusInfo> {
 }
 
 export async function zfsGetState(server: HostAgent): Promise<ZfsState> {
-    const probe = await server.exec("zpool version 2>&1");
+    const probe = await server.run(["zpool", "version"]);
     if (probe.code !== 0) {
         return { available: false, error: firstErrorLine(probe) || "ZFS is not available on this host", pools: [] };
     }
 
     const [listRes, statusRes] = await Promise.all([
-        server.exec("zpool list -H -p -o name,size,alloc,free,fragmentation,capacity,health 2>&1"),
-        server.exec("zpool status 2>&1"),
+        server.run(["zpool", "list", "-H", "-p", "-o", "name,size,alloc,free,fragmentation,capacity,health"]),
+        server.run(["zpool", "status"]),
     ]);
     if (listRes.code !== 0) {
         return { available: false, error: firstErrorLine(listRes) || "zpool list failed", pools: [] };
@@ -396,7 +422,7 @@ export async function zfsGetState(server: HostAgent): Promise<ZfsState> {
  *  pool's tree mentions, keyed by pool name. Re-runs `zpool status` — cheap,
  *  and keeps this independent of {@link zfsGetState}'s call shape. */
 async function zfsGetPoolDeviceRefs(server: HostAgent): Promise<Map<string, { pool: string }>> {
-    const res = await server.exec("zpool status 2>&1");
+    const res = await server.run(["zpool", "status"]);
     const details = parsePoolStatus(res.stdout);
     const map = new Map<string, { pool: string }>();
     for (const [pool, info] of details) {
@@ -415,8 +441,8 @@ export async function zfsGetDatasets(server: HostAgent, pool?: string): Promise<
     if (pool) {
         assertName(pool, "pool");
     }
-    const scope = pool ? `-r ${q(pool)}` : "";
-    const res = await server.exec(`zfs list -H -p -t filesystem,volume -o ${DATASET_FIELDS} ${scope} 2>&1`);
+    const scope = pool ? ["-r", pool] : [];
+    const res = await server.run(["zfs", "list", "-H", "-p", "-t", "filesystem,volume", "-o", DATASET_FIELDS, ...scope]);
     if (res.code !== 0) {
         throw new Error(firstErrorLine(res) || "zfs list failed");
     }
@@ -456,7 +482,7 @@ export async function setDatasetProperty(server: HostAgent, name: string, key: s
     assertName(name, "dataset");
     assertPropKey(key);
     assertPropValue(value);
-    await runOrThrow(server, `zfs set ${key}=${value} ${q(name)} 2>&1`);
+    await runOrThrow(server, ["zfs", "set", `${key}=${value}`, name]);
 }
 
 // ---- Snapshots -------------------------------------------------------------------
@@ -465,8 +491,8 @@ export async function zfsGetSnapshots(server: HostAgent, dataset?: string): Prom
     if (dataset) {
         assertName(dataset, "dataset");
     }
-    const scope = dataset ? `-r ${q(dataset)}` : "";
-    const res = await server.exec(`zfs list -H -p -t snapshot -o name,used,refer,creation ${scope} 2>&1`);
+    const scope = dataset ? ["-r", dataset] : [];
+    const res = await server.run(["zfs", "list", "-H", "-p", "-t", "snapshot", "-o", "name,used,refer,creation", ...scope]);
     if (res.code !== 0) {
         // No snapshots at all isn't an error condition worth surfacing.
         if (/no datasets available|dataset does not exist/i.test(res.stdout + res.stderr)) {
@@ -501,12 +527,12 @@ export async function zfsSnapshotCreate(server: HostAgent, dataset: string, name
     assertName(name, "snapshot name");
     const full = `${dataset}@${name}`;
     assertSnapshotName(full);
-    await runOrThrow(server, `zfs snapshot ${recursive ? "-r " : ""}${q(full)} 2>&1`, onLog);
+    await runOrThrow(server, ["zfs", "snapshot", ...(recursive ? ["-r"] : []), full], onLog);
 }
 
 export async function zfsSnapshotDestroy(server: HostAgent, snapshot: string, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertSnapshotName(snapshot);
-    await runOrThrow(server, `zfs destroy ${q(snapshot)} 2>&1`, onLog);
+    await runOrThrow(server, ["zfs", "destroy", snapshot], onLog);
 }
 
 /** No `-f` — ever (see doc/idea_zfs.md's safety model). `destroyLater` maps to
@@ -514,13 +540,13 @@ export async function zfsSnapshotDestroy(server: HostAgent, snapshot: string, on
  *  count to the operator before setting it, not bury it in a checkbox. */
 export async function zfsSnapshotRollback(server: HostAgent, snapshot: string, destroyLater: boolean, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertSnapshotName(snapshot);
-    await runOrThrow(server, `zfs rollback ${destroyLater ? "-r " : ""}${q(snapshot)} 2>&1`, onLog);
+    await runOrThrow(server, ["zfs", "rollback", ...(destroyLater ? ["-r"] : []), snapshot], onLog);
 }
 
 export async function zfsSnapshotClone(server: HostAgent, snapshot: string, target: string, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertSnapshotName(snapshot);
     assertName(target, "clone target");
-    await runOrThrow(server, `zfs clone ${q(snapshot)} ${q(target)} 2>&1`, onLog);
+    await runOrThrow(server, ["zfs", "clone", snapshot, target], onLog);
 }
 
 // ---- Dataset lifecycle -------------------------------------------------------------
@@ -545,15 +571,15 @@ export async function zfsDatasetCreate(
     for (const [key, value] of Object.entries(properties ?? {})) {
         assertPropKey(key);
         assertPropValue(value);
-        propFlags.push(`-o ${key}=${value}`);
+        propFlags.push("-o", `${key}=${value}`);
     }
-    const sizeFlag = type === "volume" ? `-V ${Math.floor(volsizeBytes!)} ` : "";
-    await runOrThrow(server, `zfs create ${sizeFlag}${propFlags.join(" ")} ${q(full)} 2>&1`, onLog);
+    const sizeFlag = type === "volume" ? ["-V", String(Math.floor(volsizeBytes!))] : [];
+    await runOrThrow(server, ["zfs", "create", ...sizeFlag, ...propFlags, full], onLog);
 }
 
 export async function zfsDatasetDestroy(server: HostAgent, name: string, recursive: boolean, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(name, "dataset");
-    await runOrThrow(server, `zfs destroy ${recursive ? "-r " : ""}${q(name)} 2>&1`, onLog);
+    await runOrThrow(server, ["zfs", "destroy", ...(recursive ? ["-r"] : []), name], onLog);
 }
 
 // ---- Block devices (for the pool/vdev disk picker) --------------------------------
@@ -592,25 +618,20 @@ function parseLsblkPairs(stdout: string): LsblkRow[] {
 
 export async function zfsGetBlockDevices(server: HostAgent): Promise<ZfsBlockDevice[]> {
     const [lsblkRes, byIdRes, refs] = await Promise.all([
-        server.exec("lsblk -b -P -o NAME,TYPE,SIZE,MODEL,SERIAL,ROTA,MOUNTPOINT,FSTYPE,PKNAME,PARTUUID 2>&1"),
-        server.exec(`for f in /dev/disk/by-id/*; do echo "$f $(readlink -f "$f")"; done 2>/dev/null`),
+        server.run(["lsblk", "-b", "-P", "-o", "NAME,TYPE,SIZE,MODEL,SERIAL,ROTA,MOUNTPOINT,FSTYPE,PKNAME,PARTUUID"]),
+        server.resolvePaths(["/dev/disk/by-id/*"]),
         zfsGetPoolDeviceRefs(server),
     ]);
     if (lsblkRes.code !== 0) {
         throw new Error(firstErrorLine(lsblkRes) || "lsblk failed");
     }
 
+    // Every stable /dev/disk/by-id name, grouped by the device it points at.
     const byIdByDevPath = new Map<string, string[]>();
-    for (const line of byIdRes.stdout.split("\n")) {
-        const sp = line.indexOf(" ");
-        if (sp === -1) {
-            continue;
-        }
-        const byId = line.slice(0, sp);
-        const resolved = line.slice(sp + 1).trim();
-        const list = byIdByDevPath.get(resolved) ?? [];
-        list.push(byId);
-        byIdByDevPath.set(resolved, list);
+    for (const { path, realPath } of byIdRes) {
+        const list = byIdByDevPath.get(realPath) ?? [];
+        list.push(path);
+        byIdByDevPath.set(realPath, list);
     }
 
     const rows = parseLsblkPairs(lsblkRes.stdout);
@@ -671,19 +692,19 @@ export async function zfsGetBlockDevices(server: HostAgent): Promise<ZfsBlockDev
 
 // ---- Pool lifecycle (owner-gated via the feature's ownerOnlyTaskKinds) ------------
 
-function vdevArgs(vdevs: { type: ZfsVdevType; devices: string[] }[]): string {
-    return vdevs
-        .map((v) => {
-            if (v.devices.length === 0) {
-                throw new Error(`A ${v.type} vdev needs at least one device`);
-            }
-            for (const d of v.devices) {
-                assertNewDevice(d);
-            }
-            const devs = v.devices.map(q).join(" ");
-            return v.type === "stripe" ? devs : `${v.type} ${devs}`;
-        })
-        .join(" ");
+function vdevArgs(vdevs: { type: ZfsVdevType; devices: string[] }[]): string[] {
+    return vdevs.flatMap((v) => {
+        assertVdevType(v.type);
+        if (v.devices.length === 0) {
+            throw new Error(`A ${v.type} vdev needs at least one device`);
+        }
+        for (const d of v.devices) {
+            assertNewDevice(d);
+        }
+        // A stripe has no keyword of its own — its devices sit directly in the
+        // vdev list.
+        return v.type === "stripe" ? v.devices : [v.type, ...v.devices];
+    });
 }
 
 export async function zfsPoolCreate(server: HostAgent, name: string, vdevs: { type: ZfsVdevType; devices: string[] }[], force?: boolean, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
@@ -691,37 +712,37 @@ export async function zfsPoolCreate(server: HostAgent, name: string, vdevs: { ty
     if (vdevs.length === 0) {
         throw new Error("Pick at least one vdev");
     }
-    await runOrThrow(server, `zpool create ${force ? "-f " : ""}${q(name)} ${vdevArgs(vdevs)} 2>&1`, onLog);
+    await runOrThrow(server, ["zpool", "create", ...(force ? ["-f"] : []), name, ...vdevArgs(vdevs)], onLog);
 }
 
 export async function zfsPoolDestroy(server: HostAgent, name: string, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(name, "pool name");
-    await runOrThrow(server, `zpool destroy ${q(name)} 2>&1`, onLog);
+    await runOrThrow(server, ["zpool", "destroy", name], onLog);
 }
 
 export async function zfsPoolImport(server: HostAgent, name: string, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(name, "pool name");
-    await runOrThrow(server, `zpool import ${q(name)} 2>&1`, onLog);
+    await runOrThrow(server, ["zpool", "import", name], onLog);
 }
 
 export async function zfsPoolExport(server: HostAgent, name: string, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(name, "pool name");
-    await runOrThrow(server, `zpool export ${q(name)} 2>&1`, onLog);
+    await runOrThrow(server, ["zpool", "export", name], onLog);
 }
 
 export async function zfsVdevAdd(server: HostAgent, pool: string, vdev: { type: ZfsVdevType; devices: string[] }, force?: boolean, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(pool, "pool name");
-    await runOrThrow(server, `zpool add ${force ? "-f " : ""}${q(pool)} ${vdevArgs([vdev])} 2>&1`, onLog);
+    await runOrThrow(server, ["zpool", "add", ...(force ? ["-f"] : []), pool, ...vdevArgs([vdev])], onLog);
 }
 
 export async function zfsDeviceReplace(server: HostAgent, pool: string, oldDevice: string, newDevice: string, onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(pool, "pool name");
     assertDeviceRef(oldDevice);
     assertNewDevice(newDevice);
-    await runOrThrow(server, `zpool replace ${q(pool)} ${q(oldDevice)} ${q(newDevice)} 2>&1`, onLog);
+    await runOrThrow(server, ["zpool", "replace", pool, oldDevice, newDevice], onLog);
 }
 
 export async function zfsScrub(server: HostAgent, pool: string, action: "start" | "stop", onLog?: (t: string, s?: "stdout" | "stderr") => void): Promise<void> {
     assertName(pool, "pool name");
-    await runOrThrow(server, `zpool scrub ${action === "stop" ? "-s " : ""}${q(pool)} 2>&1`, onLog);
+    await runOrThrow(server, ["zpool", "scrub", ...(action === "stop" ? ["-s"] : []), pool], onLog);
 }
