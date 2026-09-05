@@ -1,7 +1,7 @@
 import type { TaskLogLine, TaskRun, TaskSpec } from "@central/shared";
 import { TASK_KIND_PERMISSIONS, canRunTask } from "@central/shared";
 import type { AuthContext } from "../../auth";
-import type { Feature, FeatureApiHandlers } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { TaskRunner } from "../../tasks/runner";
 import type { TaskStore } from "../../tasks/store";
 
@@ -9,25 +9,13 @@ import type { TaskStore } from "../../tasks/store";
 // itself (runner, store, the kind→handler map) stays at src/tasks/, since every
 // feature contributes kinds to it; this is only its API slice.
 
-export function createTasksFeature(tasks: TaskRunner, store: TaskStore): Feature<TasksOps> {
-    return {
-        descriptor: {
-            id: "tasks",
-            name: "Tasks",
-            description: "Run history and live logs for every long-running action across the fleet.",
-            experimental: false,
-        },
-        apiHandlers() {
-            return tasksApiHandlers(tasks, store);
-        },
-    };
-}
-
-export type TasksOps = "runTask" | "listTasks" | "getTask" | "getTaskLogs";
-
-export function tasksApiHandlers(tasks: TaskRunner, store: TaskStore): FeatureApiHandlers<TasksOps> {
-    return {
-        async handleRunTask(data: { spec: TaskSpec; target: string | null }, ctx?: AuthContext): Promise<{ id: string }> {
+export const createTasksFeature = (tasks: TaskRunner, store: TaskStore) => defineFeature({
+    id: "tasks",
+    name: "Tasks",
+    description: "Run history and live logs for every long-running action across the fleet.",
+    experimental: false,
+    ops: {
+        async run(data, ctx?: AuthContext) {
             // `panel.tasks.run` got the caller as far as this handler; it says
             // nothing about *which* kind, and the kinds range from restarting a
             // container to running arbitrary shell. The spec arrives off the
@@ -40,16 +28,18 @@ export function tasksApiHandlers(tasks: TaskRunner, store: TaskStore): FeatureAp
             return { id: run.id };
         },
 
-        async handleListTasks(data: { target?: string | null; kind?: TaskSpec["kind"]; limit?: number }): Promise<TaskRun[]> {
+        async list(data) {
             return store.list(data);
         },
 
-        async handleGetTask(data: { id: string }): Promise<TaskRun | null> {
+        async get(data) {
             return store.get(data.id);
         },
 
-        async handleGetTaskLogs(data: { id: string }): Promise<TaskLogLine[]> {
+        async getLogs(data) {
             return tasks.getLogs(data.id);
         },
-    };
-}
+    },
+});
+
+

@@ -118,7 +118,7 @@ function SetPropertyModal({ serverId, dataset, onClose, onSet }: {
         setBusy(true);
         setError(null);
         try {
-            await api("setDatasetProperty", { serverId, name: dataset.name, key: effectiveKey, value });
+            await api("zfs", "setDatasetProperty", { serverId, name: dataset.name, key: effectiveKey, value });
             onSet();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -169,7 +169,7 @@ export function ZfsDatasets({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setDatasets(await api("getZfsDatasets", { serverId }));
+            setDatasets(await api("zfs", "getDatasets", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

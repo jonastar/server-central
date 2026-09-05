@@ -4,10 +4,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ControlMessage, SystemInfo } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
-import { ComposeStackStore } from "../../src/features/compose/store";
 import { Fleet } from "../../src/fleet";
 import { HostAgent } from "../../src/host-agent";
-import { taskHandlers, type TaskCtx } from "../../src/tasks/types";
+import type { TaskCtx } from "../../src/tasks/types";
+import { createServersFeature } from "../../src/features/servers/feature";
+
+// A real (empty) Fleet rather than a cast: `update_agent` resolves its target
+// through `ctx.fleet`, but the feature factory still genuinely takes one.
+const taskHandlers = createServersFeature(new Fleet(() => {}, () => {}), null).taskHandlers!();
 
 // Unit-level coverage (no sockets, real Fleet/HostAgent — same style as
 // fleet-priority.test.ts) for the `update_agent` task handler's reconnect wait:
@@ -57,7 +61,7 @@ function makeInstalledAgent(fleet: Fleet, version: string): HostAgent {
 }
 
 function fakeCtx(fleet: Fleet, agent: HostAgent): TaskCtx {
-    return { signal: new AbortController().signal, agent, target: MACHINE, fleet, stacks: new ComposeStackStore(fleet), log: () => {} };
+    return { signal: new AbortController().signal, agent, target: MACHINE, fleet, log: () => {} };
 }
 
 test("update_agent does not resolve on ack alone — it waits for a genuine reconnect", async () => {
@@ -109,7 +113,7 @@ test("update_agent times out if the agent never reconnects", async () => {
     // of hanging, and report a clear error rather than a false success.
     const controller = new AbortController();
     controller.abort();
-    const ctx: TaskCtx = { signal: controller.signal, agent: oldAgent, target: MACHINE, fleet, stacks: new ComposeStackStore(fleet), log: () => {} };
+    const ctx: TaskCtx = { signal: controller.signal, agent: oldAgent, target: MACHINE, fleet, log: () => {} };
 
     await expect(taskHandlers.update_agent({ kind: "update_agent" }, ctx)).rejects.toThrow();
 });

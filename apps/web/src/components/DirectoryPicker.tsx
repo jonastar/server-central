@@ -79,7 +79,7 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
         requested.current.add(path);
         void (async () => {
             try {
-                const list = await api("listDir", { serverId, path });
+                const list = await api("files", "listDir", { serverId, path });
                 setChildren((m) => new Map(m).set(path, list.entries));
             } catch {
                 setChildren((m) => new Map(m).set(path, "error"));
@@ -94,7 +94,7 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
             ensureLoaded(path);
         }
         setError(null);
-        api("probeInstallPath", { serverId, path: value })
+        api("servers", "probeInstallPath", { serverId, path: value })
             .then(setProbe)
             .catch(() => setProbe(null));
     }, [value, serverId, ensureLoaded]);
@@ -122,7 +122,7 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
             return;
         }
         try {
-            await api("createDir", { serverId, path: joinPath(value, name) });
+            await api("files", "createDir", { serverId, path: joinPath(value, name) });
             requested.current.delete(value);
             setChildren((prev) => {
                 const next = new Map(prev);

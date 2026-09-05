@@ -1,4 +1,4 @@
-import type { CentralApiOperations } from "@central/shared";
+import type { ApiNamespace, CentralApiOperations } from "@central/shared";
 import { API_PREFIX } from "@central/shared";
 
 /**
@@ -71,12 +71,21 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
     onUnauthorized = fn;
 }
 
-export async function api<K extends keyof CentralApiOperations>(
-    command: K,
-    data: CentralApiOperations[K]["data"],
-): Promise<CentralApiOperations[K]["response"]> {
+/**
+ * Call one operation: `api("docker", "list", { serverId })` → `POST /api/docker/list`.
+ *
+ * The namespace is a separate argument rather than part of one qualified string
+ * so the two generics resolve independently — picking the namespace narrows the
+ * operations the second argument accepts, and `data`/the return type follow from
+ * both.
+ */
+export async function api<N extends ApiNamespace, O extends keyof CentralApiOperations[N]>(
+    namespace: N,
+    operation: O,
+    data: CentralApiOperations[N][O] extends { data: infer D } ? D : never,
+): Promise<CentralApiOperations[N][O] extends { response: infer R } ? R : never> {
     const token = getToken();
-    const res = await fetch(`${API_BASE}/${String(command)}`, {
+    const res = await fetch(`${API_BASE}/${String(namespace)}/${String(operation)}`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -96,5 +105,5 @@ export async function api<K extends keyof CentralApiOperations>(
     }
 
     const text = await res.text();
-    return (text && text !== "null" ? JSON.parse(text) : undefined) as CentralApiOperations[K]["response"];
+    return (text && text !== "null" ? JSON.parse(text) : undefined) as CentralApiOperations[N][O] extends { response: infer R } ? R : never;
 }

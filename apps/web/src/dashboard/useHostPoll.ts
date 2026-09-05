@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { CentralApiOperations } from "@central/shared";
+import type { ApiNamespace, CentralApiOperations } from "@central/shared";
 import { api } from "../api";
 
 /**
@@ -40,10 +40,15 @@ export interface PollState<T> {
     refresh(): void;
 }
 
-type Op = keyof CentralApiOperations;
+/** A polled operation, as the namespace + operation pair `api()` takes. */
+type Op = ApiNamespace;
+type OpOf<N extends ApiNamespace> = keyof CentralApiOperations[N] & string;
+type DataOf<N extends ApiNamespace, O extends OpOf<N>> = CentralApiOperations[N][O] extends { data: infer D } ? D : never;
+type ResponseOf<N extends ApiNamespace, O extends OpOf<N>> = CentralApiOperations[N][O] extends { response: infer R } ? R : never;
 
 interface Entry {
     op: Op;
+    operation: string;
     args: unknown;
     intervalMs: number;
     data: unknown;
@@ -59,8 +64,8 @@ interface Entry {
 
 const entries = new Map<string, Entry>();
 
-function keyOf(op: Op, args: unknown): string {
-    return `${op}:${JSON.stringify(args ?? null)}`;
+function keyOf(op: Op, operation: string, args: unknown): string {
+    return `${op}/${operation}:${JSON.stringify(args ?? null)}`;
 }
 
 function notify(entry: Entry): void {
@@ -103,7 +108,7 @@ function fetchNow(entry: Entry): Promise<void> {
             // The cast is the same one `api` callers make everywhere: the key
             // pairs an op with its own args, so the pairing is correct by
             // construction even though this generic wrapper can't prove it.
-            entry.data = await api(entry.op as never, entry.args as never);
+            entry.data = await api(entry.op as never, entry.operation as never, entry.args as never);
             entry.error = null;
             entry.failures = 0;
         } catch (err) {
@@ -120,12 +125,13 @@ function fetchNow(entry: Entry): Promise<void> {
     return run;
 }
 
-function getEntry(op: Op, args: unknown, intervalMs: number): Entry {
-    const key = keyOf(op, args);
+function getEntry(op: Op, operation: string, args: unknown, intervalMs: number): Entry {
+    const key = keyOf(op, operation, args);
     let entry = entries.get(key);
     if (!entry) {
         entry = {
             op,
+            operation,
             args,
             intervalMs,
             data: null,
@@ -172,22 +178,23 @@ if (typeof document !== "undefined") {
  * Subscribe to a polled operation. Returns the shared cache entry's current
  * state, re-rendering when it changes.
  */
-export function useHostPoll<K extends Op>(
-    op: K,
-    args: CentralApiOperations[K]["data"],
+export function useHostPoll<N extends Op, O extends OpOf<N>>(
+    op: N,
+    operation: O,
+    args: DataOf<N, O>,
     opts: { enabled?: boolean; intervalMs?: number } = {},
-): PollState<CentralApiOperations[K]["response"]> {
+): PollState<ResponseOf<N, O>> {
     const { enabled = true, intervalMs = DEFAULT_POLL_MS } = opts;
     // The key is the dependency: identical args from different renders must not
     // resubscribe, and changed args must.
-    const key = enabled ? keyOf(op, args) : null;
+    const key = enabled ? keyOf(op, operation, args) : null;
     const [, bump] = useState(0);
 
     useEffect(() => {
         if (key === null) {
             return;
         }
-        const entry = getEntry(op, args, intervalMs);
+        const entry = getEntry(op, operation, args, intervalMs);
         const listener = () => bump((n) => n + 1);
         entry.subscribers.add(listener);
         if (entry.data === null && entry.error === null) {
@@ -208,7 +215,7 @@ export function useHostPoll<K extends Op>(
             // the whole entry — otherwise browsing N hosts leaks N entries.
             entry.evictTimer = setTimeout(() => {
                 if (entry.subscribers.size === 0) {
-                    entries.delete(keyOf(entry.op, entry.args));
+                    entries.delete(keyOf(entry.op, entry.operation, entry.args));
                 }
             }, EVICT_AFTER_MS);
         };
@@ -219,9 +226,9 @@ export function useHostPoll<K extends Op>(
     if (key === null) {
         return { data: null, error: null, loading: false, refresh: () => {} };
     }
-    const entry = getEntry(op, args, intervalMs);
+    const entry = getEntry(op, operation, args, intervalMs);
     return {
-        data: entry.data as CentralApiOperations[K]["response"] | null,
+        data: entry.data as ResponseOf<N, O> | null,
         error: entry.error,
         loading: entry.loading,
         refresh: () => void fetchNow(entry),

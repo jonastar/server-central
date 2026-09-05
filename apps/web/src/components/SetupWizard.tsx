@@ -40,7 +40,7 @@ export function SetupWizard({ entry, onClose }: { entry: ServerEntry; onClose: (
         setBusy(true);
         setError(null);
         try {
-            const res = await api("installNodeService", {
+            const res = await api("servers", "installService", {
                 serverId: entry.id,
                 installDir: custom ? installDir : null,
                 dataDir: custom ? dataDir : null,

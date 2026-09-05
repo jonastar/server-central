@@ -1,6 +1,6 @@
 import type { ProxyApplyResult, ProxyConfig, ProxyRoute, ProxyState } from "@central/shared";
 import type { AuthContext } from "../../auth";
-import type { Feature, FeatureApiHandlers } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { ProxyManager } from "./manager";
 import type { ProxyStore } from "./store";
 
@@ -8,59 +8,49 @@ import type { ProxyStore } from "./store";
 // ProxyManager for the deploy/apply mechanics. Owner-only throughout: a route
 // change re-points public traffic.
 
-export function createProxyFeature(proxy: ProxyManager, store: ProxyStore): Feature<ProxyOps> {
-    return {
-        descriptor: {
-            id: "proxy",
-            name: "Reverse proxy",
-            description: "SC-managed Caddy reverse proxy and its routes. See doc/idea_reverse_proxy.md.",
-            experimental: false,
-            dependsOn: ["docker"],
-        },
-        async init() {
-            await store.init();
-        },
-        apiHandlers() {
-            return proxyApiHandlers(proxy);
-        },
-    };
-}
-
-export type ProxyOps = "getProxyState" | "setProxyConfig" | "deployProxy" | "removeProxy"
-    | "createProxyRoute" | "updateProxyRoute" | "deleteProxyRoute" | "applyProxyConfig";
-
-export function proxyApiHandlers(proxy: ProxyManager): FeatureApiHandlers<ProxyOps> {
-    return {
-        async handleGetProxyState(_data: void, ctx?: AuthContext): Promise<ProxyState> {
+export const createProxyFeature = (proxy: ProxyManager, store: ProxyStore) => defineFeature({
+    id: "proxy",
+    name: "Reverse proxy",
+    description: "SC-managed Caddy reverse proxy and its routes. See doc/idea_reverse_proxy.md.",
+    experimental: false,
+    dependsOn: ["docker"],
+    
+    async init() {
+        await store.init();
+            },
+    ops: {
+        async getState(_data, ctx?: AuthContext) {
             return proxy.state();
         },
 
-        async handleSetProxyConfig(data: { config: ProxyConfig | null }, ctx?: AuthContext): Promise<void> {
+        async setConfig(data, ctx?: AuthContext) {
             await proxy.setConfig(data.config);
         },
 
-        async handleDeployProxy(_data: void, ctx?: AuthContext): Promise<void> {
+        async deploy(_data, ctx?: AuthContext) {
             await proxy.deploy();
         },
 
-        async handleRemoveProxy(_data: void, ctx?: AuthContext): Promise<void> {
+        async remove(_data, ctx?: AuthContext) {
             await proxy.remove();
         },
 
-        async handleCreateProxyRoute(data: { route: Omit<ProxyRoute, "id"> }, ctx?: AuthContext): Promise<ProxyRoute> {
+        async createRoute(data, ctx?: AuthContext) {
             return proxy.createRoute(data.route);
         },
 
-        async handleUpdateProxyRoute(data: { route: ProxyRoute }, ctx?: AuthContext): Promise<void> {
+        async updateRoute(data, ctx?: AuthContext) {
             await proxy.updateRoute(data.route);
         },
 
-        async handleDeleteProxyRoute(data: { routeId: string }, ctx?: AuthContext): Promise<void> {
+        async deleteRoute(data, ctx?: AuthContext) {
             await proxy.deleteRoute(data.routeId);
         },
 
-        async handleApplyProxyConfig(_data: void, ctx?: AuthContext): Promise<ProxyApplyResult> {
+        async applyConfig(_data, ctx?: AuthContext) {
             return proxy.apply();
         },
-    };
-}
+    },
+});
+
+

@@ -20,7 +20,7 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
         setBusy(true);
         try {
             const uris = redirectUris.split("\n").map((s) => s.trim()).filter(Boolean);
-            const result = await api("createOidcClient", { name, redirectUris: uris });
+            const result = await api("oidc", "createClient", { name, redirectUris: uris });
             setCreated(result);
             onCreated(result.client);
         } catch (err) {
@@ -102,7 +102,7 @@ export function OidcClientsTab() {
     const [adding, setAdding] = useState(false);
 
     function refresh() {
-        api("listOidcClients", undefined).then(setClients).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+        api("oidc", "listClients", undefined).then(setClients).catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }
 
     useEffect(refresh, []);
@@ -114,7 +114,7 @@ export function OidcClientsTab() {
         setBusyId(client.id);
         setError(null);
         try {
-            await api("deleteOidcClient", { clientId: client.id });
+            await api("oidc", "deleteClient", { clientId: client.id });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

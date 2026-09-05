@@ -17,10 +17,11 @@ re-document finished work here, and delete an item from this file once it lands.
   registry (`apps/web/src/dashboard`) is the model; fleet widgets aggregate across hosts, so
   they need their own `WidgetProps` and a separate registry sharing `useHostPoll` and the layout
   store shape. See [doc/idea_host_dashboard.md](doc/idea_host_dashboard.md) §4.
+- Temperature monitoring?
 
 ### Container filesystem access
 
-The container drawer's Volumes tab (2026-08-25) browses a container's *mounts* by reusing the
+The container drawer's Volumes tab (2026-08-25) browses a container's _mounts_ by reusing the
 host `FilesView` rooted at each mount's host-side `source` — every bind and named volume that
 `docker inspect` reports carries an absolute host path, so it needed no new agent primitive.
 
@@ -57,7 +58,7 @@ them, `none` as the floor). What's left:
   there — the per-button pass across DockerView/ZfsView/ServicesView/FilesView is what's left.
 - **Host identity** (`doc/idea_rbac_host_users.md` Part 2): files/exec/docker/systemd still run
   as root regardless of caller. Terminals already map to a system user. This is what would turn
-  the permission registry's escalation notes from *documented* into *bounded* — see
+  the permission registry's escalation notes from _documented_ into _bounded_ — see
   [doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md) §1 "Where this model is
   deliberately incomplete" for the three complications, including that docker doesn't benefit.
 - **No audit log.** Task runs record who started them; nothing else does — not file reads, not

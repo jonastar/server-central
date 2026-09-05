@@ -1,15 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { TaskLogLine, TaskRun, TaskSpec, TaskTrigger } from "@central/shared";
-import type { ComposeStackStore } from "../features/compose/store";
 import type { Fleet } from "../fleet";
 import { TaskStore } from "./store";
 import { type TaskCtx, type TaskHandlers, runTaskSpec } from "./types";
 
 /**
- * Owns the lifecycle of a task run: status transitions, the resolved agent +
- * cancellation context handlers run with, persistence via {@link TaskStore}, and
- * broadcasting each change as a `taskUpdate` event. Handlers (in ./types) stay
- * small and pure — they just take a ctx + spec and return a result.
+ * Owns the lifecycle of a task run: status transitions, the context handlers run
+ * with, persistence via {@link TaskStore}, and broadcasting each change as a
+ * `taskUpdate` event. Handlers (in the features that own each kind) stay small
+ * and pure — they just take a ctx + spec and return a result.
  */
 /** Log lines kept per run, oldest dropped first once a run exceeds this. */
 const MAX_LOG_LINES = 2000;
@@ -22,7 +21,6 @@ export class TaskRunner {
     constructor(
         private readonly store: TaskStore,
         private readonly fleet: Fleet,
-        private readonly stacks: ComposeStackStore,
         private readonly onUpdate: (run: TaskRun) => void,
         private readonly onLog: (taskId: string, line: TaskLogLine) => void,
         private readonly handlers: TaskHandlers,
@@ -56,13 +54,20 @@ export class TaskRunner {
         run.startedAt = Date.now();
         await this.save(run);
 
+        // Nothing aborts this controller today — there is no `cancelTask`
+        // operation, so `ctx.signal` is in practice a permanently-unaborted
+        // signal. It is wired anyway because the handlers that poll (notably
+        // `update_agent`, which waits up to five minutes for a reconnect) are
+        // already written against it: adding the operation later is a matter of
+        // holding these controllers in a map and calling `abort`, not of
+        // rewriting the handlers. `TaskStatus` already has a `cancelled`
+        // member for the same reason. See shared/src/tasks.ts.
         const controller = new AbortController();
         const ctx: TaskCtx = {
             signal: controller.signal,
             agent: null,
             target: run.target,
             fleet: this.fleet,
-            stacks: this.stacks,
             log: (text, stream) => {
                 const line: TaskLogLine = { ts: Date.now(), text, stream };
                 const buf = this.logs.get(run.id) ?? [];

@@ -29,7 +29,7 @@ export function HostCapabilityNotice({ serverId, capability, label, result }: {
             // The fresh report is broadcast to every client as a servers update,
             // so this view re-renders (and usually unmounts) off that, not off a
             // local copy of the response.
-            await api("redetectHostCapabilities", { serverId });
+            await api("servers", "redetectCapabilities", { serverId });
         } catch (e) {
             setError((e as Error).message);
         } finally {

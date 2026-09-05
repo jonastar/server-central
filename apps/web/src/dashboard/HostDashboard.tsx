@@ -198,7 +198,7 @@ export function HostDashboard({ entry }: { entry: ServerEntry }) {
         setError(null);
         void (async () => {
             try {
-                const stored = await api("getHostDashboard", { hostId: serverId });
+                const stored = await api("dashboard", "get", { hostId: serverId });
                 if (!cancelled) {
                     // No stored row means nobody has arranged this host: build
                     // the default from the registry. See idea_host_dashboard.md §3.
@@ -233,7 +233,7 @@ export function HostDashboard({ entry }: { entry: ServerEntry }) {
     async function save() {
         setBusy(true);
         try {
-            const stored = await api("setHostDashboard", { hostId: serverId, widgets: layout ?? [] });
+            const stored = await api("dashboard", "set", { hostId: serverId, widgets: layout ?? [] });
             setLayout(stored.widgets);
             setEditing(false);
             setError(null);
@@ -250,7 +250,7 @@ export function HostDashboard({ entry }: { entry: ServerEntry }) {
         }
         setBusy(true);
         try {
-            await api("resetHostDashboard", { hostId: serverId });
+            await api("dashboard", "reset", { hostId: serverId });
             setLayout(defaultLayout(entry));
             setEditing(false);
             setError(null);

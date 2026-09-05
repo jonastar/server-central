@@ -41,12 +41,12 @@ function HostRow({ systemUser, host, onChanged }: {
     }
 
     function handleCreate() {
-        void run(() => api("systemUserCreate", { serverId: host.serverId, username: systemUser, groups: [] }));
+        void run(() => api("system-users", "create", { serverId: host.serverId, username: systemUser, groups: [] }));
     }
 
     function handleSaveGroups() {
         const groups = groupsInput.split(",").map((g) => g.trim()).filter(Boolean);
-        void run(() => api("systemUserSetGroups", { serverId: host.serverId, username: systemUser, groups }));
+        void run(() => api("system-users", "setGroups", { serverId: host.serverId, username: systemUser, groups }));
     }
 
     const badge = STATUS_BADGE[host.status];
@@ -121,7 +121,7 @@ export function MappedSystemUsersModal({ scUsername, systemUser, onClose }: {
 
     const load = useCallback(async () => {
         try {
-            setHosts(await api("systemUserHostStatus", { username: systemUser }));
+            setHosts(await api("system-users", "hostStatus", { username: systemUser }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

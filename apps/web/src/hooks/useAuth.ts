@@ -19,7 +19,7 @@ export function useAuth(): Auth {
 
     const refresh = useCallback(async () => {
         try {
-            const res = await api("getAuthState", undefined);
+            const res = await api("auth", "getState", undefined);
             setState({ loading: false, needsSetup: res.needsSetup, user: res.user });
         } catch {
             setState({ loading: false, needsSetup: false, user: null });
@@ -34,20 +34,20 @@ export function useAuth(): Auth {
     }, [refresh]);
 
     const login = useCallback(async (username: string, password: string) => {
-        const res = await api("login", { username, password });
+        const res = await api("auth", "login", { username, password });
         setToken(res.token);
         setState({ loading: false, needsSetup: false, user: res.user });
     }, []);
 
     const setup = useCallback(async (username: string, password: string) => {
-        const res = await api("setupOwner", { username, password });
+        const res = await api("auth", "setupOwner", { username, password });
         setToken(res.token);
         setState({ loading: false, needsSetup: false, user: res.user });
     }, []);
 
     const logout = useCallback(async () => {
         try {
-            await api("logout", undefined);
+            await api("auth", "logout", undefined);
         } catch {
             /* best-effort; clear locally regardless */
         }

@@ -16,7 +16,7 @@ export function DockerVolumes({ serverId, onBrowse }: { serverId: string; onBrow
 
     const load = useCallback(async () => {
         try {
-            setDocker(await api("dockerList", { serverId }));
+            setDocker(await api("docker", "list", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -32,7 +32,7 @@ export function DockerVolumes({ serverId, onBrowse }: { serverId: string; onBrow
 
     async function inspect(vol: DockerVolumeInfo) {
         try {
-            setDetail(await api("dockerVolumeInspect", { serverId, name: vol.name }));
+            setDetail(await api("docker", "volumeInspect", { serverId, name: vol.name }));
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         }
@@ -44,7 +44,7 @@ export function DockerVolumes({ serverId, onBrowse }: { serverId: string; onBrow
         }
         setBusy(vol.name);
         try {
-            await api("dockerVolumeRemove", { serverId, name: vol.name });
+            await api("docker", "volumeRemove", { serverId, name: vol.name });
             await load();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

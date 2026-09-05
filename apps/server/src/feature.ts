@@ -1,6 +1,29 @@
-import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, FeatureDescriptor, HostCapability, HostCapabilityReport, HostCapabilityResult, TaskSpec } from "@central/shared";
+import type { ApiEvent, ApiHandler, ApiHandlers, ApiNamespace, CentralApiOperations, FeatureDescriptor, HostCapability, HostCapabilityReport, HostCapabilityResult, TaskSpec } from "@central/shared";
 import { HOST_CAPABILITIES } from "@central/shared";
 import type { TaskHandlers } from "./tasks/types";
+
+/**
+ * A raw HTTP route: a path outside the JSON-RPC surface that a feature answers
+ * directly, with its own request/response shape.
+ *
+ * The RPC layer covers everything a browser calls with a session bearer token.
+ * A handful of endpoints can't live there — OIDC's token and userinfo endpoints
+ * are form-encoded and client-authenticated per spec, and discovery/JWKS are
+ * public GETs at fixed well-known paths. Those used to be special-cased in the
+ * composition root, which meant the OIDC feature's own surface was split across
+ * two files; this is how a feature declares them itself.
+ *
+ * Matching is exact on `path` and (when given) `method`. Routes are matched
+ * before the RPC prefix and before static assets, so a feature cannot shadow an
+ * operation by accident — the paths are disjoint by construction.
+ */
+export interface HttpRoute {
+    path: string;
+    method?: string;
+    /** `cors` is the already-resolved `Access-Control-*` header set for this
+     *  request — the same one the RPC layer answers with. */
+    handle(req: Request, cors: Record<string, string>): Promise<Response>;
+}
 
 export interface FeatureBootCtx {
     configDir: string;
@@ -8,16 +31,26 @@ export interface FeatureBootCtx {
     // grows as features actually need shared infra — not a kitchen-sink up front
 }
 
-/** Every operation name in the wire protocol, and every task kind. */
-export type ApiOp = keyof CentralApiOperations;
+/** Every task kind. Namespaces come from `ApiNamespace` in the protocol. */
 export type TaskKind = TaskSpec["kind"];
 
-/** A feature's slice of `ApiHandlerPrefixed<CentralApiOperations>`, keyed by
- *  its own operation-name union — the return type every `<feature>ApiHandlers`
- *  factory declares instead of retyping the `Pick<...Capitalize...>` shape by
- *  hand each time. */
-export type FeatureApiHandlers<T extends ApiOp> =
-    Pick<ApiHandlerPrefixed<CentralApiOperations>, `handle${Capitalize<T>}`>;
+/**
+ * A feature's slice of the handler map: its own namespace and the operations in
+ * it.
+ *
+ * A feature owns exactly one namespace, and a namespace key *is* a feature id —
+ * so this is `Pick` of a single key, and the nesting in the returned object is
+ * the feature declaring which namespace it answers for. That declaration is
+ * type-checked against the protocol, which is what lets `composeApiHandlers`
+ * prove coverage without trusting `descriptor.id` at runtime.
+ */
+export type FeatureApiHandlers<N extends ApiNamespace> =
+    Pick<ApiHandlers<CentralApiOperations>, N>;
+
+/** Just the operations of one namespace, without the namespace key wrapping
+ *  them — what `defineFeature` takes as `ops`. */
+export type InnerFeatureApiHandlers<N extends ApiNamespace> =
+    ApiHandler<CentralApiOperations[N]>;
 
 /** A feature's slice of `TaskHandlers`, keyed by the kinds it owns. */
 export type FeatureTaskHandlers<K extends TaskKind> = Pick<TaskHandlers, K>;
@@ -33,7 +66,7 @@ export type FeatureTaskHandlers<K extends TaskKind> = Pick<TaskHandlers, K>;
  * fails to typecheck at its own factory; one that narrows it fails at the
  * registry, where the composed slice no longer satisfies the full map.
  */
-export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = never, TConfig = void> {
+export interface Feature<TNs extends ApiNamespace = never, TKinds extends TaskKind = never, TConfig = void> {
     descriptor: FeatureDescriptor;
 
     /** Mirrors the Fleet/ComposeStackStore/ProxyStore load-on-start pattern already used
@@ -42,7 +75,10 @@ export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = n
      *  entry point instead of a bespoke `await x.init()` per feature. */
     init?(ctx: FeatureBootCtx): Promise<void>;
 
-    apiHandlers?(): FeatureApiHandlers<TOps>;
+    apiHandlers?(): FeatureApiHandlers<TNs>;
+
+    /** Raw (non-RPC) HTTP endpoints this feature owns — see {@link HttpRoute}. */
+    httpRoutes?(): HttpRoute[];
 
     taskHandlers?(): FeatureTaskHandlers<TKinds>;
 
@@ -53,6 +89,76 @@ export interface Feature<TOps extends ApiOp = never, TKinds extends TaskKind = n
         default: TConfig;
         load(raw: unknown): TConfig;
     };
+}
+
+/**
+ * One feature, declared as data.
+ *
+ * Everything about a feature is inferred from this literal rather than restated:
+ * `id` fixes the API namespace (they are the same string by construction), and
+ * the keys of `tasks` fix the task kinds. That replaces a `Feature<"systemd",
+ * "service_action">` annotation that repeated both, plus a `descriptor` nested
+ * one level down, plus a namespace key wrapping `ops`.
+ *
+ * `ops` is typed `never` when `id` isn't an API namespace, so a feature that
+ * serves no operations (terminal, debug) can't accidentally declare some — and
+ * one that does gets its handlers checked against the protocol, with `data` and
+ * the return type contextually typed from it. Nothing here needs an annotation.
+ *
+ * This stays a *factory* argument, not a module-level constant: features take
+ * their collaborators explicitly (`fleet`, a store, a callback), and the `tasks`
+ * feature takes the runner that is itself built from the feature registry. So
+ * the idiom is `export const createXFeature = (deps) => defineFeature({...})`.
+ */
+export interface FeatureDesc<TId extends string, TKinds extends TaskKind> {
+    /** Stable key: config storage, `dependsOn` refs, the frontend's matching id
+     *  — and, when the feature serves operations, its API namespace. */
+    id: TId;
+    name: string;
+    description: string;
+    /** Defaults to false. */
+    experimental?: boolean;
+    dependsOn?: string[];
+    requiresHostCapability?: HostCapability;
+    init?(ctx: FeatureBootCtx): Promise<void>;
+    /** This namespace's operations, unwrapped. `never` when `id` names no namespace. */
+    ops?: TId extends ApiNamespace ? InnerFeatureApiHandlers<TId> : never;
+    /** Task kinds this feature owns; the keys are the claim. */
+    tasks?: FeatureTaskHandlers<TKinds>;
+    httpRoutes?(): HttpRoute[];
+}
+
+export function defineFeature<TId extends string, TKinds extends TaskKind = never>(
+    desc: FeatureDesc<TId, TKinds>,
+): Feature<TId extends ApiNamespace ? TId : never, TKinds> {
+    type Ns = TId extends ApiNamespace ? TId : never;
+    const feature: Feature<Ns, TKinds> = {
+        descriptor: {
+            id: desc.id,
+            name: desc.name,
+            description: desc.description,
+            experimental: desc.experimental ?? false,
+            ...(desc.dependsOn ? { dependsOn: desc.dependsOn } : {}),
+            ...(desc.requiresHostCapability ? { requiresHostCapability: desc.requiresHostCapability } : {}),
+        },
+    };
+    if (desc.init) {
+        feature.init = desc.init;
+    }
+    if (desc.ops) {
+        // Re-wrap under the namespace key the registry merges on. `id` is the
+        // namespace by construction, which is what the `ops` type above proves.
+        const wrapped = { [desc.id]: desc.ops } as unknown as FeatureApiHandlers<Ns>;
+        feature.apiHandlers = () => wrapped;
+    }
+    if (desc.tasks) {
+        const tasks = desc.tasks;
+        feature.taskHandlers = () => tasks;
+    }
+    if (desc.httpRoutes) {
+        feature.httpRoutes = desc.httpRoutes;
+    }
+    return feature;
 }
 
 // ---- The node-side half -----------------------------------------------------
@@ -167,7 +273,7 @@ export async function composeHostProbes(features: readonly AgentFeature[]): Prom
  */
 export type AnyFeature = Feature<never, never, any>;
 
-export type FeatureOps<F> = F extends Feature<infer O, any, any> ? O : never;
+export type FeatureNs<F> = F extends Feature<infer N, any, any> ? N : never;
 export type FeatureKinds<F> = F extends Feature<any, infer K, any> ? K : never;
 
 /**
@@ -211,23 +317,66 @@ function mergeSlices(label: string, slices: { id: string; slice: object | undefi
  * Compose every feature's API slice into one handler object.
  *
  * The return type is the *union* of the features' declared operations, so
- * assigning the result to the full `ApiHandlerPrefixed<CentralApiOperations>`
- * is what enforces completeness: add an operation to the protocol and this
- * assignment fails, naming the missing `handle*` methods, instead of the gap
- * surfacing as a 404 at runtime.
+ * assigning the result to the full `ApiHandlers<CentralApiOperations>` is what
+ * enforces completeness: add a namespace to the protocol and this assignment
+ * fails, naming it, instead of the gap surfacing as a 404 at runtime. A missing
+ * *operation* fails earlier still — at the owning feature's own factory, since
+ * `FeatureApiHandlers<"docker">` requires every operation in that namespace.
  */
-export function composeApiHandlers<F extends readonly AnyFeature[]>(features: F): FeatureApiHandlers<FeatureOps<F[number]>> {
+export function composeApiHandlers<F extends readonly AnyFeature[]>(features: F): FeatureApiHandlers<FeatureNs<F[number]>> {
     const slices = features.map((f) => ({ id: f.descriptor.id, slice: f.apiHandlers?.() }));
-    return mergeSlices("operation", slices) as FeatureApiHandlers<FeatureOps<F[number]>>;
+    return mergeSlices("namespace", slices) as FeatureApiHandlers<FeatureNs<F[number]>>;
 }
 
-export interface ComposedTaskHandlers<K extends TaskKind> {
-    handlers: FeatureTaskHandlers<K>;
+/**
+ * Flatten the nested handler map into the table the dispatcher reads, keyed by
+ * the qualified `"<namespace>/<operation>"` wire name.
+ *
+ * A `Map` rather than an object on purpose: the key comes straight off the
+ * request path, and a `Map` has no prototype for `constructor`/`__proto__` to
+ * resolve against. That is what replaced the old `handle` name-prefixing — the
+ * lookup itself can no longer reach anything that isn't a registered operation.
+ */
+export function flattenApiHandlers(handlers: ApiHandlers<CentralApiOperations>): Map<string, (data: unknown, ctx: unknown) => Promise<unknown>> {
+    const table = new Map<string, (data: unknown, ctx: unknown) => Promise<unknown>>();
+    for (const [namespace, ops] of Object.entries(handlers as Record<string, Record<string, unknown>>)) {
+        for (const [op, fn] of Object.entries(ops)) {
+            table.set(`${namespace}/${op}`, (fn as (d: unknown, c: unknown) => Promise<unknown>).bind(ops));
+        }
+    }
+    return table;
+}
+
+/**
+ * Flatten every feature's raw HTTP routes into one table, rejecting two features
+ * that claim the same path+method. There's no completeness check to make here —
+ * unlike operations and task kinds, no central union enumerates these — so the
+ * uniqueness check is the whole job.
+ */
+export function composeHttpRoutes(features: readonly AnyFeature[]): Map<string, HttpRoute> {
+    const routes = new Map<string, HttpRoute>();
+    const owners = new Map<string, string>();
+    for (const feature of features) {
+        for (const route of feature.httpRoutes?.() ?? []) {
+            const key = `${route.method ?? "*"} ${route.path}`;
+            const existing = owners.get(key);
+            if (existing) {
+                throw new Error(`Feature "${feature.descriptor.id}" and "${existing}" both serve "${key}"`);
+            }
+            owners.set(key, feature.descriptor.id);
+            routes.set(key, route);
+        }
+    }
+    return routes;
+}
+
+/** Look up a raw route for a request, preferring a method-specific entry. */
+export function matchHttpRoute(routes: Map<string, HttpRoute>, method: string, path: string): HttpRoute | undefined {
+    return routes.get(`${method} ${path}`) ?? routes.get(`* ${path}`);
 }
 
 /** Same composition (and the same completeness guarantee) for task kinds. */
-export function composeTaskHandlers<F extends readonly AnyFeature[]>(features: F): ComposedTaskHandlers<FeatureKinds<F[number]>> {
+export function composeTaskHandlers<F extends readonly AnyFeature[]>(features: F): FeatureTaskHandlers<FeatureKinds<F[number]>> {
     const slices = features.map((f) => ({ id: f.descriptor.id, slice: f.taskHandlers?.() }));
-    const handlers = mergeSlices("task kind", slices);
-    return { handlers: handlers as FeatureTaskHandlers<FeatureKinds<F[number]>> };
+    return mergeSlices("task kind", slices) as FeatureTaskHandlers<FeatureKinds<F[number]>>;
 }

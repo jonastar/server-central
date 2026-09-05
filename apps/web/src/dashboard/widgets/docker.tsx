@@ -49,7 +49,7 @@ function mergeStacks(state: HostComposeStacks): StackRow[] {
 }
 
 function useStacks(serverId: string, online: boolean) {
-    return useHostPoll("readHostComposeStacks", { hostId: serverId }, { enabled: online });
+    return useHostPoll("compose", "readForHost", { hostId: serverId }, { enabled: online });
 }
 
 function StackRowLine({ row }: { row: StackRow }) {
@@ -165,7 +165,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
 
 function Summary({ serverId, entry }: WidgetProps) {
     const online = entry.status.state === "online";
-    const { data, error, loading } = useHostPoll("dockerOverview", { serverId }, { enabled: online });
+    const { data, error, loading } = useHostPoll("docker", "overview", { serverId }, { enabled: online });
 
     if (!online) {
         return <EmptyState>Server is not connected.</EmptyState>;

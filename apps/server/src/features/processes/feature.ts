@@ -1,26 +1,14 @@
 import type { ProcessInfo } from "@central/shared";
-import type { Feature, FeatureApiHandlers } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { Fleet } from "../../fleet";
 
-export function createProcessesFeature(fleet: Fleet): Feature<ProcessesOps> {
-    return {
-        descriptor: {
-            id: "processes",
-            name: "Processes",
-            description: "Running-process listing on a host.",
-            experimental: false,
-        },
-        apiHandlers() {
-            return processesApiHandlers(fleet);
-        },
-    };
-}
-
-export type ProcessesOps = "getProcesses";
-
-export function processesApiHandlers(fleet: Fleet): FeatureApiHandlers<ProcessesOps> {
-    return {
-        async handleGetProcesses(data: { serverId: string }): Promise<ProcessInfo[]> {
+export const createProcessesFeature = (fleet: Fleet) => defineFeature({
+    id: "processes",
+    name: "Processes",
+    description: "Running-process listing on a host.",
+    experimental: false,
+    ops: {
+        async list(data) {
             const res = await fleet.get(data.serverId).run(["ps", "aux"]);
             const out: ProcessInfo[] = [];
             for (const line of res.stdout.split("\n").slice(1)) {
@@ -40,5 +28,7 @@ export function processesApiHandlers(fleet: Fleet): FeatureApiHandlers<Processes
             }
             return out.sort((a, b) => b.cpuPct - a.cpuPct).slice(0, 300);
         },
-    };
-}
+    },
+});
+
+

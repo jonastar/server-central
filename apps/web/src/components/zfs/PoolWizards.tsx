@@ -20,7 +20,7 @@ function useBlockDevices(serverId: string) {
     const [devices, setDevices] = useState<ZfsBlockDevice[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     useEffect(() => {
-        api("getZfsBlockDevices", { serverId })
+        api("zfs", "getBlockDevices", { serverId })
             .then(setDevices)
             .catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }, [serverId]);

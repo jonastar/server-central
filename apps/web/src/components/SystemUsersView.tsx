@@ -17,7 +17,7 @@ function AddSystemUserModal({ serverId, onClose, onCreated }: { serverId: string
         setBusy(true);
         try {
             const groupList = groups.split(",").map((g) => g.trim()).filter(Boolean);
-            await api("systemUserCreate", { serverId, username: username.trim(), groups: groupList });
+            await api("system-users", "create", { serverId, username: username.trim(), groups: groupList });
             onCreated();
             onClose();
         } catch (err) {
@@ -62,7 +62,7 @@ export function SystemUsersView({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setState(await api("systemUsersList", { serverId }));
+            setState(await api("system-users", "list", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

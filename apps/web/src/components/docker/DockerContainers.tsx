@@ -36,7 +36,7 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
 
     const load = useCallback(async () => {
         try {
-            setDocker(await api("dockerList", { serverId }));
+            setDocker(await api("docker", "list", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

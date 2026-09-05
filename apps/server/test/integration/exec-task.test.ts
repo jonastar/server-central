@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
 import { TASK_KIND_PERMISSIONS } from "@central/shared";
-import type { ComposeStackStore } from "../../src/features/compose/store";
 import type { Fleet } from "../../src/fleet";
 import type { ExecOptions, HostAgent } from "../../src/host-agent";
-import { taskHandlers, type TaskCtx } from "../../src/tasks/types";
+import type { TaskCtx } from "../../src/tasks/types";
+import { createTerminalFeature } from "../../src/features/terminal/feature";
+
+// The handlers are declared inside the feature now; this is how a test reaches them.
+const taskHandlers = createTerminalFeature().taskHandlers!();
 
 // Two task kinds, one power. `exec` takes an argv so a caller that *builds* a
 // command can't turn a value into syntax; `cmd` takes a command line for the
@@ -32,7 +35,6 @@ function makeCtx(chunks: [stream: "stdout" | "stderr", data: string][] = [], cod
         agent,
         target: "node-a",
         fleet: {} as Fleet,
-        stacks: {} as ComposeStackStore,
     };
     return { ctx, ran, logged };
 }

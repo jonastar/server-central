@@ -7,7 +7,7 @@ import {
     setTrustedProxies as persistSetTrustedProxies,
 } from "../../config";
 import { DEFAULT_FORWARDED_HEADER, parseCidr, type TrustedProxyEntry } from "../../client-ip";
-import type { Feature, FeatureApiHandlers } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { NodeServer } from "../../node-server";
 import type { OidcStore } from "../oidc/store";
 import { controlPlaneStatus, updateControlPlane } from "../../server-install";
@@ -22,7 +22,7 @@ import { controlPlaneStatus, updateControlPlane } from "../../server-install";
 //   allowedOrigins — which *other* apps may call the API cross-origin
 //   domain         — where agents reach the node server on :4142
 
-export function createSettingsFeature(
+export const createSettingsFeature = (
     nodeServer: NodeServer | null,
     oidcStore: OidcStore,
     /** Applies a new CORS allowlist to the running server, so the setting takes
@@ -32,58 +32,12 @@ export function createSettingsFeature(
     applyTrustedProxies: (configured: TrustedProxyEntry[]) => void,
     /** SC_TRUSTED_PROXIES is set, so the env wins and edits must be refused. */
     trustedProxiesLocked: boolean,
-): Feature<SettingsOps> {
-    return {
-        descriptor: {
-            id: "settings",
-            name: "Settings",
-            description: "Control-plane configuration (primary URL, allowed origins, agent domain) and self-update.",
-            experimental: false,
-        },
-        apiHandlers() {
-            return settingsApiHandlers(nodeServer, oidcStore, applyAllowedOrigins, applyTrustedProxies, trustedProxiesLocked);
-        },
-    };
-}
-
-export type SettingsOps = "getConfig" | "setDomain" | "setPrimaryUrl" | "setAllowedOrigins"
-    | "setTrustedProxies" | "getControlPlaneStatus" | "updateControlPlane";
-
-/** Reject anything that isn't an absolute http(s) URL, and normalize it to a bare
- *  origin — a path would silently break the OIDC discovery paths built off it. */
-function normalizeUrl(value: string, label: string): string {
-    let url: URL;
-    try {
-        url = new URL(value);
-    } catch {
-        throw new Error(`${label} must be a valid absolute URL, e.g. https://central.example.com`);
-    }
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-        throw new Error(`${label} must be http or https`);
-    }
-    if (url.pathname !== "/" || url.search || url.hash) {
-        throw new Error(`${label} must be a bare origin, with no path or query`);
-    }
-    return url.origin;
-}
-
-export function settingsApiHandlers(
-    nodeServer: NodeServer | null,
-    oidcStore: OidcStore,
-    applyAllowedOrigins: (configured: string[], primaryUrl: string | null) => void,
-    applyTrustedProxies: (configured: TrustedProxyEntry[]) => void,
-    trustedProxiesLocked: boolean,
-): FeatureApiHandlers<SettingsOps> {
-    return {
-        async handleGetConfig(): Promise<{
-            domain: string | null;
-            primaryUrl: string | null;
-            allowedOrigins: string[];
-            trustedProxies: { address: string; header: string }[];
-            forwardedHeader: string;
-            trustedProxiesLocked: boolean;
-            oidcClientCount: number;
-        }> {
+) => defineFeature({
+    id: "settings",
+    name: "Settings",
+    description: "Control-plane configuration (primary URL, allowed origins, agent domain) and self-update.",
+    ops: {
+        async getConfig() {
             const config = await readConfig();
             return {
                 domain: config.domain ?? null,
@@ -100,7 +54,7 @@ export function settingsApiHandlers(
             };
         },
 
-        async handleSetTrustedProxies(data: { trustedProxies: { address: string; header: string }[] }): Promise<void> {
+        async setTrustedProxies(data) {
             if (trustedProxiesLocked) {
                 throw new Error("Trusted proxies are set by SC_TRUSTED_PROXIES in the environment, so they can't be changed here");
             }
@@ -125,14 +79,14 @@ export function settingsApiHandlers(
             applyTrustedProxies(entries);
         },
 
-        async handleSetDomain(data: { domain: string | null }): Promise<void> {
+        async setDomain(data) {
             await persistSetDomain(data.domain);
             // Re-issue the leaf so it carries the new domain in its SAN; agents trust the
             // CA, so this takes effect without re-enrolling anything.
             await nodeServer?.refreshTls();
         },
 
-        async handleSetPrimaryUrl(data: { primaryUrl: string | null; force?: boolean }): Promise<void> {
+        async setPrimaryUrl(data) {
             const config = await readConfig();
             const next = data.primaryUrl ? normalizeUrl(data.primaryUrl, "Primary URL") : null;
             if (next === (config.primaryUrl ?? null)) {
@@ -155,7 +109,7 @@ export function settingsApiHandlers(
             applyAllowedOrigins(config.allowedOrigins ?? [], next);
         },
 
-        async handleSetAllowedOrigins(data: { allowedOrigins: string[] }): Promise<void> {
+        async setAllowedOrigins(data) {
             const normalized: string[] = [];
             for (const entry of data.allowedOrigins) {
                 const trimmed = entry.trim();
@@ -172,13 +126,34 @@ export function settingsApiHandlers(
             applyAllowedOrigins(normalized, config.primaryUrl ?? null);
         },
 
-        async handleGetControlPlaneStatus(): Promise<{ version: string; installed: boolean; latestVersion: string | null; updateAvailable: boolean }> {
+        async getControlPlaneStatus() {
             return controlPlaneStatus();
         },
 
-        async handleUpdateControlPlane(): Promise<void> {
+        async updateControlPlane() {
             console.log(`[update] control-plane self-update requested (current ${AGENT_VERSION})`);
             await updateControlPlane();
         },
-    };
+
+    },
+});
+
+
+/** Reject anything that isn't an absolute http(s) URL, and normalize it to a bare
+ *  origin — a path would silently break the OIDC discovery paths built off it. */
+function normalizeUrl(value: string, label: string): string {
+    let url: URL;
+    try {
+        url = new URL(value);
+    } catch {
+        throw new Error(`${label} must be a valid absolute URL, e.g. https://central.example.com`);
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+        throw new Error(`${label} must be http or https`);
+    }
+    if (url.pathname !== "/" || url.search || url.hash) {
+        throw new Error(`${label} must be a bare origin, with no path or query`);
+    }
+    return url.origin;
 }
+

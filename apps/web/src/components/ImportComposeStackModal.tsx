@@ -63,7 +63,7 @@ export function ImportComposeStackModal({ host, initialDir, onClose, onImported 
         setError(null);
         setBusy(true);
         try {
-            const result = await api("detectComposeStack", { hostId, dir });
+            const result = await api("compose", "detect", { hostId, dir });
             setDetection(result);
             setName(result.predictedName);
             setStep("detected");
@@ -78,7 +78,7 @@ export function ImportComposeStackModal({ host, initialDir, onClose, onImported 
         setError(null);
         setBusy(true);
         try {
-            const stack = await api("importComposeStack", { hostId, dir, name });
+            const stack = await api("compose", "import", { hostId, dir, name });
             onImported(stack.id);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

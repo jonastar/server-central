@@ -174,7 +174,7 @@ export function ContainerDrawer({ serverId, containerId, container, busy, taskId
         let alive = true;
         setDetail(null);
         setError(null);
-        api("dockerContainerInspect", { serverId, containerId })
+        api("docker", "containerInspect", { serverId, containerId })
             .then((d) => alive && setDetail(d))
             .catch((err) => alive && setError(err instanceof Error ? err.message : String(err)));
         return () => { alive = false; };
@@ -244,7 +244,7 @@ export function ContainerDrawer({ serverId, containerId, container, busy, taskId
             {tab === "logs" && (
                 <LogViewerPane
                     caps={{ timestamps: true }}
-                    fetchLogs={(q) => api("dockerContainerLogs", { serverId, containerId, ...q }).then((r) => r.logs)}
+                    fetchLogs={(q) => api("docker", "containerLogs", { serverId, containerId, ...q }).then((r) => r.logs)}
                 />
             )}
             {tab === "volumes" && detail && <MountBrowser serverId={serverId} containerId={containerId} mounts={detail.mounts} />}
@@ -252,7 +252,7 @@ export function ContainerDrawer({ serverId, containerId, container, busy, taskId
             {tab === "exec" && (
                 <ExecBox
                     placeholder="e.g. ls /app, cat /etc/hosts…"
-                    onRun={(command) => api("dockerContainerExec", { serverId, containerId, command })}
+                    onRun={(command) => api("docker", "containerExec", { serverId, containerId, command })}
                 />
             )}
 

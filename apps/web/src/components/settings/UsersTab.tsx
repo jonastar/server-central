@@ -68,7 +68,7 @@ function AddUserModal({ roles, onClose, onCreated }: { roles: RoleDef[]; onClose
         setError(null);
         setBusy(true);
         try {
-            const user = await api("createUser", { username, password, roleIds });
+            const user = await api("auth", "createUser", { username, password, roleIds });
             onCreated(user);
             onClose();
         } catch (err) {
@@ -129,7 +129,7 @@ function ChangePasswordForm({ userId, onDone }: { userId: string; onDone: () => 
         setBusy(true);
         setError(null);
         try {
-            await api("adminSetPassword", { userId, password });
+            await api("auth", "adminSetPassword", { userId, password });
             setPassword("");
             setConfirmPassword("");
             setDone(true);
@@ -178,7 +178,7 @@ function SystemUserForm({ user, onSaved }: { user: UserInfo; onSaved: () => void
         setError(null);
         setDone(false);
         try {
-            await api("setUserSystemUser", { userId: user.id, systemUser: value.trim() || null });
+            await api("auth", "setUserSystemUser", { userId: user.id, systemUser: value.trim() || null });
             setDone(true);
             onSaved();
         } catch (err) {
@@ -222,7 +222,7 @@ function MappedHostsSummary({ user }: { user: UserInfo }) {
         if (!systemUser) {
             return;
         }
-        api("systemUserHostStatus", { username: systemUser })
+        api("system-users", "hostStatus", { username: systemUser })
             .then(setHosts)
             .catch(() => setHosts([]));
     }, [systemUser, open]); // re-check after the modal closes — accounts may have been created
@@ -267,7 +267,7 @@ function UserDetailBody({ user, roles, busy, onRolesChange, onChanged }: {
     const [busySessionId, setBusySessionId] = useState<string | null>(null);
 
     function refresh() {
-        api("getUserDetail", { userId: user.id }).then(setDetail).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+        api("auth", "getUserDetail", { userId: user.id }).then(setDetail).catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }
 
     useEffect(refresh, [user.id]);
@@ -276,7 +276,7 @@ function UserDetailBody({ user, roles, busy, onRolesChange, onChanged }: {
         setBusySessionId(sessionId);
         setError(null);
         try {
-            await api("revokeUserSession", { userId: user.id, sessionId });
+            await api("auth", "revokeUserSession", { userId: user.id, sessionId });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -388,7 +388,7 @@ function PermissionsForm({ user, detail, onSaved }: { user: UserInfo; detail: Us
         setError(null);
         try {
             const permissions = value.split("\n").map((l) => l.trim()).filter(Boolean);
-            await api("setUserPermissions", { userId: user.id, permissions });
+            await api("auth", "setUserPermissions", { userId: user.id, permissions });
             setSaved(true);
             onSaved();
         } catch (err) {
@@ -491,11 +491,11 @@ export function UsersTab() {
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
     function refresh() {
-        api("listUsers", undefined).then(setUsers).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+        api("auth", "listUsers", undefined).then(setUsers).catch((err) => setError(err instanceof Error ? err.message : String(err)));
         // Role names are shown against every user, so the list is needed here as
         // well as on the Roles tab. Failing to load them degrades to raw ids
         // rather than breaking the screen.
-        api("listRoles", undefined).then(setRoles).catch(() => { });
+        api("auth", "listRoles", undefined).then(setRoles).catch(() => { });
     }
 
     useEffect(refresh, []);
@@ -504,7 +504,7 @@ export function UsersTab() {
         setBusyId(userId);
         setError(null);
         try {
-            await api("setUserRoles", { userId, roleIds });
+            await api("auth", "setUserRoles", { userId, roleIds });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -520,7 +520,7 @@ export function UsersTab() {
         setBusyId(user.id);
         setError(null);
         try {
-            await api("deleteUser", { userId: user.id });
+            await api("auth", "deleteUser", { userId: user.id });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

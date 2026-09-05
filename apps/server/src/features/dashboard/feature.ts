@@ -1,5 +1,5 @@
 import type { DashboardWidgetInstance, HostDashboard } from "@central/shared";
-import type { Feature, FeatureApiHandlers } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { DashboardStore } from "./store";
 
 // The per-host overview's arrangement. This feature is unusual in owning almost
@@ -12,37 +12,28 @@ import type { DashboardStore } from "./store";
 // that is offline — which is the point, since a dashboard is how you'd describe
 // what you expect a box to be doing.
 
-export function createDashboardFeature(dashboards: DashboardStore): Feature<DashboardOps> {
-    return {
-        descriptor: {
-            id: "dashboard",
-            name: "Host dashboard",
-            description: "Widget arrangement for a host's overview page.",
-            experimental: false,
-        },
-        async init() {
-            await dashboards.init();
-        },
-        apiHandlers() {
-            return dashboardApiHandlers(dashboards);
-        },
-    };
-}
-
-export type DashboardOps = "getHostDashboard" | "setHostDashboard" | "resetHostDashboard";
-
-export function dashboardApiHandlers(dashboards: DashboardStore): FeatureApiHandlers<DashboardOps> {
-    return {
-        async handleGetHostDashboard(data: { hostId: string }): Promise<HostDashboard | null> {
+export const createDashboardFeature = (dashboards: DashboardStore) => defineFeature({
+    id: "dashboard",
+    name: "Host dashboard",
+    description: "Widget arrangement for a host's overview page.",
+    experimental: false,
+    
+    async init() {
+        await dashboards.init();
+            },
+    ops: {
+        async get(data) {
             return dashboards.get(data.hostId);
         },
 
-        async handleSetHostDashboard(data: { hostId: string; widgets: DashboardWidgetInstance[] }): Promise<HostDashboard> {
+        async set(data) {
             return dashboards.set(data.hostId, data.widgets);
         },
 
-        async handleResetHostDashboard(data: { hostId: string }): Promise<void> {
+        async reset(data) {
             await dashboards.reset(data.hostId);
         },
-    };
-}
+    },
+});
+
+

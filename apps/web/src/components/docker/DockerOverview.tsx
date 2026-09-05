@@ -24,7 +24,7 @@ export function DockerOverview({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setData(await api("dockerOverview", { serverId }));
+            setData(await api("docker", "overview", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

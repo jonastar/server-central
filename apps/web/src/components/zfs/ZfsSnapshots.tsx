@@ -21,7 +21,7 @@ function CreateSnapshotModal({ serverId, onClose, onCreated }: {
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
-        api("getZfsDatasets", { serverId })
+        api("zfs", "getDatasets", { serverId })
             .then((ds) => { setDatasets(ds.map((d) => d.name)); setDataset(ds[0]?.name ?? ""); })
             .catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }, [serverId]);
@@ -122,7 +122,7 @@ export function ZfsSnapshots({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setSnapshots(await api("getZfsSnapshots", { serverId }));
+            setSnapshots(await api("zfs", "getSnapshots", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

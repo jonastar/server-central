@@ -40,7 +40,7 @@ export function TasksView() {
         setExpanded(next);
         if (next && taskLogs[run.id] === undefined) {
             try {
-                const lines = await api("getTaskLogs", { id: run.id });
+                const lines = await api("tasks", "getLogs", { id: run.id });
                 connectionManager.seedTaskLogs(run.id, lines);
             } catch (err) {
                 setError(err instanceof Error ? err.message : String(err));

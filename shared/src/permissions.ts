@@ -26,10 +26,10 @@
  * are meant to carry that weight.
  */
 
-import type { CentralApiOperations, ApiEvent } from "./index";
+import type { ApiOperation, ApiEvent } from "./index";
 import type { TaskSpec } from "./tasks";
 
-type ApiOp = keyof CentralApiOperations;
+type ApiOp = ApiOperation;
 type TaskKind = TaskSpec["kind"];
 type EventKind = ApiEvent["kind"];
 
@@ -100,13 +100,13 @@ export const PANEL_PERMISSIONS = {
     "panel.servers.read": {
         label: "View hosts",
         description: "See the fleet, host metrics and live status.",
-        ops: ["getServers", "getMetricsHistory", "redetectHostCapabilities"],
+        ops: ["servers/list", "servers/getMetricsHistory", "servers/redetectCapabilities"],
         events: ["init", "serversUpdate", "statusUpdate", "metrics"],
     },
     "panel.servers.admin": {
         label: "Manage hosts",
         description: "Enrol new hosts, install and update agents, remove hosts from the fleet.",
-        ops: ["deleteServer", "generateNodeInstallCommand", "probeInstallPath", "installNodeService"],
+        ops: ["servers/delete", "servers/generateInstallCommand", "servers/probeInstallPath", "servers/installService"],
         tasks: ["update_agent"],
         escalation: "Installs and updates the agent, which runs as root, and hands out enrolment commands that let a new machine join the fleet.",
     },
@@ -114,25 +114,25 @@ export const PANEL_PERMISSIONS = {
     "panel.files.read": {
         label: "Browse files",
         description: "Browse directories and read the contents of any file on any host.",
-        ops: ["listDir", "readFile"],
+        ops: ["files/listDir", "files/read"],
         escalation: "Reads every path as root — private keys, /etc/shadow, and Server Central's own data directory, which holds session tokens and the agent enrolment token. Reading those tokens is enough to act as another user.",
     },
     "panel.mounts.read": {
         label: "View mounts & devices",
         description: "See mounted filesystems and mappable devices — an inventory of the host, with no file contents.",
-        ops: ["getMounts", "listHostDevices"],
+        ops: ["files/getMounts", "files/listDevices"],
     },
     "panel.files.write": {
         label: "Modify files",
         description: "Create, edit, rename, upload and delete files anywhere on any host.",
-        ops: ["writeFile", "uploadFile", "createDir", "deletePath", "renamePath"],
+        ops: ["files/write", "files/upload", "files/createDir", "files/delete", "files/rename"],
         escalation: "Writes every path as root. A file dropped in /etc/sudoers.d, ~/.ssh/authorized_keys or a systemd unit is a root shell.",
     },
 
     "panel.docker.read": {
         label: "View containers",
         description: "See containers, images, volumes and their logs.",
-        ops: ["dockerList", "dockerContainerLogs", "dockerOverview", "dockerContainerInspect", "dockerVolumeInspect", "dockerImageDefaults"],
+        ops: ["docker/list", "docker/containerLogs", "docker/overview", "docker/containerInspect", "docker/volumeInspect", "docker/imageDefaults"],
     },
     "panel.docker.control": {
         label: "Control containers",
@@ -150,12 +150,12 @@ export const PANEL_PERMISSIONS = {
     "panel.docker.prune": {
         label: "Remove images & volumes",
         description: "Delete images and volumes, including data that isn't backed up anywhere else.",
-        ops: ["dockerVolumeRemove", "dockerImageAction"],
+        ops: ["docker/volumeRemove", "docker/imageAction"],
     },
     "panel.docker.exec": {
         label: "Run commands in containers",
         description: "Execute arbitrary commands inside any container.",
-        ops: ["dockerContainerExec"],
+        ops: ["docker/containerExec"],
         escalation: "A shell in a container that mounts host paths, or runs privileged, is a shell on the host.",
         sensitive: true,
     },
@@ -163,19 +163,19 @@ export const PANEL_PERMISSIONS = {
     "panel.compose.read": {
         label: "View compose stacks",
         description: "See registered stacks, their services, status and logs.",
-        ops: ["listComposeStacks", "listHostComposeStacks", "readHostComposeStacks", "getComposeStackStatus", "getComposeStackLogs", "validateComposeContent", "detectComposeStack"],
+        ops: ["compose/list", "compose/listForHost", "compose/readForHost", "compose/getStatus", "compose/getLogs", "compose/validateContent", "compose/detect"],
     },
     "panel.compose.write": {
         label: "Manage compose stacks",
         description: "Create, import and delete stacks, and edit their compose files.",
-        ops: ["createComposeStack", "importComposeStack", "deleteComposeStack"],
+        ops: ["compose/create", "compose/import", "compose/delete"],
         escalation: "A compose file is a container definition: mounting / into a container, or granting it the docker socket, makes it root on the host. This is the permission that writes them.",
     },
 
     "panel.systemd.read": {
         label: "View services",
         description: "See systemd units, their state, logs and unit files.",
-        ops: ["systemdList", "systemdServiceLogs", "systemdUnitFile"],
+        ops: ["systemd/list", "systemd/serviceLogs", "systemd/unitFile"],
     },
     "panel.systemd.write": {
         label: "Control services",
@@ -187,12 +187,12 @@ export const PANEL_PERMISSIONS = {
     "panel.zfs.read": {
         label: "View ZFS",
         description: "See pools, datasets, snapshots and available disks.",
-        ops: ["getZfsState", "getZfsDatasets", "getZfsSnapshots", "getZfsBlockDevices"],
+        ops: ["zfs/getState", "zfs/getDatasets", "zfs/getSnapshots", "zfs/getBlockDevices"],
     },
     "panel.zfs.write": {
         label: "Manage datasets & snapshots",
         description: "Create and destroy datasets and snapshots, roll back, clone, scrub.",
-        ops: ["setDatasetProperty"],
+        ops: ["zfs/setDatasetProperty"],
         tasks: ["zfs_scrub", "zfs_dataset_create", "zfs_dataset_destroy", "zfs_snapshot_create", "zfs_snapshot_rollback", "zfs_snapshot_destroy", "zfs_snapshot_clone"],
     },
     "panel.zfs.admin": {
@@ -206,13 +206,13 @@ export const PANEL_PERMISSIONS = {
     "panel.network.read": {
         label: "View network",
         description: "See interfaces and addresses, and run WAN address probes.",
-        ops: ["getNetworkInfo"],
+        ops: ["network/getInfo"],
         tasks: ["find_wan_ip"],
     },
     "panel.processes.read": {
         label: "View processes",
         description: "See the process list on any host.",
-        ops: ["getProcesses"],
+        ops: ["processes/list"],
     },
 
     "panel.terminal": {
@@ -237,12 +237,12 @@ export const PANEL_PERMISSIONS = {
     "panel.systemUsers.read": {
         label: "View host accounts",
         description: "See OS accounts on hosts and how they map to control-panel users.",
-        ops: ["systemUsersList", "systemUserHostStatus"],
+        ops: ["system-users/list", "system-users/hostStatus"],
     },
     "panel.systemUsers.admin": {
         label: "Manage host accounts",
         description: "Create OS accounts on hosts and change their group membership — including groups that grant root-equivalent access.",
-        ops: ["systemUserCreate", "systemUserSetGroups"],
+        ops: ["system-users/create", "system-users/setGroups"],
         escalation: "Adding an account to the sudo or docker group is root, and both groups are assignable here.",
         sensitive: true,
     },
@@ -250,47 +250,47 @@ export const PANEL_PERMISSIONS = {
     "panel.tasks.read": {
         label: "View tasks",
         description: "See task history, results and live logs.",
-        ops: ["listTasks", "getTask", "getTaskLogs"],
+        ops: ["tasks/list", "tasks/get", "tasks/getLogs"],
         events: ["taskUpdate", "taskLog"],
     },
     "panel.tasks.run": {
         label: "Run tasks",
         description: "Start task runs. Each kind needs its own permission on top of this.",
-        ops: ["runTask"],
+        ops: ["tasks/run"],
     },
 
     "panel.dashboard.read": {
         label: "View host dashboards",
         description: "See the widget layout on a host's overview.",
-        ops: ["getHostDashboard"],
+        ops: ["dashboard/get"],
     },
     "panel.dashboard.write": {
         label: "Arrange host dashboards",
         description: "Add, remove and rearrange host overview widgets for everyone.",
-        ops: ["setHostDashboard", "resetHostDashboard"],
+        ops: ["dashboard/set", "dashboard/reset"],
     },
 
     "panel.proxy.read": {
         label: "View reverse proxy",
         description: "See proxy configuration, routes and status.",
-        ops: ["getProxyState"],
+        ops: ["proxy/getState"],
     },
     "panel.proxy.admin": {
         label: "Manage reverse proxy",
         description: "Configure the proxy, deploy it, and add or remove routes — which decides what is exposed to the internet.",
-        ops: ["setProxyConfig", "deployProxy", "removeProxy", "createProxyRoute", "updateProxyRoute", "deleteProxyRoute", "applyProxyConfig"],
+        ops: ["proxy/setConfig", "proxy/deploy", "proxy/remove", "proxy/createRoute", "proxy/updateRoute", "proxy/deleteRoute", "proxy/applyConfig"],
         escalation: "Deploying the proxy runs a container with mounted volumes on the chosen node, and routes decide what is reachable from the internet.",
     },
 
     "panel.settings.read": {
         label: "View settings",
         description: "See control-plane configuration and update status.",
-        ops: ["getConfig", "getControlPlaneStatus"],
+        ops: ["settings/getConfig", "settings/getControlPlaneStatus"],
     },
     "panel.settings.admin": {
         label: "Change settings",
         description: "Edit the primary URL, agent domain, allowed origins and trusted proxies, and update the control plane itself.",
-        ops: ["setDomain", "setPrimaryUrl", "setAllowedOrigins", "setTrustedProxies", "updateControlPlane"],
+        ops: ["settings/setDomain", "settings/setPrimaryUrl", "settings/setAllowedOrigins", "settings/setTrustedProxies", "settings/updateControlPlane"],
         tasks: ["debug_fake"],
         escalation: "Replaces the control plane's own binary, and edits the trusted-proxy list that decides which client addresses are believed.",
     },
@@ -298,23 +298,23 @@ export const PANEL_PERMISSIONS = {
     "panel.oidc.read": {
         label: "View SSO clients",
         description: "See registered OpenID Connect relying parties.",
-        ops: ["listOidcClients"],
+        ops: ["oidc/listClients"],
     },
     "panel.oidc.admin": {
         label: "Manage SSO clients",
         description: "Register and remove relying parties, and issue their client secrets.",
-        ops: ["createOidcClient", "deleteOidcClient"],
+        ops: ["oidc/createClient", "oidc/deleteClient"],
     },
 
     "panel.roles.read": {
         label: "View roles",
         description: "See the roles defined here and which permissions each one grants.",
-        ops: ["listRoles"],
+        ops: ["auth/listRoles"],
     },
     "panel.roles.admin": {
         label: "Define roles",
         description: "Create, edit and delete roles. Anyone who can define a role can define one that grants everything, so this is effectively the ability to grant oneself any permission.",
-        ops: ["createRole", "updateRole", "deleteRole", "resetRole"],
+        ops: ["auth/createRole", "auth/updateRole", "auth/deleteRole", "auth/resetRole"],
         escalation: "A role granting everything can be defined and then assigned by anyone who can also assign roles.",
         sensitive: true,
     },
@@ -322,12 +322,12 @@ export const PANEL_PERMISSIONS = {
     "panel.users.read": {
         label: "View accounts",
         description: "See control-panel accounts, their roles and their active sessions.",
-        ops: ["listUsers", "getUserDetail"],
+        ops: ["auth/listUsers", "auth/getUserDetail"],
     },
     "panel.users.admin": {
         label: "Manage accounts",
         description: "Create and delete accounts, set passwords, assign roles and grant permissions — including granting permissions to oneself.",
-        ops: ["createUser", "deleteUser", "setUserRoles", "revokeUserSession", "adminSetPassword", "setUserSystemUser", "setUserPermissions"],
+        ops: ["auth/createUser", "auth/deleteUser", "auth/setUserRoles", "auth/revokeUserSession", "auth/adminSetPassword", "auth/setUserSystemUser", "auth/setUserPermissions"],
         escalation: "Granting oneself any permission is one edit away, and every root-equivalent permission is reachable from there.",
         sensitive: true,
     },
@@ -355,12 +355,12 @@ export function permissionDef(id: PanelPermission): PermissionDef {
 export const PANEL_PERMISSION_IDS = Object.keys(PANEL_PERMISSIONS) as PanelPermission[];
 
 /** Callable with no session at all: first-run setup and login. */
-export const PUBLIC_OPS = ["getAuthState", "setupOwner", "login"] as const satisfies readonly ApiOp[];
+export const PUBLIC_OPS = ["auth/getState", "auth/setupOwner", "auth/login"] as const satisfies readonly ApiOp[];
 
 /** Callable by any signed-in user regardless of grants — the session's own
  *  bookkeeping, plus the OIDC front-channel, which is about the caller's own
  *  identity rather than any control-plane resource. */
-export const SESSION_OPS = ["logout", "me", "getOidcAuthorizeRequest", "completeOidcAuthorize"] as const satisfies readonly ApiOp[];
+export const SESSION_OPS = ["auth/logout", "auth/me", "oidc/getAuthorizeRequest", "oidc/completeAuthorize"] as const satisfies readonly ApiOp[];
 
 // ---- Exhaustiveness ----------------------------------------------------------
 //

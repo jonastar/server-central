@@ -72,12 +72,12 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
         try {
             // Adopts anything running that SC didn't know about, as a side
             // effect of the read — see HostComposeStacks.
-            const next = await api("listHostComposeStacks", { hostId: serverId });
+            const next = await api("compose", "listForHost", { hostId: serverId });
             setState(next);
             setError(null);
             const entries = await Promise.all(next.stacks.map(async (s): Promise<[string, ComposeStackStatus | null]> => {
                 try {
-                    return [s.id, await api("getComposeStackStatus", { stackId: s.id })];
+                    return [s.id, await api("compose", "getStatus", { stackId: s.id })];
                 } catch {
                     return [s.id, null];
                 }

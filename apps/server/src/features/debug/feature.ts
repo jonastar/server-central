@@ -1,5 +1,5 @@
 import type { TaskDebugFake, TaskDebugFakeResult } from "@central/shared";
-import type { Feature, FeatureTaskHandlers } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { TaskCtx } from "../../tasks/types";
 
 // A feature that does nothing to the machine, on purpose: it owns the one
@@ -8,19 +8,43 @@ import type { TaskCtx } from "../../tasks/types";
 // trigger. Owner-only — a development affordance, not something everyone signed
 // in should be able to fill the run history with.
 
-export function createDebugFeature(): Feature<never, "debug_fake"> {
-    return {
-        descriptor: {
-            id: "debug",
-            name: "Debug",
-            description: "Synthetic tasks for exercising the task UI without touching a host.",
-            experimental: true,
+export const createDebugFeature = () => defineFeature({
+    id: "debug",
+    name: "Debug",
+    description: "Synthetic tasks for exercising the task UI without touching a host.",
+    experimental: true,
+    tasks: {
+        async debug_fake(spec: TaskDebugFake, ctx: TaskCtx): Promise<TaskDebugFakeResult> {
+            const duration = Math.min(Math.max(0, spec.durationMs), MAX_DURATION_MS);
+            const interval = Math.max(MIN_INTERVAL_MS, spec.intervalMs);
+            const startedAt = Date.now();
+
+            ctx.log(`Fake task started — running for ${(duration / 1000).toFixed(1)}s, one line every ${interval}ms`);
+            let lines = 1;
+
+            for (;;) {
+                const elapsed = Date.now() - startedAt;
+                if (elapsed >= duration) {
+                    break;
+                }
+                await sleep(Math.min(interval, duration - elapsed), ctx.signal);
+                if (ctx.signal.aborted) {
+                    throw new Error("Cancelled");
+                }
+                const chatter = CHATTER[lines % CHATTER.length]!;
+                ctx.log(`[${((Date.now() - startedAt) / 1000).toFixed(1)}s] ${chatter.text}`, chatter.stream);
+                lines++;
+            }
+
+            if (spec.fail) {
+                ctx.log("Failing on request.", "stderr");
+                throw new Error(`Fake task failed on request after ${lines} log lines`);
+            }
+            ctx.log(`Fake task finished after ${lines + 1} log lines.`);
+            return { kind: "debug_fake", lines: lines + 1 };
         },
-        taskHandlers() {
-            return debugTaskHandlers();
-        },
-    };
-}
+    },
+});
 
 /** Bounds a caller can't talk us out of: a fake run must not be able to sit in
  *  the runner for an hour, or spin out thousands of log lines a second. */
@@ -53,36 +77,3 @@ const CHATTER: Array<{ text: string; stream?: "stdout" | "stderr" }> = [
     { text: `${SGR}36mstep${SGR}0m committed` },
 ];
 
-export function debugTaskHandlers(): FeatureTaskHandlers<"debug_fake"> {
-    return {
-        async debug_fake(spec: TaskDebugFake, ctx: TaskCtx): Promise<TaskDebugFakeResult> {
-            const duration = Math.min(Math.max(0, spec.durationMs), MAX_DURATION_MS);
-            const interval = Math.max(MIN_INTERVAL_MS, spec.intervalMs);
-            const startedAt = Date.now();
-
-            ctx.log(`Fake task started — running for ${(duration / 1000).toFixed(1)}s, one line every ${interval}ms`);
-            let lines = 1;
-
-            for (;;) {
-                const elapsed = Date.now() - startedAt;
-                if (elapsed >= duration) {
-                    break;
-                }
-                await sleep(Math.min(interval, duration - elapsed), ctx.signal);
-                if (ctx.signal.aborted) {
-                    throw new Error("Cancelled");
-                }
-                const chatter = CHATTER[lines % CHATTER.length]!;
-                ctx.log(`[${((Date.now() - startedAt) / 1000).toFixed(1)}s] ${chatter.text}`, chatter.stream);
-                lines++;
-            }
-
-            if (spec.fail) {
-                ctx.log("Failing on request.", "stderr");
-                throw new Error(`Fake task failed on request after ${lines} log lines`);
-            }
-            ctx.log(`Fake task finished after ${lines + 1} log lines.`);
-            return { kind: "debug_fake", lines: lines + 1 };
-        },
-    };
-}

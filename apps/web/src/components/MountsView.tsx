@@ -25,7 +25,7 @@ export function MountsView({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setState(await api("getMounts", { serverId }));
+            setState(await api("files", "getMounts", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

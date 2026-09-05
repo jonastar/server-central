@@ -26,12 +26,9 @@ import type {
     TaskZfsSnapshotRollbackResult,
     TaskZfsVdevAdd,
     TaskZfsVdevAddResult,
-    ZfsBlockDevice,
-    ZfsDataset,
-    ZfsSnapshot,
-    ZfsState,
 } from "@central/shared";
-import type { AgentFeature, Feature, FeatureApiHandlers, FeatureTaskHandlers } from "../../feature";
+import type { AgentFeature } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { Fleet } from "../../fleet";
 import { requireAgent, type TaskCtx } from "../../tasks/types";
 import {
@@ -57,56 +54,34 @@ import {
 import * as os from "node:os";
 import { accessible, constants, exists, which } from "../../agent/probe-utils";
 
-export function createZfsFeature(fleet: Fleet): Feature<ZfsOps, ZfsTaskKind> {
-    return {
-        descriptor: {
-            id: "zfs",
-            name: "ZFS",
-            description: "ZFS pool/dataset/snapshot management on a host. See doc/idea_zfs.md.",
-            experimental: false,
-            requiresHostCapability: "zfs",
-        },
-        apiHandlers() {
-            return zfsApiHandlers(fleet);
-        },
-        taskHandlers() {
-            return zfsTaskHandlers();
-        },
-    };
-}
-
-export type ZfsOps = "getZfsState" | "getZfsDatasets" | "getZfsSnapshots" | "getZfsBlockDevices" | "setDatasetProperty";
-
-export function zfsApiHandlers(fleet: Fleet): FeatureApiHandlers<ZfsOps> {
-    return {
-        async handleGetZfsState(data: { serverId: string }): Promise<ZfsState> {
+export const createZfsFeature = (fleet: Fleet) => defineFeature({
+    id: "zfs",
+    name: "ZFS",
+    description: "ZFS pool/dataset/snapshot management on a host. See doc/idea_zfs.md.",
+    experimental: false,
+    requiresHostCapability: "zfs",
+    ops: {
+        async getState(data) {
             return zfsGetState(fleet.get(data.serverId));
         },
 
-        async handleGetZfsDatasets(data: { serverId: string; pool?: string }): Promise<ZfsDataset[]> {
+        async getDatasets(data) {
             return zfsGetDatasets(fleet.get(data.serverId), data.pool);
         },
 
-        async handleGetZfsSnapshots(data: { serverId: string; dataset?: string }): Promise<ZfsSnapshot[]> {
+        async getSnapshots(data) {
             return zfsGetSnapshots(fleet.get(data.serverId), data.dataset);
         },
 
-        async handleGetZfsBlockDevices(data: { serverId: string }): Promise<ZfsBlockDevice[]> {
+        async getBlockDevices(data) {
             return zfsGetBlockDevices(fleet.get(data.serverId));
         },
 
-        async handleSetDatasetProperty(data: { serverId: string; name: string; key: string; value: string }): Promise<void> {
+        async setDatasetProperty(data) {
             await setDatasetProperty(fleet.get(data.serverId), data.name, data.key, data.value);
         },
-    };
-}
-
-type ZfsTaskKind = "zfs_pool_create" | "zfs_pool_destroy" | "zfs_pool_import" | "zfs_pool_export"
-    | "zfs_vdev_add" | "zfs_device_replace" | "zfs_scrub" | "zfs_dataset_create" | "zfs_dataset_destroy"
-    | "zfs_snapshot_create" | "zfs_snapshot_rollback" | "zfs_snapshot_destroy" | "zfs_snapshot_clone";
-
-export function zfsTaskHandlers(): FeatureTaskHandlers<ZfsTaskKind> {
-    return {
+    },
+    tasks: {
         async zfs_pool_create(spec: TaskZfsPoolCreate, ctx: TaskCtx): Promise<TaskZfsPoolCreateResult> {
             await zfsPoolCreate(requireAgent(ctx, "zfs_pool_create"), spec.name, spec.vdevs, spec.force, ctx.log);
             return { kind: "zfs_pool_create" };
@@ -171,8 +146,9 @@ export function zfsTaskHandlers(): FeatureTaskHandlers<ZfsTaskKind> {
             await zfsSnapshotClone(requireAgent(ctx, "zfs_snapshot_clone"), spec.snapshot, spec.target, ctx.log);
             return { kind: "zfs_snapshot_clone" };
         },
-    };
-}
+    },
+});
+
 
 /**
  * ZFS needs both halves: the userland tools *and* a loaded kernel module. They

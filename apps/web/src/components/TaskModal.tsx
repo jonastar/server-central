@@ -29,7 +29,7 @@ export function TaskModal() {
         if (!openTaskId || taskLogs[openTaskId] !== undefined) {
             return;
         }
-        void api("getTaskLogs", { id: openTaskId }).then(
+        void api("tasks", "getLogs", { id: openTaskId }).then(
             (lines) => connectionManager.seedTaskLogs(openTaskId, lines),
             () => { /* best-effort: the log panel just stays empty */ },
         );

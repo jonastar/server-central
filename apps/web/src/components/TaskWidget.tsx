@@ -37,7 +37,7 @@ export function TaskWidget() {
     useEffect(() => {
         for (const id of cardIds ? cardIds.split(",") : []) {
             if (taskLogs[id] === undefined) {
-                void api("getTaskLogs", { id }).then(
+                void api("tasks", "getLogs", { id }).then(
                     (lines) => connectionManager.seedTaskLogs(id, lines),
                     () => { /* best-effort */ },
                 );

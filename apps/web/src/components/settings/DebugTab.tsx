@@ -36,7 +36,7 @@ export function DebugTab() {
         setStarting(true);
         setError(null);
         try {
-            const { id } = await api("runTask", {
+            const { id } = await api("tasks", "run", {
                 spec: { kind: "debug_fake", durationMs: durationSecs * 1000, intervalMs, fail },
                 target: null,
             });

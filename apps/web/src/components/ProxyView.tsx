@@ -44,7 +44,7 @@ function ConfigModal({ servers, current, onClose, onSaved }: {
             if (httpsPort.trim()) {
                 config.httpsPort = Number(httpsPort.trim());
             }
-            await api("setProxyConfig", { config });
+            await api("proxy", "setConfig", { config });
             onSaved();
             onClose();
         } catch (err) {
@@ -141,9 +141,9 @@ function RouteModal({ servers, existing, onClose, onSaved }: {
                 enabled,
             };
             if (existing) {
-                await api("updateProxyRoute", { route: { ...route, id: existing.id } });
+                await api("proxy", "updateRoute", { route: { ...route, id: existing.id } });
             } else {
-                await api("createProxyRoute", { route });
+                await api("proxy", "createRoute", { route });
             }
             onSaved();
             onClose();
@@ -217,7 +217,7 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
     const [routeModal, setRouteModal] = useState<{ existing: ProxyRoute | null } | null>(null);
 
     const refresh = useCallback(() => {
-        api("getProxyState", undefined)
+        api("proxy", "getState", undefined)
             .then((s) => { setState(s); setError(null); })
             .catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }, []);
@@ -326,14 +326,14 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                 <button
                                     className={shared.btn}
                                     disabled={busy !== null}
-                                    onClick={() => void run("apply", () => api("applyProxyConfig", undefined))}
+                                    onClick={() => void run("apply", () => api("proxy", "applyConfig", undefined))}
                                 >
                                     {busy === "apply" ? "Applying…" : "Apply config"}
                                 </button>
                                 <button
                                     className={cx(shared.btn, shared["btn-primary"])}
                                     disabled={busy !== null}
-                                    onClick={() => void run("deploy", () => api("deployProxy", undefined))}
+                                    onClick={() => void run("deploy", () => api("proxy", "deploy", undefined))}
                                 >
                                     {busy === "deploy" ? "Deploying…" : container?.present ? "Redeploy" : "Deploy"}
                                 </button>
@@ -343,7 +343,7 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                         disabled={busy !== null}
                                         onClick={() => {
                                             if (confirm("Remove the proxy container? Routed hostnames stop resolving until it's redeployed. Certificates are kept.")) {
-                                                void run("remove", () => api("removeProxy", undefined));
+                                                void run("remove", () => api("proxy", "remove", undefined));
                                             }
                                         }}
                                     >
@@ -390,7 +390,7 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                                     disabled={busy !== null}
                                                     onClick={() => {
                                                         if (confirm(`Delete the route for ${r.host}?`)) {
-                                                            void run(`delete-${r.id}`, () => api("deleteProxyRoute", { routeId: r.id }));
+                                                            void run(`delete-${r.id}`, () => api("proxy", "deleteRoute", { routeId: r.id }));
                                                         }
                                                     }}
                                                 >

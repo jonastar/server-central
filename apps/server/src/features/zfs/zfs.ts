@@ -690,7 +690,7 @@ export async function zfsGetBlockDevices(server: HostAgent): Promise<ZfsBlockDev
     return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// ---- Pool lifecycle (owner-gated via the feature's ownerOnlyTaskKinds) ------------
+// ---- Pool lifecycle (its own permission node — see TASK_KIND_PERMISSIONS) --------
 
 function vdevArgs(vdevs: { type: ZfsVdevType; devices: string[] }[]): string[] {
     return vdevs.flatMap((v) => {

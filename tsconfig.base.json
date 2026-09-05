@@ -3,6 +3,12 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    // Type-only imports must say so. The web app already relies on this in
+    // practice — 51 of its 59 `@central/shared` imports are `import type`, and
+    // that erasure is what keeps server-side values out of the browser bundle.
+    // Enforcing it makes an accidental value import a compile error rather than
+    // something caught by reading the diff.
+    "verbatimModuleSyntax": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

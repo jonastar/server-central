@@ -1,13 +1,5 @@
 import type {
-    CentralApiOperations,
-    DockerContainerDetail,
-    DockerExecResult,
-    DockerOverview,
-    DockerState,
-    DockerVolumeDetail,
     HostCapabilityResult,
-    ImageAction,
-    ImageDefaults,
     TaskDockerComposeAction,
     TaskDockerComposeActionResult,
     TaskDockerContainerAction,
@@ -33,80 +25,60 @@ import {
     imageDefaults,
     dockerContainerLogs,
 } from "./docker";
-import type { AgentFeature, Feature, FeatureApiHandlers, FeatureTaskHandlers } from "../../feature";
+import type { AgentFeature } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { Fleet } from "../../fleet";
+import type { ComposeStackStore } from "../compose/store";
 import { requireAgent, type TaskCtx } from "../../tasks/types";
 import * as os from "node:os";
 import { accessible, constants, exists, which } from "../../agent/probe-utils";
 
-export function createDockerFeature(fleet: Fleet): Feature<DockerOps, DockerTaskKind> {
-    return {
-        descriptor: {
-            id: "docker",
-            name: "Docker",
-            description: "Container/volume/image/stack management on a host.",
-            experimental: false,
-            requiresHostCapability: "docker",
-        },
-        apiHandlers() {
-            return dockerApiHandlers(fleet);
-        },
-        taskHandlers() {
-            return dockerTaskHandlers();
-        },
-    };
-}
-
-export type DockerOps = "dockerList" | "dockerContainerLogs" | "dockerOverview"
-    | "dockerContainerInspect" | "dockerContainerExec" | "dockerVolumeInspect" | "dockerVolumeRemove"
-    | "dockerImageAction" | "dockerImageDefaults";
-
-export function dockerApiHandlers(fleet: Fleet): FeatureApiHandlers<DockerOps> {
-    return {
-        async handleDockerList(data: { serverId: string }): Promise<DockerState> {
+export const createDockerFeature = (fleet: Fleet, stacks: ComposeStackStore) => defineFeature({
+    id: "docker",
+    name: "Docker",
+    description: "Container/volume/image/stack management on a host.",
+    experimental: false,
+    requiresHostCapability: "docker",
+    ops: {
+        async list(data) {
             return dockerList(fleet.get(data.serverId));
         },
 
-        async handleDockerContainerLogs(data: CentralApiOperations["dockerContainerLogs"]["data"]): Promise<{ logs: string }> {
+        async containerLogs(data) {
             const { serverId, containerId, ...opts } = data;
             return { logs: await dockerContainerLogs(fleet.get(serverId), containerId, opts) };
         },
 
-        async handleDockerOverview(data: { serverId: string }): Promise<DockerOverview> {
+        async overview(data) {
             return dockerOverview(fleet.get(data.serverId));
         },
 
 
-        async handleDockerContainerInspect(data: { serverId: string; containerId: string }): Promise<DockerContainerDetail> {
+        async containerInspect(data) {
             return dockerContainerInspect(fleet.get(data.serverId), data.containerId);
         },
 
-        async handleDockerContainerExec(data: { serverId: string; containerId: string; command: string }): Promise<DockerExecResult> {
+        async containerExec(data) {
             return dockerContainerExec(fleet.get(data.serverId), data.containerId, data.command);
         },
 
-        async handleDockerVolumeInspect(data: { serverId: string; name: string }): Promise<DockerVolumeDetail> {
+        async volumeInspect(data) {
             return dockerVolumeInspect(fleet.get(data.serverId), data.name);
         },
 
-        async handleDockerVolumeRemove(data: { serverId: string; name: string }): Promise<void> {
+        async volumeRemove(data) {
             await dockerVolumeRemove(fleet.get(data.serverId), data.name);
         },
 
-        async handleDockerImageAction(data: { serverId: string; imageId: string; action: ImageAction }): Promise<void> {
+        async imageAction(data) {
             await dockerImageAction(fleet.get(data.serverId), data.imageId, data.action);
         },
 
-        async handleDockerImageDefaults(data: { serverId: string; image: string }): Promise<ImageDefaults> {
+        async imageDefaults(data) {
             return imageDefaults(fleet.get(data.serverId), data.image);
         },
-    };
-}
-
-type DockerTaskKind = "docker_stack_action" | "docker_container_action" | "docker_image_pull" | "docker_compose_action";
-
-export function dockerTaskHandlers(): FeatureTaskHandlers<DockerTaskKind> {
-    return {
+    },
+    tasks: {
         async docker_stack_action(spec: TaskDockerStackAction, ctx: TaskCtx): Promise<TaskDockerStackActionResult> {
             await dockerStackAction(requireAgent(ctx, "docker_stack_action"), spec.project, spec.action, ctx.log);
             return { kind: "docker_stack_action" };
@@ -123,7 +95,7 @@ export function dockerTaskHandlers(): FeatureTaskHandlers<DockerTaskKind> {
         },
 
         async docker_compose_action(spec: TaskDockerComposeAction, ctx: TaskCtx): Promise<TaskDockerComposeActionResult> {
-            const stack = ctx.stacks.get(spec.stackId);
+            const stack = stacks.get(spec.stackId);
             await composeStackAction(
                 requireAgent(ctx, "docker_compose_action"),
                 stack.dir,
@@ -136,9 +108,14 @@ export function dockerTaskHandlers(): FeatureTaskHandlers<DockerTaskKind> {
             );
             return { kind: "docker_compose_action" };
         },
-    };
-}
+    },
+});
 
+
+
+/** `stacks` is here rather than on `TaskCtx` because `docker_compose_action` is
+ *  the only kind that needs it — a feature closing over its own collaborators,
+ *  the same way every other feature takes `fleet`. */
 /**
  * The daemon socket, not the client binary: a `docker` CLI on a host whose
  * daemon isn't running (or whose socket the agent can't open) is the same false

@@ -48,7 +48,7 @@ export function AgentsView({ servers, onOpenServer }: {
         setBusyId(entry.id);
         setError(null);
         try {
-            await api("deleteServer", { serverId: entry.id });
+            await api("servers", "delete", { serverId: entry.id });
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {

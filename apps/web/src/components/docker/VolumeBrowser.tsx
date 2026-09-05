@@ -24,7 +24,7 @@ export function VolumeBrowser({ serverId, volume, path, file, onNavigate, onBack
     useEffect(() => {
         let alive = true;
         setMountpoint(null);
-        api("dockerVolumeInspect", { serverId, name: volume })
+        api("docker", "volumeInspect", { serverId, name: volume })
             .then((d) => alive && setMountpoint(d.mountpoint))
             .catch((err) => alive && setError(err instanceof Error ? err.message : String(err)));
         return () => { alive = false; };

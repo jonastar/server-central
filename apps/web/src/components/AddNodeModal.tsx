@@ -57,7 +57,7 @@ export function AddNodeModal({ servers, onClose }: { servers: ServerEntry[]; onC
         setCommand(null);
         setCopied(false);
         try {
-            const result = await api("generateNodeInstallCommand", { platform: p, useExternal: external });
+            const result = await api("servers", "generateInstallCommand", { platform: p, useExternal: external });
             setCommand(result.command);
             setExpiresAt(result.expiresAt);
             setExternalHost(result.externalHost);

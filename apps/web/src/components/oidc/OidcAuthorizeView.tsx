@@ -49,7 +49,7 @@ export function OidcAuthorizeView() {
         if (!auth.user || !params) {
             return;
         }
-        api("getOidcAuthorizeRequest", params)
+        api("oidc", "getAuthorizeRequest", params)
             .then(setRequest)
             .catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }, [auth.user, params]);
@@ -61,7 +61,7 @@ export function OidcAuthorizeView() {
         setBusy(true);
         setError(null);
         try {
-            const { redirectUrl } = await api("completeOidcAuthorize", params);
+            const { redirectUrl } = await api("oidc", "completeAuthorize", params);
             window.location.href = redirectUrl;
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

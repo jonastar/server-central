@@ -196,7 +196,7 @@ class ConnectionManager {
                 if (this.state.connected) {
                     return;
                 }
-                void api("getTask", { id }).then(
+                void api("tasks", "get", { id }).then(
                     (run) => { if (run) { check([run]); } },
                     () => { /* retried on the next tick */ },
                 );

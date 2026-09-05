@@ -100,11 +100,24 @@ a duplicate-key collision, which the type system can't see.
 
 ## 4. What stays centralized, on purpose
 
-- **`CentralApiOperations` and `TaskSpec`/`TaskResult` stay single flat unions in
-  `@central/shared`.** This is the opposite of "each feature defines its own protocol" —
-  the one-flat-union-plus-completeness-check is exactly what makes both registries safe
-  to compose from scattered files. Splitting the wire format per feature would lose that
-  compile-time guarantee for a system with no external module authors to isolate from.
+- **The wire protocol stays central and total in `@central/shared`.** This is the
+  opposite of "each feature defines its own protocol" — one complete description plus a
+  completeness check is exactly what makes both registries safe to compose from
+  scattered files.
+
+  Since the 2026-09 pass the protocol is *authored* per domain
+  (`shared/src/domain/<id>.ts`, one file per feature, holding its types and its
+  operations) and assembled centrally. `TaskSpec`/`TaskResult` remain flat unions;
+  `CentralApiOperations` became one level deep — namespace, then operation — where a
+  namespace key *is* a feature id, so `/api/<feature>/<operation>` is the routing rule
+  and operations no longer repeat their domain in their own name (`docker/list`, not
+  `dockerList`). The completeness guarantee is unchanged and slightly sharper: a missing
+  operation now fails at the owning feature's factory rather than at the registry.
+
+  Dispatch resolves through a `Map` built at boot instead of an object keyed by a
+  `handle`-prefixed name. The prefix existed only to keep a request path from reaching
+  `constructor`/`toString`; a `Map` has no prototype to reach, so the guarantee comes
+  from the lookup and the prefix is gone.
 - **Boot order in `index.ts` stays explicit, not a resolved dependency graph.** `fleet`
   before `appStore` (`AppStore` takes `fleet` in its constructor), `tls` before
   `nodeServer`, etc. — six or seven stores with a fixed, documented order. A loader that
@@ -126,16 +139,25 @@ point, so it reads first — followed by the operation slice and any task handle
 rule that settled: *one directory per feature id; cross-cutting engines stay at the top
 level.*
 
-`auth.ts`, `fleet.ts`, `host-agent.ts`, `config.ts`, `fs-atomic.ts`, `node-server.ts`, and
-`tasks/` are core, not features — nothing "owns" them the way Apps owns `apps.ts`. Note
+`auth.ts`, `fleet.ts`, `host-agent.ts`, `config.ts`, `fs-atomic.ts`, `node-server.ts`,
+`http/`, and `tasks/` are core, not features — nothing "owns" them the way Docker owns
+`docker.ts`. Note
 this cuts across the feature/infra line in both directions and that's intended: the
 *store* `auth.ts` is infra (the HTTP layer authenticates every request through it), while
 the *operations* over it are `features/auth/feature.ts`. Same for `features/servers/feature.ts`
 over `fleet.ts`/`node-server.ts` and `features/tasks/feature.ts` over `tasks/`.
 
-The full list, 15 features: `apps`, `auth`, `docker`, `files`, `network`, `oidc`,
-`processes`, `proxy`, `servers`, `settings`, `system-users`, `systemd`, `tasks`,
-`terminal`, `zfs`.
+The full list, 17 features: `auth`, `compose`, `dashboard`, `debug`, `docker`, `files`,
+`network`, `oidc`, `processes`, `proxy`, `servers`, `settings`, `system-users`, `systemd`,
+`tasks`, `terminal`, `zfs`. (`apps` was the working name for what shipped as `compose`.)
+
+Since the 2026-09 organizing pass, `tasks/` holds only the engine — the runner, the
+store, and the kind→handler contract. Every task kind now lives in the feature that owns
+its permission, including the four that used to sit in `tasks/types.ts`: `cmd`/`exec`
+went to `terminal` (both require `panel.exec`, documented as "equivalent to terminal
+access"), `find_wan_ip` to `network`, and `update_agent` to `servers`. That also
+collapsed the two feature batches in `index.ts` to "everything" plus the `tasks` feature
+itself, which is the only one that needs the runner it registers against.
 
 ## 6. Migration approach
 
@@ -149,8 +171,8 @@ One thing worth recording for the next refactor of this shape: the class was doi
 than holding methods — it was also the only place a few cross-feature couplings were
 visible (`runTask` importing ZFS's owner-only kind list, for instance). Those don't
 disappear when the class does; they have to be re-expressed as something a feature
-*declares* (`Feature.ownerOnlyTaskKinds`) rather than something the composition root
-knows.
+*declares* (at the time, `Feature.ownerOnlyTaskKinds`) rather than something the
+composition root knows.
 
 ## 7. Resolved questions
 
@@ -164,7 +186,14 @@ knows.
   doc leaned. In practice most slices need exactly one or two collaborators (`fleet`,
   sometimes a store), and the explicit params are what make a slice readable in isolation.
 - **Where does per-feature authorization live?** Not a question this doc asked, but the
-  migration forced it: `Feature.ownerOnlyTaskKinds` lets a feature declare which of its
-  task kinds are owner-only, so `runTask` enforces a gate it doesn't have to know the
-  contents of. `composeTaskHandlers` rejects a kind gated by a feature that doesn't
-  handle it, so the declaration can't silently rot.
+  migration forced it. The first answer was `Feature.ownerOnlyTaskKinds`: a feature
+  declared which of its task kinds were owner-only, so `runTask` enforced a gate it
+  didn't have to know the contents of.
+
+  **Superseded by RBAC v2** (see `shared/src/permissions.ts`). Authorization is no
+  longer per-feature at all: one permission registry maps every operation and every
+  task kind to a permission node, and `OP_REQUIREMENTS`/`TASK_KIND_PERMISSIONS` are
+  derived from it with a runtime check that nothing is classified twice. The
+  member is gone from `Feature`; owner-only became "its own permission node that
+  only the owner role holds", which composes with the rest instead of being a
+  special case.

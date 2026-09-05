@@ -1,6 +1,10 @@
 import type {
     TaskCmd,
     TaskCmdResult,
+    TaskExec,
+    TaskExecResult,
+    TaskFindWanIp,
+    TaskFindWanIpResult,
     TaskDebugFake,
     TaskDebugFakeResult,
     TaskDockerComposeAction,
@@ -11,10 +15,6 @@ import type {
     TaskDockerImagePullResult,
     TaskDockerStackAction,
     TaskDockerStackActionResult,
-    TaskExec,
-    TaskExecResult,
-    TaskFindWanIp,
-    TaskFindWanIpResult,
     TaskResult,
     TaskServiceAction,
     TaskServiceActionResult,
@@ -48,12 +48,8 @@ import type {
     TaskZfsVdevAdd,
     TaskZfsVdevAddResult,
 } from "@central/shared";
-import { AGENT_VERSION } from "@central/shared";
-import type { ComposeStackStore } from "../features/compose/store";
 import type { Fleet } from "../fleet";
-import type { ExecOptions, ExecResult, HostAgent } from "../host-agent";
-import { runStreamingLines } from "../exec-lines";
-import { discoverWanIp } from "../stun";
+import type { HostAgent } from "../host-agent";
 
 // ---- Task handlers: the server half of the spec union ------------------------
 //
@@ -65,7 +61,11 @@ import { discoverWanIp } from "../stun";
 // typecheck until its handler exists.
 
 /**
- * Context a handler runs with. `log` is a no-op-cheap append that only matters
+ * Context a handler runs with.
+ *
+ * `signal` is the run's cancellation signal. No caller aborts it yet (there is no
+ * `cancelTask` operation), so today it never fires — a polling handler should
+ * still check it, but must not rely on it as its only exit. `log` is a no-op-cheap append that only matters
  * for kinds that stream output (e.g. `cmd`); the runner persists whatever's
  * reported. `agent` is the resolved target host at the moment the run started,
  * or null for control-plane-local runs. `fleet`/`target` are exposed alongside
@@ -79,62 +79,12 @@ export interface TaskCtx {
     agent: HostAgent | null;
     target: string | null;
     fleet: Fleet;
-    stacks: ComposeStackStore;
-}
-
-/** Cooperative sleep — resolves early (without throwing) if the run is aborted,
- *  so a polling loop's own `while` condition is what actually stops it. */
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-    return new Promise((resolve) => {
-        const timer = setTimeout(resolve, ms);
-        signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
-    });
-}
-
-const RECONNECT_POLL_MS = 2_000;
-const RECONNECT_TIMEOUT_MS = 5 * 60_000;
-
-/**
- * Wait for the agent to come back as a *new* connection (proof it actually
- * disconnected to swap its binary and restart, not just still being the old
- * process) — polling `fleet.get` since the old `HostAgent` object is gone from
- * the fleet the moment it disconnects and won't itself flip back online.
- * Version-checked when possible, but a `force` re-push (same version string,
- * rebuilt binary) can't be told apart from the old connection that way, so it
- * settles for "a new connection came back online" instead.
- */
-async function waitForAgentReconnect(ctx: TaskCtx, target: string, before: HostAgent, expectedVersion: string, force: boolean | undefined): Promise<void> {
-    const deadline = Date.now() + RECONNECT_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-        if (ctx.signal.aborted) {
-            throw new Error("Cancelled");
-        }
-        await sleep(RECONNECT_POLL_MS, ctx.signal);
-        let agent: HostAgent;
-        try {
-            agent = ctx.fleet.get(target);
-        } catch {
-            continue; // mid-reconnect gap: deregistered, not yet re-registered
-        }
-        if (agent === before || agent.status().state !== "online") {
-            continue;
-        }
-        // A new, online connection for this machine IS the reconnect — it's not
-        // going to spontaneously change version from here, so a mismatch is the
-        // final answer, not a "still settling" state worth continuing to poll for.
-        const reportedVersion = agent.status().info?.agentVersion;
-        if (!force && reportedVersion !== expectedVersion) {
-            throw new Error(`Agent reconnected on ${reportedVersion ?? "an unknown version"}, expected ${expectedVersion}`);
-        }
-        return;
-    }
-    throw new Error(`Agent did not reconnect within ${Math.round(RECONNECT_TIMEOUT_MS / 1000)}s of the update being pushed`);
 }
 
 /**
  * One handler per task kind. The return type is pinned to that kind's result
- * variant, so spec and result can't drift. Mirrors `ApiHandlerPrefixed` but
- * keyed by `kind` instead of operation name.
+ * variant, so spec and result can't drift. Mirrors the API's handler map but
+ * keyed by `kind` instead of namespace + operation.
  */
 export interface TaskHandlers {
     cmd(spec: TaskCmd, ctx: TaskCtx): Promise<TaskCmdResult>;
@@ -173,80 +123,6 @@ export function requireAgent(ctx: TaskCtx, kind: string): HostAgent {
 
 /** Generic dispatch: narrows the result to the spec's kind. */
 export type TaskHandlerFor<K extends TaskSpec["kind"]> = TaskHandlers[K];
-
-/**
- * Cross-cutting kinds with no single feature owner. Domain kinds (docker_*,
- * zfs_*, service_action) live in their feature's own `<feature>-api.ts`
- * instead, composed into the full registry alongside this at boot — see
- * index.ts and doc/idea_feature_convention.md §3.
- */
-/**
- * Run a command for a task, with its output reaching the run's log as it
- * appears rather than all at once at the end. Runs against `ctx.agent` when the
- * task is targeted at a host.
- */
-async function runForTask(ctx: TaskCtx, argv: string[], opts?: ExecOptions): Promise<ExecResult> {
-    if (!ctx.agent) {
-        return { stdout: "", stderr: "", code: 0 }; // control-plane exec TBD
-    }
-    return runStreamingLines(ctx.agent, argv, (text, stream) => ctx.log(text, stream), opts);
-}
-
-export const taskHandlers: Pick<TaskHandlers, "cmd" | "exec" | "find_wan_ip" | "update_agent"> = {
-    /**
-     * The one place in the codebase that still hands a shell a command string,
-     * and the one place where that's the feature rather than an oversight: the
-     * command is free text an operator typed, `panel.exec` already means
-     * terminal access, and pipes and redirects are what they're asking for.
-     *
-     * It goes through the same argv path as everything else — the shell is now
-     * named in the argv (`sh -c <command>`) instead of being what the host does
-     * to a string by default. Anything the control plane *builds* uses `exec`
-     * below, where a value can't turn into syntax.
-     */
-    async cmd(spec, ctx) {
-        const res = await runForTask(ctx, ["sh", "-c", spec.command]);
-        return { kind: "cmd", exitCode: res.code, stdout: res.stdout, stderr: res.stderr };
-    },
-
-    async exec(spec, ctx) {
-        if (spec.argv.length === 0) {
-            throw new Error("An exec task needs a command to run");
-        }
-        const res = await runForTask(ctx, spec.argv, { cwd: spec.cwd, env: spec.env });
-        return { kind: "exec", exitCode: res.code, stdout: res.stdout, stderr: res.stderr };
-    },
-
-    async find_wan_ip(_spec, ctx) {
-        // Targeted: STUN from the agent's own host (its network vantage point).
-        // Untargeted: STUN from the control plane itself.
-        const { ip } = ctx.agent ? await ctx.agent.discoverStun() : { ip: await discoverWanIp() };
-        return { kind: "find_wan_ip", ip };
-    },
-
-    async update_agent(spec, ctx) {
-        const agent = requireAgent(ctx, "update_agent");
-        const current = agent.status().info?.agentVersion;
-        if (agent.status().state !== "online") {
-            throw new Error("Agent is not connected");
-        }
-        if (agent.mode !== "installed") {
-            throw new Error("Only installed agents can be updated");
-        }
-        if (current === AGENT_VERSION && !spec.force) {
-            throw new Error("Agent is already up to date");
-        }
-        if (!ctx.target) {
-            throw new Error("update_agent requires a target host");
-        }
-        ctx.log(`Updating ${current ?? "unknown"} -> ${AGENT_VERSION}${spec.force ? " (forced)" : ""}`);
-        await agent.updateService(AGENT_VERSION, spec.force);
-        ctx.log("Update acknowledged by agent; waiting for it to reconnect on the new binary...");
-        await waitForAgentReconnect(ctx, ctx.target, agent, AGENT_VERSION, spec.force);
-        ctx.log("Agent reconnected — update complete.");
-        return { kind: "update_agent" };
-    },
-};
 
 /** Run a spec by dispatching to its handler. `handlers` is the full registry
  *  composed at boot (core kinds above + every feature's `taskHandlers()`). */

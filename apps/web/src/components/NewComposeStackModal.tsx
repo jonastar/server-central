@@ -52,7 +52,7 @@ export function NewComposeStackModal({ host, onClose, onCreated }: {
         }
         setBusy(true);
         try {
-            const stack = await api("createComposeStack", {
+            const stack = await api("compose", "create", {
                 name,
                 hostId,
                 dir: targetDir,

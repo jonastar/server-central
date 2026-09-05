@@ -57,7 +57,7 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
 
     const loadStack = useCallback(async () => {
         try {
-            const list = await api("listComposeStacks", undefined);
+            const list = await api("compose", "list", undefined);
             setStack(list.find((a) => a.id === stackId) ?? null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -66,7 +66,7 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
 
     const loadStatus = useCallback(async () => {
         try {
-            setStatus(await api("getComposeStackStatus", { stackId }));
+            setStatus(await api("compose", "getStatus", { stackId }));
         } catch {
             setStatus(null);
         }
@@ -246,7 +246,7 @@ function OverviewTab({ stack, host, status, tasks, busy, taskId, run, onOpenCont
 
     useEffect(() => {
         let alive = true;
-        api("listDir", { serverId: stack.hostId, path: stack.dir })
+        api("files", "listDir", { serverId: stack.hostId, path: stack.dir })
             .then((d) => alive && setDirEntries(d.entries))
             .catch(() => alive && setDirEntries([]));
         return () => { alive = false; };
@@ -407,7 +407,7 @@ function ComposeTab({ stack, onSaved, onUp }: { stack: ComposeStack; onSaved: ()
     useEffect(() => {
         let alive = true;
         setOriginal(null);
-        api("readFile", { serverId: stack.hostId, path: composePath })
+        api("files", "read", { serverId: stack.hostId, path: composePath })
             .then((f) => { if (alive) { setOriginal(f.content); setValue(f.content); } })
             .catch((err) => alive && setError(err instanceof Error ? err.message : String(err)));
         return () => { alive = false; };
@@ -419,7 +419,7 @@ function ComposeTab({ stack, onSaved, onUp }: { stack: ComposeStack; onSaved: ()
         setSaving(true);
         setError(null);
         try {
-            await api("writeFile", { serverId: stack.hostId, path: composePath, content: value });
+            await api("files", "write", { serverId: stack.hostId, path: composePath, content: value });
             setOriginal(value);
             if (andUp) {
                 onUp();
@@ -509,7 +509,7 @@ function LogsTab({ stack, status }: { stack: ComposeStack; status: ComposeStackS
         setLoading(true);
         setError(null);
         try {
-            const { logs: text } = await api("getComposeStackLogs", { stackId: stack.id, service: service || undefined, tail });
+            const { logs: text } = await api("compose", "getLogs", { stackId: stack.id, service: service || undefined, tail });
             setLogs(text);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

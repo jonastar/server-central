@@ -18,7 +18,7 @@ export function DockerImages({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setDocker(await api("dockerList", { serverId }));
+            setDocker(await api("docker", "list", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -39,7 +39,7 @@ export function DockerImages({ serverId }: { serverId: string }) {
         }
         setBusy(img.id);
         try {
-            await api("dockerImageAction", { serverId, imageId: img.id, action: "remove" });
+            await api("docker", "imageAction", { serverId, imageId: img.id, action: "remove" });
             await load();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

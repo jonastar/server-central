@@ -11,7 +11,7 @@ import shared from "../../styles/shared.module.css";
 
 function FailedUnits({ serverId, entry }: WidgetProps) {
     const online = entry.status.state === "online";
-    const { data, error, loading } = useHostPoll("systemdList", { serverId }, { enabled: online });
+    const { data, error, loading } = useHostPoll("systemd", "list", { serverId }, { enabled: online });
 
     if (!online) {
         return <EmptyState>Server is not connected.</EmptyState>;

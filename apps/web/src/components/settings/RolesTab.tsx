@@ -148,9 +148,9 @@ function RoleModal({ role, onClose, onSaved }: { role: RoleDef | null; onClose: 
         ];
         try {
             if (role) {
-                await api("updateRole", { role: { ...role, name, description, permissions: merged } });
+                await api("auth", "updateRole", { role: { ...role, name, description, permissions: merged } });
             } else {
-                await api("createRole", { name, description, permissions: merged });
+                await api("auth", "createRole", { name, description, permissions: merged });
             }
             onSaved();
             onClose();
@@ -214,7 +214,7 @@ export function RolesTab() {
     const [creating, setCreating] = useState(false);
 
     function refresh() {
-        api("listRoles", undefined).then(setRoles).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+        api("auth", "listRoles", undefined).then(setRoles).catch((err) => setError(err instanceof Error ? err.message : String(err)));
     }
 
     useEffect(refresh, []);
@@ -235,7 +235,7 @@ export function RolesTab() {
         }
         setError(null);
         try {
-            await api("resetRole", { roleId: role.id });
+            await api("auth", "resetRole", { roleId: role.id });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -245,7 +245,7 @@ export function RolesTab() {
     async function handleRestore(roleId: string) {
         setError(null);
         try {
-            await api("resetRole", { roleId });
+            await api("auth", "resetRole", { roleId });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -258,7 +258,7 @@ export function RolesTab() {
         }
         setError(null);
         try {
-            await api("deleteRole", { roleId: role.id });
+            await api("auth", "deleteRole", { roleId: role.id });
             refresh();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

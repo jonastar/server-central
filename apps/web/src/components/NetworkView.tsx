@@ -60,13 +60,13 @@ export function NetworkView({ serverId }: { serverId: string }) {
 
     async function checkStun() {
         try {
-            await api("runTask", { spec: { kind: "find_wan_ip" }, target: serverId });
+            await api("tasks", "run", { spec: { kind: "find_wan_ip" }, target: serverId });
         } catch { /* surfaced via the run's failed status */ }
     }
 
     const load = useCallback(async () => {
         try {
-            setNet(await api("getNetworkInfo", { serverId }));
+            setNet(await api("network", "getInfo", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

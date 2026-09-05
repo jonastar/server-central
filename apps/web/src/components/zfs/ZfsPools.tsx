@@ -81,7 +81,7 @@ export function ZfsPools({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setState(await api("getZfsState", { serverId }));
+            setState(await api("zfs", "getState", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

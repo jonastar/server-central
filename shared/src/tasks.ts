@@ -127,8 +127,8 @@ export interface TaskDebugFake {
 // Every ZFS mutation runs as a task, even the ones that finish in milliseconds —
 // the point is the audit trail ("who destroyed pool tank, when"), not latency.
 // Pool/vdev topology kinds (create/destroy/import/export/vdev add/device replace)
-// are gated owner-only by the ZFS feature's `ownerOnlyTaskKinds`; see
-// doc/idea_zfs.md's safety model.
+// sit behind their own permission node, separate from the dataset/snapshot kinds
+// — see TASK_KIND_PERMISSIONS in ./permissions and doc/idea_zfs.md's safety model.
 
 /** `devices` are `/dev/disk/by-id/*` paths — never `/dev/sdX`, which isn't
  *  stable across reboots. */
@@ -458,4 +458,20 @@ export interface TaskSchedule {
     /** Id of the most recent run this schedule spawned, for one-click "last result". */
     lastRunId?: string;
     nextRunAt?: number;
+}
+
+// ---- Operations ----------------------------------------------------------------
+
+/**
+ * The uniform envelope: history, typed last-result, run-now. Cancellation and
+ * schedules are deferred until a task kind needs them.
+ */
+export interface TasksOperations {
+    list: { data: { target?: string | null; kind?: TaskSpec["kind"]; limit?: number }; response: TaskRun[] };
+    get: { data: { id: string }; response: TaskRun | null };
+    /** Run-now: create + start a run immediately. Returns its id to navigate to. */
+    run: { data: { spec: TaskSpec; target: string | null }; response: { id: string } };
+    // Seed a run's log buffer (in-memory only, empty for kinds that don't log or
+    // after a control-plane restart); live updates arrive via the `taskLog` event.
+    getLogs: { data: { id: string }; response: TaskLogLine[] };
 }

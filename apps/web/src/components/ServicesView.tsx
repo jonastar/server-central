@@ -36,7 +36,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setState(await api("systemdList", { serverId }));
+            setState(await api("systemd", "list", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -61,7 +61,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
 
     async function showUnitFile(svc: ServiceInfo) {
         try {
-            const res = await api("systemdUnitFile", { serverId, unit: svc.unit });
+            const res = await api("systemd", "unitFile", { serverId, unit: svc.unit });
             setDetail({ unit: svc.unit, title: `Unit — ${svc.unit}`, text: res.content || "(empty)" });
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -164,7 +164,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
                                                                     <DetailPair label="Startup">{s.enabledState ?? "—"}</DetailPair>
                                                                 </div>
                                                                 <LogPreview
-                                                                    fetchLogs={(q) => api("systemdServiceLogs", { serverId, unit: s.unit, ...q }).then((r) => r.logs)}
+                                                                    fetchLogs={(q) => api("systemd", "serviceLogs", { serverId, unit: s.unit, ...q }).then((r) => r.logs)}
                                                                     onOpenFull={() => setLogUnit(s.unit)}
                                                                 />
                                                             </div>
@@ -192,7 +192,7 @@ export function ServicesView({ serverId }: { serverId: string }) {
                     title={`Logs — ${logUnit}`}
                     onClose={() => setLogUnit(null)}
                     caps={{ priority: true }}
-                    fetchLogs={(q) => api("systemdServiceLogs", { serverId, unit: logUnit, ...q }).then((r) => r.logs)}
+                    fetchLogs={(q) => api("systemd", "serviceLogs", { serverId, unit: logUnit, ...q }).then((r) => r.logs)}
                 />
             )}
         </div>

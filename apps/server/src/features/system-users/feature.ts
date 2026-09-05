@@ -1,36 +1,24 @@
-import type { SystemUserHostStatus, SystemUsersState } from "@central/shared";
+import type { SystemUserHostStatus, } from "@central/shared";
 import type { AuthContext, AuthStore } from "../../auth";
-import type { Feature, FeatureApiHandlers } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { Fleet } from "../../fleet";
 import { systemUserCreate, systemUserLookup, systemUserSetGroups, systemUsersList } from "./system-users";
 
-export function createSystemUsersFeature(fleet: Fleet, auth: AuthStore): Feature<SystemUsersOps> {
-    return {
-        descriptor: {
-            id: "system-users",
-            name: "System users",
-            description: "OS user account mapping and management across the fleet.",
-            experimental: false,
-        },
-        apiHandlers() {
-            return systemUsersApiHandlers(fleet, auth);
-        },
-    };
-}
-
-export type SystemUsersOps = "systemUsersList" | "systemUserCreate" | "systemUserHostStatus" | "systemUserSetGroups";
-
-export function systemUsersApiHandlers(fleet: Fleet, auth: AuthStore): FeatureApiHandlers<SystemUsersOps> {
-    return {
-        async handleSystemUsersList(data: { serverId: string }): Promise<SystemUsersState> {
+export const createSystemUsersFeature = (fleet: Fleet, auth: AuthStore) => defineFeature({
+    id: "system-users",
+    name: "System users",
+    description: "OS user account mapping and management across the fleet.",
+    experimental: false,
+    ops: {
+        async list(data) {
             return systemUsersList(fleet.get(data.serverId), auth.listUsers());
         },
 
-        async handleSystemUserCreate(data: { serverId: string; username: string; groups: string[] }, ctx?: AuthContext): Promise<void> {
+        async create(data, ctx?: AuthContext) {
             await systemUserCreate(fleet.get(data.serverId), data.username, data.groups ?? []);
         },
 
-        async handleSystemUserHostStatus(data: { username: string }): Promise<SystemUserHostStatus[]> {
+        async hostStatus(data) {
             return Promise.all(fleet.entries().map(async (entry): Promise<SystemUserHostStatus> => {
                 const base = { serverId: entry.id, serverName: entry.name };
                 if (entry.status.state !== "online") {
@@ -48,8 +36,10 @@ export function systemUsersApiHandlers(fleet: Fleet, auth: AuthStore): FeatureAp
             }));
         },
 
-        async handleSystemUserSetGroups(data: { serverId: string; username: string; groups: string[] }, ctx?: AuthContext): Promise<void> {
+        async setGroups(data, ctx?: AuthContext) {
             await systemUserSetGroups(fleet.get(data.serverId), data.username, data.groups ?? []);
         },
-    };
-}
+    },
+});
+
+

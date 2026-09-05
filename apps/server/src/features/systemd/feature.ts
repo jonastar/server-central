@@ -1,61 +1,44 @@
 import type {
-    CentralApiOperations,
     HostCapabilityResult,
-    SystemdState,
     TaskServiceAction,
     TaskServiceActionResult,
 } from "@central/shared";
-import type { AgentFeature, Feature, FeatureApiHandlers, FeatureTaskHandlers } from "../../feature";
+import type { AgentFeature } from "../../feature";
+import { defineFeature } from "../../feature";
 import type { Fleet } from "../../fleet";
 import { systemdList, systemdServiceAction, systemdServiceLogs, systemdUnitFile } from "./systemd";
 import { requireAgent, type TaskCtx } from "../../tasks/types";
 import { accessible, constants, exists, which } from "../../agent/probe-utils";
 
-export function createSystemdFeature(fleet: Fleet): Feature<SystemdOps, "service_action"> {
-    return {
-        descriptor: {
-            id: "systemd",
-            name: "Systemd",
-            description: "systemd service inspection and control on a host.",
-            experimental: false,
-            requiresHostCapability: "systemd",
-        },
-        apiHandlers() {
-            return systemdApiHandlers(fleet);
-        },
-        taskHandlers() {
-            return systemdTaskHandlers();
-        },
-    };
-}
 
-export type SystemdOps = "systemdList" | "systemdServiceLogs" | "systemdUnitFile";
-
-export function systemdApiHandlers(fleet: Fleet): FeatureApiHandlers<SystemdOps> {
-    return {
-        async handleSystemdList(data: { serverId: string }): Promise<SystemdState> {
+export const createSystemdFeature = (fleet: Fleet) => defineFeature({
+    id: "systemd",
+    name: "Systemd",
+    description: "systemd service inspection and control on a host.",
+    experimental: false,
+    requiresHostCapability: "systemd",
+    ops: {
+        async list(data) {
             return systemdList(fleet.get(data.serverId));
         },
 
-        async handleSystemdServiceLogs(data: CentralApiOperations["systemdServiceLogs"]["data"]): Promise<{ logs: string }> {
+        async serviceLogs(data) {
             const { serverId, unit, ...opts } = data;
             return { logs: await systemdServiceLogs(fleet.get(serverId), unit, opts) };
         },
 
-        async handleSystemdUnitFile(data: { serverId: string; unit: string }): Promise<{ content: string }> {
+        async unitFile(data) {
             return { content: await systemdUnitFile(fleet.get(data.serverId), data.unit) };
         },
-    };
-}
-
-export function systemdTaskHandlers(): FeatureTaskHandlers<"service_action"> {
-    return {
+    },
+    tasks: {
         async service_action(spec: TaskServiceAction, ctx: TaskCtx): Promise<TaskServiceActionResult> {
             await systemdServiceAction(requireAgent(ctx, "service_action"), spec.unit, spec.action, ctx.log);
             return { kind: "service_action" };
         },
-    };
-}
+    },
+});
+
 
 /**
  * `/run/systemd/system` is the check systemd's own sd_booted(3) documents: it

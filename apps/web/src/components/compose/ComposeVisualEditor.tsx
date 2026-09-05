@@ -228,7 +228,7 @@ function ServiceEditor({ doc, service, hostId, stackDir, otherServices, errors, 
             return;
         }
         let alive = true;
-        api("dockerImageDefaults", { serverId: hostId, image })
+        api("docker", "imageDefaults", { serverId: hostId, image })
             .then((r) => { if (alive) setDefaults(r); })
             .catch(() => { if (alive) setDefaults(EMPTY_IMAGE_DEFAULTS); });
         return () => { alive = false; };
@@ -487,7 +487,7 @@ function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
 
     const load = useCallback(() => {
         setEntries(null);
-        api("listDir", { serverId, path: stackFolder })
+        api("files", "listDir", { serverId, path: stackFolder })
             .then((d) => setEntries(d.entries))
             .catch(() => setEntries([]));
     }, [serverId, stackFolder]);
@@ -505,7 +505,7 @@ function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
         }
         const created = `${stackFolder}/${name}`;
         try {
-            await api("createDir", { serverId, path: created });
+            await api("files", "createDir", { serverId, path: created });
             onChange(created);
             load();
         } catch (err) {
@@ -572,7 +572,7 @@ function VolumesField({ doc, service, hostId, stackDir, commit, suggestedTargets
     async function createSuggested(containerPath: string) {
         const folderName = containerPath.split("/").filter(Boolean).pop() || "data";
         const hostDir = `${stackDir.replace(/\/$/, "")}/${folderName}`;
-        await api("createDir", { serverId: hostId, path: hostDir });
+        await api("files", "createDir", { serverId: hostId, path: hostDir });
         commit((d) => addSeqItem(d, path, serializeVolumeRow({ kind: "short", source: hostDir, target: containerPath, readOnly: false })));
     }
 
@@ -729,7 +729,7 @@ function DevicesField({ doc, service, hostId, commit }: {
 
     useEffect(() => {
         let alive = true;
-        api("listHostDevices", { serverId: hostId })
+        api("files", "listDevices", { serverId: hostId })
             .then((r) => { if (alive) setHostDevices(r); })
             .catch((err) => { if (alive) setHostDevices({ devices: [], error: err instanceof Error ? err.message : String(err) }); });
         return () => { alive = false; };

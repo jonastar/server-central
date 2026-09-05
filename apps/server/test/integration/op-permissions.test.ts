@@ -95,12 +95,12 @@ describe("registry integrity", () => {
 
     test("only the three first-run/login operations are public", () => {
         const publicOps = Object.entries(OP_REQUIREMENTS).filter(([, r]) => r === "public").map(([op]) => op).sort();
-        expect(publicOps).toEqual(["getAuthState", "login", "setupOwner"]);
+        expect(publicOps).toEqual(["auth/getState", "auth/login", "auth/setupOwner"]);
     });
 
     test("only session-shaped operations skip the permission check", () => {
         const anyUser = Object.entries(OP_REQUIREMENTS).filter(([, r]) => r === "authenticated").map(([op]) => op).sort();
-        expect(anyUser).toEqual(["completeOidcAuthorize", "getOidcAuthorizeRequest", "logout", "me"]);
+        expect(anyUser).toEqual(["auth/logout", "auth/me", "oidc/completeAuthorize", "oidc/getAuthorizeRequest"]);
     });
 });
 
@@ -167,9 +167,9 @@ describe("what each role can actually reach", () => {
 
     test("a viewer reads but cannot write, exec or administer", () => {
         const viewer = allowedOps("viewer");
-        expect(viewer).toContain("dockerList");
-        expect(viewer).toContain("getMounts");
-        for (const denied of ["writeFile", "deletePath", "dockerContainerExec", "setProxyConfig", "runTask", "createUser", "updateControlPlane"]) {
+        expect(viewer).toContain("docker/list");
+        expect(viewer).toContain("files/getMounts");
+        for (const denied of ["files/write", "files/delete", "docker/containerExec", "proxy/setConfig", "tasks/run", "auth/createUser", "settings/updateControlPlane"]) {
             expect(viewer, `viewer must not reach ${denied}`).not.toContain(denied);
         }
         expect(runnable("viewer")).toEqual([]);
@@ -180,15 +180,15 @@ describe("what each role can actually reach", () => {
         // every host". readFile reaches private keys and Server Central's own
         // session and agent tokens, so it's an explicit grant, not a tier.
         const viewer = allowedOps("viewer");
-        expect(viewer).not.toContain("readFile");
-        expect(viewer).not.toContain("listDir");
+        expect(viewer).not.toContain("files/read");
+        expect(viewer).not.toContain("files/listDir");
     });
 
     test("an operator acts but does not administer", () => {
         const operator = allowedOps("operator");
-        expect(operator).toContain("writeFile");
-        expect(operator).toContain("runTask");
-        for (const denied of ["dockerContainerExec", "setProxyConfig", "installNodeService", "createUser", "setTrustedProxies"]) {
+        expect(operator).toContain("files/write");
+        expect(operator).toContain("tasks/run");
+        for (const denied of ["docker/containerExec", "proxy/setConfig", "servers/installService", "auth/createUser", "settings/setTrustedProxies"]) {
             expect(operator, `operator must not reach ${denied}`).not.toContain(denied);
         }
         const ops = runnable("operator");
@@ -202,10 +202,10 @@ describe("what each role can actually reach", () => {
 
     test("an admin administers hosts but not accounts", () => {
         const admin = allowedOps("admin");
-        for (const granted of ["installNodeService", "setProxyConfig", "dockerContainerExec", "setTrustedProxies", "listUsers"]) {
+        for (const granted of ["servers/installService", "proxy/setConfig", "docker/containerExec", "settings/setTrustedProxies", "auth/listUsers"]) {
             expect(admin, `admin should reach ${granted}`).toContain(granted);
         }
-        for (const denied of ["createUser", "deleteUser", "updateUserRole", "setUserPermissions", "adminSetPassword"]) {
+        for (const denied of ["auth/createUser", "auth/deleteUser", "updateUserRole", "auth/setUserPermissions", "auth/adminSetPassword"]) {
             expect(admin, `admin must not reach ${denied}`).not.toContain(denied);
         }
         expect(runnable("admin")).toContain("cmd");
@@ -243,11 +243,11 @@ describe("what each role can actually reach", () => {
 
 describe("pushed events are gated like the equivalent pull", () => {
     test("fleet events need what getServers needs, task events what listTasks needs", () => {
-        expect(EVENT_PERMISSIONS.serversUpdate).toBe(OP_REQUIREMENTS.getServers as string);
-        expect(EVENT_PERMISSIONS.statusUpdate).toBe(OP_REQUIREMENTS.getServers as string);
-        expect(EVENT_PERMISSIONS.metrics).toBe(OP_REQUIREMENTS.getMetricsHistory as string);
-        expect(EVENT_PERMISSIONS.taskUpdate).toBe(OP_REQUIREMENTS.listTasks as string);
-        expect(EVENT_PERMISSIONS.taskLog).toBe(OP_REQUIREMENTS.getTaskLogs as string);
+        expect(EVENT_PERMISSIONS.serversUpdate).toBe(OP_REQUIREMENTS["servers/list"] as string);
+        expect(EVENT_PERMISSIONS.statusUpdate).toBe(OP_REQUIREMENTS["servers/list"] as string);
+        expect(EVENT_PERMISSIONS.metrics).toBe(OP_REQUIREMENTS["servers/getMetricsHistory"] as string);
+        expect(EVENT_PERMISSIONS.taskUpdate).toBe(OP_REQUIREMENTS["tasks/list"] as string);
+        expect(EVENT_PERMISSIONS.taskLog).toBe(OP_REQUIREMENTS["tasks/getLogs"] as string);
     });
 
     test("every event kind is classified", () => {

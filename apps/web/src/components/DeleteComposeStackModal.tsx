@@ -43,7 +43,7 @@ export function DeleteComposeStackModal({ stack, host, running, onClose, onDelet
             if (running) {
                 await runTaskAndWait({ kind: "docker_compose_action", stackId: stack.id, action: "down" }, stack.hostId);
             }
-            await api("deleteComposeStack", { stackId: stack.id, deleteDir });
+            await api("compose", "delete", { stackId: stack.id, deleteDir });
             onDeleted();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

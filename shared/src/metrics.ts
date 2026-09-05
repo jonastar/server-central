@@ -1,4 +1,3 @@
-import type { DiskUsage, MetricsSnapshot } from "./index";
 
 export interface MetricsSample {
     stat: string;
@@ -147,3 +146,38 @@ export class MetricsCollector {
         };
     }
 }
+// ---- Metrics -----------------------------------------------------------------
+
+export interface DiskUsage {
+    filesystem: string;
+    mount: string;
+    totalKb: number;
+    usedKb: number;
+}
+
+export interface MetricsSnapshot {
+    ts: number;
+    cpu: {
+        /** 0..100 */
+        total: number;
+        /** 0..100 per core */
+        perCore: number[];
+    };
+    memory: {
+        totalKb: number;
+        usedKb: number;
+        availableKb: number;
+        swapTotalKb: number;
+        swapUsedKb: number;
+    };
+    network: {
+        rxBytesPerSec: number;
+        txBytesPerSec: number;
+    };
+    diskIo: {
+        readBytesPerSec: number;
+        writeBytesPerSec: number;
+    };
+    disks: DiskUsage[];
+}
+

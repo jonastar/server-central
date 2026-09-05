@@ -67,12 +67,12 @@ function GeneralSettings() {
 
     async function checkWanIp() {
         try {
-            await api("runTask", { spec: { kind: "find_wan_ip" }, target: null });
+            await api("tasks", "run", { spec: { kind: "find_wan_ip" }, target: null });
         } catch { /* surfaced via the run's failed status */ }
     }
 
     useEffect(() => {
-        api("getConfig", undefined).then((c) => {
+        api("settings", "getConfig", undefined).then((c) => {
             setDomain(c.domain ?? "");
             setSaved(c.domain ?? null);
             setPrimaryUrl(c.primaryUrl ?? "");
@@ -83,7 +83,7 @@ function GeneralSettings() {
             setForwardedHeader(c.forwardedHeader);
             setProxiesLocked(c.trustedProxiesLocked);
         }).catch(() => { /* ignore */ });
-        api("getControlPlaneStatus", undefined).then(setCp).catch(() => { /* ignore */ });
+        api("settings", "getControlPlaneStatus", undefined).then(setCp).catch(() => { /* ignore */ });
     }, []);
 
     async function handleSavePrimaryUrl(e: React.FormEvent) {
@@ -92,7 +92,7 @@ function GeneralSettings() {
         setPrimaryError(null);
         const trimmed = primaryUrl.trim() || null;
         try {
-            await api("setPrimaryUrl", { primaryUrl: trimmed });
+            await api("settings", "setPrimaryUrl", { primaryUrl: trimmed });
             setPrimarySaved(trimmed);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -101,7 +101,7 @@ function GeneralSettings() {
             if (message.includes("will break sign-in for")) {
                 if (confirm(`${message}\n\nChange it anyway?`)) {
                     try {
-                        await api("setPrimaryUrl", { primaryUrl: trimmed, force: true });
+                        await api("settings", "setPrimaryUrl", { primaryUrl: trimmed, force: true });
                         setPrimarySaved(trimmed);
                     } catch (forced) {
                         setPrimaryError(forced instanceof Error ? forced.message : String(forced));
@@ -122,8 +122,8 @@ function GeneralSettings() {
         setOriginsSaving(true);
         setOriginsError(null);
         try {
-            await api("setAllowedOrigins", { allowedOrigins: next });
-            setAllowedOrigins((await api("getConfig", undefined)).allowedOrigins);
+            await api("settings", "setAllowedOrigins", { allowedOrigins: next });
+            setAllowedOrigins((await api("settings", "getConfig", undefined)).allowedOrigins);
             return true;
         } catch (err) {
             setOriginsError(err instanceof Error ? err.message : String(err));
@@ -171,8 +171,8 @@ function GeneralSettings() {
         setProxiesSaving(true);
         setProxiesError(null);
         try {
-            await api("setTrustedProxies", { trustedProxies: next });
-            const saved = await api("getConfig", undefined);
+            await api("settings", "setTrustedProxies", { trustedProxies: next });
+            const saved = await api("settings", "getConfig", undefined);
             setProxies(saved.trustedProxies);
             return true;
         } catch (err) {
@@ -210,7 +210,7 @@ function GeneralSettings() {
         setUpdating(true);
         setCpMsg(null);
         try {
-            await api("updateControlPlane", undefined);
+            await api("settings", "updateControlPlane", undefined);
             setCpMsg("Update started; the control plane is restarting. This page will reconnect shortly.");
         } catch (err) {
             setCpMsg(err instanceof Error ? err.message : String(err));
@@ -224,7 +224,7 @@ function GeneralSettings() {
         setError(null);
         try {
             const trimmed = domain.trim() || null;
-            await api("setDomain", { domain: trimmed });
+            await api("settings", "setDomain", { domain: trimmed });
             setSaved(trimmed);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -237,7 +237,7 @@ function GeneralSettings() {
         setSaving(true);
         setError(null);
         try {
-            await api("setDomain", { domain: null });
+            await api("settings", "setDomain", { domain: null });
             setDomain("");
             setSaved(null);
         } catch (err) {

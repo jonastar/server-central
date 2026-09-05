@@ -34,7 +34,7 @@ export async function runTaskAndWait(
     opts: { feedback?: TaskFeedback; onStart?: (id: string) => void } = {},
 ): Promise<TaskRun> {
     const { feedback = "progress" } = opts;
-    const { id } = await api("runTask", { spec, target });
+    const { id } = await api("tasks", "run", { spec, target });
     opts.onStart?.(id);
     if (feedback !== "none") {
         taskFeedbackManager.track(id, feedback);

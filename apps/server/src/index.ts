@@ -1,10 +1,8 @@
 import * as path from "node:path";
-import type { ServerWebSocket } from "bun";
-import type { ApiEvent, ApiHandlerPrefixed, CentralApiOperations, OpRequirement, TerminalClientMessage, TerminalServerMessage, UserInfo } from "@central/shared";
-import { API_PREFIX, MAX_UPLOAD_BYTES, OP_REQUIREMENTS, eventPermission, userCan } from "@central/shared";
+import type { ApiEvent, ApiHandlers, CentralApiOperations } from "@central/shared";
+import { API_PREFIX, MAX_UPLOAD_BYTES, userCan } from "@central/shared";
 import { DEFAULT_FORWARDED_HEADER, headerForPeer, parseTrustedProxies, parseTrustedProxiesEnv, resolveClientIp, type TrustedProxyEntry } from "./client-ip";
 import { corsHeaders as buildCorsHeaders, originAllowsRequest, resolveAllowedOrigins } from "./cors";
-import type { ShellSession } from "./host-agent";
 import { ComposeStackStore } from "./features/compose/store";
 import { createComposeStacksFeature } from "./features/compose/feature";
 import { createAuthFeature } from "./features/auth/feature";
@@ -12,16 +10,14 @@ import { CONFIG_DIR, readConfig } from "./config";
 import { RoleStore } from "./roles";
 import { createDebugFeature } from "./features/debug/feature";
 import { createDockerFeature } from "./features/docker/feature";
-import { composeApiHandlers, composeTaskHandlers, defineFeatures } from "./feature";
+import { composeApiHandlers, composeHttpRoutes, composeTaskHandlers, defineFeatures, flattenApiHandlers, matchHttpRoute } from "./feature";
 import { createFilesFeature } from "./features/files/feature";
 import { sweepTempFilesIn } from "./fs-atomic";
-import { AuthStore, type AuthContext } from "./auth";
+import { AuthStore } from "./auth";
 import { Fleet } from "./fleet";
 import { createNetworkFeature } from "./features/network/feature";
 import { OidcStore } from "./features/oidc/store";
 import { createOidcFeature } from "./features/oidc/feature";
-import { discoveryDocument } from "./features/oidc/discovery";
-import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "./features/oidc/tokens";
 import { createProcessesFeature } from "./features/processes/feature";
 import { ProxyManager } from "./features/proxy/manager";
 import { DashboardStore } from "./features/dashboard/store";
@@ -34,14 +30,16 @@ import { createSystemdFeature } from "./features/systemd/feature";
 import { createSystemUsersFeature } from "./features/system-users/feature";
 import { TaskStore } from "./tasks/store";
 import { TaskRunner } from "./tasks/runner";
-import { taskHandlers, type TaskHandlers } from "./tasks/types";
+import type { TaskHandlers } from "./tasks/types";
 import { createTasksFeature } from "./features/tasks/feature";
-import { openTerminalShell, createTerminalFeature } from "./features/terminal/feature";
+import { createTerminalFeature } from "./features/terminal/feature";
 import { ensureTls, localIps } from "./tls";
 import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
 import { runAgentCli } from "./agent/agent-cli";
 import { serveStatic } from "./static";
+import { handleRpc, isRpcPath } from "./http/rpc";
+import { EventHub, type WsData } from "./http/ws";
 import { offerInteractiveInstall, runServerInstallCli } from "./server-install";
 import { createZfsFeature } from "./features/zfs/feature";
 
@@ -65,30 +63,13 @@ if (cliArgs.length === 0 && process.stdin.isTTY && await offerInteractiveInstall
     process.exit(0);
 }
 
-type Command = keyof CentralApiOperations;
-
-type WsData =
-    // The user rides along so pushed events can be filtered the same way pulled
-    // ones are: this socket carries fleet inventory and task history, which are
-    // exactly the `getServers`/`listTasks` payloads by another route. Resolved at
-    // upgrade and not refreshed, so a permission change takes effect on the
-    // client's next reconnect rather than mid-stream.
-    | { channel: "events"; user: UserInfo }
-    // containerId, when set, opens a terminal into that container (`docker exec
-    // -it`) instead of a host shell — see openTerminal().
-    | { channel: "terminal"; serverId: string; containerId: string | null; user: UserInfo; shell: ShellSession | null };
-
-const eventSockets = new Set<ServerWebSocket<WsData>>();
+// The event hub owns the `/events` socket set; it can't be built until the fleet
+// and task store exist, so `broadcast` delegates through this binding. Nothing
+// can be pushed before boot finishes anyway — there are no subscribers yet.
+let hub: EventHub | undefined;
 
 function broadcast(event: ApiEvent): void {
-    const payload = JSON.stringify(event);
-    const required = eventPermission(event.kind);
-    for (const socket of eventSockets) {
-        if (!userCan(socket.data.user, required)) {
-            continue;
-        }
-        socket.send(payload);
-    }
+    hub?.broadcast(event);
 }
 
 // Clear temp files abandoned by a previous run that was killed between write and
@@ -113,30 +94,6 @@ await auth.init();
 
 const stackStore = new ComposeStackStore(fleet);
 
-// ---- Features -------------------------------------------------------------------
-//
-// Two batches, for one ordering reason: host features own every task kind, so
-// their registry has to exist before the TaskRunner that dispatches it, while the
-// control-plane features below include the tasks feature itself and so must come
-// after the runner. Boot order stays this explicit, hand-written sequence rather
-// than a resolved dependency graph — see doc/idea_feature_convention.md §4.
-//
-// Both registries go through `defineFeatures` rather than being plain arrays, so
-// each element keeps its declared operations and task kinds — that's what the
-// compose* helpers union to prove the protocol is fully covered.
-const hostFeatures = defineFeatures(
-    createComposeStacksFeature(stackStore, fleet),
-    createDockerFeature(fleet),
-    createZfsFeature(fleet),
-    createSystemdFeature(fleet),
-    createSystemUsersFeature(fleet, auth),
-    createFilesFeature(fleet),
-    createProcessesFeature(fleet),
-    createNetworkFeature(fleet),
-    createTerminalFeature(),
-    createDebugFeature(),
-);
-
 const wanIp = await discoverWanIp();
 if (wanIp) {
     console.log(`Discovered WAN IP: ${wanIp}`);
@@ -154,23 +111,6 @@ const nodeServer = await startNodeServer(
     wanIp,
     (serverId, snapshot) => broadcast({ kind: "metrics", data: { serverId, snapshot } }),
     tlsDir,
-);
-
-const taskStore = new TaskStore();
-await taskStore.init();
-
-// Typed as the full `TaskHandlers`, so a new kind in the `TaskSpec` union won't
-// compile until some feature (or the cross-cutting set in tasks/types.ts) handles
-// it — the guarantee this composition exists for.
-const featureTasks = composeTaskHandlers(hostFeatures);
-const allTaskHandlers: TaskHandlers = { ...taskHandlers, ...featureTasks.handlers };
-const taskRunner = new TaskRunner(
-    taskStore,
-    fleet,
-    stackStore,
-    (run) => broadcast({ kind: "taskUpdate", data: run }),
-    (taskId, line) => broadcast({ kind: "taskLog", data: { taskId, lines: [line] } }),
-    allTaskHandlers,
 );
 
 /**
@@ -203,22 +143,68 @@ const dashboardStore = new DashboardStore();
 const proxyStore = new ProxyStore();
 const proxyManager = new ProxyManager(fleet, proxyStore);
 
-const features = defineFeatures(
-    ...hostFeatures,
+// ---- Features -------------------------------------------------------------------
+//
+// Two batches, for one ordering reason: features own the task kinds, so their
+// registry has to exist before the TaskRunner that dispatches them, while the
+// `tasks` feature *takes* that runner and so must come after it. It is the only
+// feature in the second batch. Boot order stays this explicit, hand-written
+// sequence rather than a resolved dependency graph — see
+// doc/idea_feature_convention.md §4.
+//
+// Both registries go through `defineFeatures` rather than being plain arrays, so
+// each element keeps its declared operations and task kinds — that's what the
+// compose* helpers union to prove the protocol is fully covered.
+const baseFeatures = defineFeatures(
+    createComposeStacksFeature(stackStore, fleet),
+    createDockerFeature(fleet, stackStore),
+    createZfsFeature(fleet),
+    createSystemdFeature(fleet),
+    createSystemUsersFeature(fleet, auth),
+    createFilesFeature(fleet),
+    createProcessesFeature(fleet),
+    createNetworkFeature(fleet),
+    createTerminalFeature(),
+    createDebugFeature(),
     createAuthFeature(auth, roleStore),
-    createOidcFeature(oidcStore),
+    createOidcFeature(oidcStore, auth),
     createDashboardFeature(dashboardStore),
     createProxyFeature(proxyManager, proxyStore),
     createServersFeature(fleet, nodeServer),
     createSettingsFeature(nodeServer, oidcStore, applyAllowedOrigins, applyTrustedProxies, trustedProxiesLocked),
-    createTasksFeature(taskRunner, taskStore),
 );
+
+const taskStore = new TaskStore();
+await taskStore.init();
+
+hub = new EventHub(fleet, taskStore);
+
+// Typed as the full `TaskHandlers`, so a new kind in the `TaskSpec` union won't
+// compile until some feature handles it — the guarantee this composition exists for.
+const allTaskHandlers: TaskHandlers = composeTaskHandlers(baseFeatures);
+const taskRunner = new TaskRunner(
+    taskStore,
+    fleet,
+    (run) => broadcast({ kind: "taskUpdate", data: run }),
+    (taskId, line) => broadcast({ kind: "taskLog", data: { taskId, lines: [line] } }),
+    allTaskHandlers,
+);
+
+const features = defineFeatures(...baseFeatures, createTasksFeature(taskRunner, taskStore));
 for (const f of features) await f.init?.({ configDir: CONFIG_DIR, broadcast });
 
 // Same completeness check on the API side: this assignment is what fails, naming
 // the missing `handle*` methods, if an operation in `CentralApiOperations` has no
 // feature claiming it.
-const handler: ApiHandlerPrefixed<CentralApiOperations> = composeApiHandlers(features);
+const handler: ApiHandlers<CentralApiOperations> = composeApiHandlers(features);
+
+// One flat `Map` keyed by `"<namespace>/<operation>"` — the dispatcher's whole
+// routing table, and the only thing a request path can resolve against.
+const apiTable = flattenApiHandlers(handler);
+
+// Raw (non-RPC) endpoints features own — OIDC's discovery/JWKS/token/userinfo
+// today. Matched before the RPC prefix and before static assets.
+const httpRoutes = composeHttpRoutes(features);
 
 
 
@@ -270,106 +256,6 @@ function clientIp(req: Request, serverCtx: { requestIP(req: Request): { address:
     return resolveClientIp(peer, req.headers.get(header), trustedProxies, header);
 }
 
-function bearerToken(req: Request): string | null {
-    const header = req.headers.get("Authorization");
-    if (!header) {
-        return null;
-    }
-    const match = /^Bearer\s+(.+)$/i.exec(header);
-    return match ? match[1] : null;
-}
-
-// ---- OIDC token endpoint -------------------------------------------------------
-//
-// Unlike every other route, this is called by the relying party's backend, not
-// the browser — so it's `application/x-www-form-urlencoded` per the OIDC spec,
-// not our usual JSON-RPC shape, and the client authenticates with its own
-// credential (client_secret_post or HTTP Basic / client_secret_basic) instead of
-// a session bearer token.
-
-function clientCredentials(req: Request, body: URLSearchParams): { clientId: string; clientSecret: string } | null {
-    const basic = req.headers.get("Authorization");
-    if (basic?.startsWith("Basic ")) {
-        const decoded = Buffer.from(basic.slice(6), "base64").toString("utf8");
-        const sep = decoded.indexOf(":");
-        if (sep !== -1) {
-            return { clientId: decoded.slice(0, sep), clientSecret: decoded.slice(sep + 1) };
-        }
-    }
-    const clientId = body.get("client_id");
-    const clientSecret = body.get("client_secret");
-    return clientId && clientSecret ? { clientId, clientSecret } : null;
-}
-
-async function handleOidcToken(req: Request): Promise<Response> {
-    const corsHeaders = corsFor(req);
-    const body = new URLSearchParams(await req.text());
-    if (body.get("grant_type") !== "authorization_code") {
-        return Response.json({ error: "unsupported_grant_type" }, { status: 400, headers: corsHeaders });
-    }
-    const code = body.get("code");
-    const redirectUri = body.get("redirect_uri");
-    const codeVerifier = body.get("code_verifier");
-    const creds = clientCredentials(req, body);
-    if (!code || !redirectUri || !codeVerifier || !creds) {
-        return Response.json({ error: "invalid_request" }, { status: 400, headers: corsHeaders });
-    }
-
-    const client = await oidcStore.verifyClientSecret(creds.clientId, creds.clientSecret);
-    if (!client) {
-        return Response.json({ error: "invalid_client" }, { status: 401, headers: corsHeaders });
-    }
-    const grant = oidcStore.consumeCode(code);
-    if (!grant || grant.clientId !== client.id || grant.redirectUri !== redirectUri) {
-        return Response.json({ error: "invalid_grant" }, { status: 400, headers: corsHeaders });
-    }
-    if (!verifyPkce(codeVerifier, grant.codeChallenge)) {
-        return Response.json({ error: "invalid_grant", error_description: "PKCE verification failed" }, { status: 400, headers: corsHeaders });
-    }
-    const user = auth.getUserById(grant.userId);
-    if (!user) {
-        return Response.json({ error: "invalid_grant", error_description: "User no longer exists" }, { status: 400, headers: corsHeaders });
-    }
-    const config = await readConfig();
-    if (!config.primaryUrl) {
-        return Response.json({ error: "server_error", error_description: "Primary URL is not configured" }, { status: 500, headers: corsHeaders });
-    }
-
-    const key = oidcStore.key;
-    const idToken = buildIdToken(user, { issuer: config.primaryUrl, clientId: client.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000) }, key);
-    const accessToken = buildAccessToken(user, { issuer: config.primaryUrl, clientId: client.id, scope: grant.scope }, key);
-    return Response.json({
-        access_token: accessToken,
-        id_token: idToken,
-        token_type: "Bearer",
-        expires_in: ACCESS_TOKEN_TTL_S,
-        scope: grant.scope,
-    }, { headers: corsHeaders });
-}
-
-// ---- Terminal bridge ---------------------------------------------------------
-
-function sendTerminal(ws: ServerWebSocket<WsData>, msg: TerminalServerMessage): void {
-    ws.send(JSON.stringify(msg));
-}
-
-async function openTerminal(ws: ServerWebSocket<WsData>): Promise<void> {
-    if (ws.data.channel !== "terminal") {
-        return;
-    }
-    try {
-        const shell = await openTerminalShell(fleet, ws.data.serverId, ws.data.containerId, ws.data.user);
-        ws.data.shell = shell;
-        shell.onData((data) => sendTerminal(ws, { type: "data", data }));
-        shell.onExit((code) => {
-            sendTerminal(ws, { type: "exit", code });
-            ws.close();
-        });
-    } catch (err) {
-        sendTerminal(ws, { type: "error", message: err instanceof Error ? err.message : String(err) });
-        ws.close();
-    }
-}
 
 // ---- HTTP / WebSocket ----------------------------------------------------------
 
@@ -394,32 +280,9 @@ const server = Bun.serve<WsData>({
             return new Response(null, { status: 204, headers: corsHeaders });
         }
 
-        // ---- OIDC: public discovery/JWKS + the raw (non-RPC) token/userinfo routes.
-        // GET /oidc/authorize needs no special-casing here — it's a plain browser
-        // navigation with no extension, so it already falls through to serveStatic's
-        // SPA-shell fallback below; the React app itself recognizes the path.
-        if (url.pathname === "/.well-known/openid-configuration" || url.pathname === "/.well-known/jwks.json") {
-            const config = await readConfig();
-            if (!config.primaryUrl) {
-                return Response.json({ error: "Primary URL is not configured" }, { status: 404, headers: corsHeaders });
-            }
-            const body = url.pathname === "/.well-known/jwks.json" ? jwks(oidcStore.key) : discoveryDocument(config.primaryUrl);
-            return Response.json(body, { headers: corsHeaders });
-        }
-
-        if (url.pathname === "/oidc/token" && req.method === "POST") {
-            return handleOidcToken(req);
-        }
-
-        if (url.pathname === "/oidc/userinfo") {
-            const token = bearerToken(req);
-            const payload = token ? verifyJwt(token, oidcStore.key.publicKeyPem) : null;
-            const sub = payload && typeof payload.sub === "string" ? payload.sub : null;
-            const user = sub ? auth.getUserById(sub) : null;
-            if (!user) {
-                return Response.json({ error: "invalid_token" }, { status: 401, headers: corsHeaders });
-            }
-            return Response.json({ sub: user.id, preferred_username: user.username, groups: user.permissions.filter((p) => p.startsWith("app.")) }, { headers: corsHeaders });
+        const route = matchHttpRoute(httpRoutes, req.method, url.pathname);
+        if (route) {
+            return route.handle(req, corsHeaders);
         }
 
         // WebSocket channels carry the bearer token as a query param, since
@@ -455,66 +318,13 @@ const server = Bun.serve<WsData>({
             return new Response("Upgrade failed", { status: 400, headers: corsHeaders });
         }
 
-        // Everything under /api/ is the JSON-RPC surface. It's matched before the
-        // static handler and never falls through to it, so an unknown command reads
-        // as a 404 to the caller instead of being answered with the SPA shell.
-        if (url.pathname === API_PREFIX || url.pathname.startsWith(`${API_PREFIX}/`)) {
-            if (req.method !== "POST") {
-                return Response.json({ error: "Use POST" }, { status: 405, headers: corsHeaders });
-            }
-            // Every command here changes state or hands out a session, and a
-            // "simple" cross-origin POST reaches this point without a preflight —
-            // including the unauthenticated PUBLIC_COMMANDS below. Refuse a
-            // foreign origin before that, not just in the response headers.
-            if (!originAllowed(req)) {
-                return Response.json({ error: "Cross-origin request refused" }, { status: 403, headers: corsHeaders });
-            }
-
-            const command = url.pathname.slice(API_PREFIX.length + 1) as Command;
-            // Dispatch only ever reaches `handle*` methods — never an arbitrary property
-            // off the handler (constructor, toString, …) — by prefixing the derived name.
-            const method = `handle${command.charAt(0).toUpperCase()}${command.slice(1)}` as keyof ApiHandlerPrefixed<CentralApiOperations>;
-            const fn = (handler[method] as ((data: unknown, ctx: AuthContext) => Promise<unknown>) | undefined)?.bind(handler);
-            if (!fn) {
-                return Response.json({ error: `Unknown command: ${command}` }, { status: 404, headers: corsHeaders });
-            }
-
-            const token = bearerToken(req);
-            const user = await auth.authenticate(token);
-
-            // One gate for every operation. `fn` above proves the command exists;
-            // this proves the caller may run it. Order matters: no session is a
-            // 401 (the client should log in and retry), a session without the
-            // node is a 403 (retrying will never help).
-            // Fail closed on anything not explicitly classified. Startup asserts
-            // this can't happen; the check stays because the cost of being wrong
-            // here is an open endpoint, and `undefined` would otherwise fall
-            // through to the permission comparison below.
-            const required: OpRequirement | undefined = OP_REQUIREMENTS[command];
-            if (required === undefined) {
-                return Response.json({ error: "Forbidden" }, { status: 403, headers: corsHeaders });
-            }
-            if (required !== "public") {
-                if (!user) {
-                    return Response.json({ error: "Unauthorized" }, { status: 401, headers: corsHeaders });
-                }
-                if (required !== "authenticated" && !userCan(user, required)) {
-                    return Response.json({ error: `Requires the "${required}" permission` }, { status: 403, headers: corsHeaders });
-                }
-            }
-
-            const ip = clientIp(req, serverCtx);
-            const userAgent = req.headers.get("user-agent");
-            const data = await req.json().catch(() => null);
-            try {
-                const result = await fn(data ?? undefined, { token, user, ip, userAgent });
-                return new Response(result === undefined ? "null" : JSON.stringify(result), {
-                    headers: { ...corsHeaders, "Content-Type": "application/json" },
-                });
-            } catch (err) {
-                const message = err instanceof Error ? err.message : "Unexpected server error";
-                return Response.json({ error: message }, { status: 500, headers: corsHeaders });
-            }
+        if (isRpcPath(url.pathname)) {
+            return handleRpc(req, url, corsHeaders, {
+                table: apiTable,
+                auth,
+                originAllowed,
+                clientIp: (r) => clientIp(r, serverCtx),
+            });
         }
 
         // Serve the embedded SPA for browser GETs. Returns null in dev (UI comes from
@@ -528,50 +338,7 @@ const server = Bun.serve<WsData>({
 
         return Response.json({ error: "Not found" }, { status: 404, headers: corsHeaders });
     },
-    websocket: {
-        open(ws) {
-            if (ws.data.channel === "events") {
-                eventSockets.add(ws);
-                // Same filter as broadcast, applied to the snapshot. The two
-                // halves are independent permissions on purpose: reading task
-                // history and reading the fleet are separate grants everywhere
-                // else, and this is the one place they'd otherwise be bundled.
-                const canSeeServers = userCan(ws.data.user, "panel.servers.read");
-                ws.send(JSON.stringify({
-                    kind: "init",
-                    data: {
-                        servers: canSeeServers ? fleet.entries() : [],
-                        metricsHistory: canSeeServers ? fleet.metricsHistory() : {},
-                        tasks: userCan(ws.data.user, "panel.tasks.read") ? taskStore.list() : [],
-                    },
-                } satisfies ApiEvent));
-            } else {
-                void openTerminal(ws);
-            }
-        },
-        message(ws, message) {
-            if (ws.data.channel !== "terminal" || !ws.data.shell) {
-                return;
-            }
-            try {
-                const msg = JSON.parse(String(message)) as TerminalClientMessage;
-                if (msg.type === "input") {
-                    ws.data.shell.write(msg.data);
-                }
-                else if (msg.type === "resize") {
-                    ws.data.shell.resize(msg.cols, msg.rows);
-                }
-            } catch { /* ignore malformed frames */ }
-        },
-        close(ws) {
-            if (ws.data.channel === "events") {
-                eventSockets.delete(ws);
-            }
-            else {
-                ws.data.shell?.close();
-            }
-        },
-    },
+    websocket: hub.handler(),
 });
 
 console.log(`Server Central backend running at http://${bindHost ?? "localhost"}:${server.port}`);

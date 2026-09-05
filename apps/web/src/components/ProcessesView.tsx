@@ -15,7 +15,7 @@ export function ProcessesView({ serverId }: { serverId: string }) {
 
     const load = useCallback(async () => {
         try {
-            setProcesses(await api("getProcesses", { serverId }));
+            setProcesses(await api("processes", "list", { serverId }));
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));

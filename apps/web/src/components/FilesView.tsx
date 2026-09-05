@@ -63,7 +63,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
     const load = useCallback(async (dir: string) => {
         setError(null);
         try {
-            const res = await api("listDir", { serverId, path: dir });
+            const res = await api("files", "listDir", { serverId, path: dir });
             setEntries(res.entries);
         } catch (err) {
             setEntries([]);
@@ -87,7 +87,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         }
         let cancelled = false;
         setError(null);
-        api("readFile", { serverId, path: openFilePath })
+        api("files", "read", { serverId, path: openFilePath })
             .then((res) => {
                 if (cancelled) {
                     return;
@@ -125,7 +125,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         setSaving(true);
         setError(null);
         try {
-            await api("writeFile", { serverId, path: file.path, content: file.content });
+            await api("files", "write", { serverId, path: file.path, content: file.content });
             setFile({ ...file, original: file.content });
             void load(path);
         } catch (err) {
@@ -141,7 +141,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
             return;
         }
         try {
-            await api("createDir", { serverId, path: joinPath(path, name) });
+            await api("files", "createDir", { serverId, path: joinPath(path, name) });
             void load(path);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -173,7 +173,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
             }
             try {
                 const bytes = new Uint8Array(await f.arrayBuffer());
-                await api("uploadFile", { serverId, path: joinPath(path, f.name), contentBase64: bytesToBase64(bytes) });
+                await api("files", "upload", { serverId, path: joinPath(path, f.name), contentBase64: bytesToBase64(bytes) });
             } catch (err) {
                 failures.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
             }
@@ -256,7 +256,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         setBusy(true);
         setError(null);
         try {
-            await api("renamePath", { serverId, from, to });
+            await api("files", "rename", { serverId, from, to });
             if (file?.path === from) { setFile({ ...file, path: to }); onNavigate({ file: to }); }
             clearSelection();
             void load(path);
@@ -280,7 +280,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         }
         await runOnSelection(async (entry) => {
             const from = joinPath(path, entry.name);
-            await api("renamePath", { serverId, from, to: joinPath(dest, entry.name) });
+            await api("files", "rename", { serverId, from, to: joinPath(dest, entry.name) });
             if (file?.path === from) { onNavigate({ file: null }); }
         });
     }
@@ -296,7 +296,7 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         }
         await runOnSelection(async (entry) => {
             const target = joinPath(path, entry.name);
-            await api("deletePath", { serverId, path: target });
+            await api("files", "delete", { serverId, path: target });
             if (file?.path === target) { onNavigate({ file: null }); }
         });
     }
