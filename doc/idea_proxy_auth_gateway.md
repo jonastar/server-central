@@ -646,6 +646,11 @@ baseline against which A's complexity is measured.
 
 ## 6. Closing the SSO gaps
 
+**Superseded 2026-09-06 by [idea_sign_in_methods.md](idea_sign_in_methods.md)**, which
+turns this list into a phased plan and adds the two sign-in methods this section never
+considered (federated login, and RFC 8628 device grant for TVs). The inventory below is
+still accurate; that doc is where the work is scheduled.
+
 "Finish up the SSO client stuff and test it" — what's actually missing, from the code:
 
 - **No email claim, and no email field on users at all.** This is a hard blocker, not a
@@ -747,6 +752,7 @@ Each step is independently useful, which matters because the whole chain is long
    can ship as storage-plus-claim before anything enforces it.
 2. **Email on users + the SSO gaps** (§6). Also standalone: it makes Immich-via-SC-SSO
    work *today*, VPN or not, which is a real intermediate state worth shipping to.
+   Expanded into phases 0-4 of [idea_sign_in_methods.md](idea_sign_in_methods.md).
 3. **Gateway session + verifier** (§2, §3), with one hardcoded group, no UI.
 4. **Route groups + renderer + UX** (§4).
 5. **Auto-continue** (§5) and **device tokens** (§7) — in whichever order the first real

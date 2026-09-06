@@ -26,7 +26,7 @@ import {
 
 /** The control-plane role: systemd unit + symlink + versioned-binary base name. */
 const SERVER_SPEC: ServiceSpec = { name: "sc-central", description: "Server Central control plane" };
-const DEFAULT_SERVER_DATA_DIR = "/var/lib/sc-central";
+export const DEFAULT_SERVER_DATA_DIR = "/var/lib/sc-central";
 
 function resolveServerPaths(installDir: string | null, dataDir: string | null) {
     return resolveServicePaths(SERVER_SPEC, installDir || DEFAULT_INSTALL_DIR, dataDir || DEFAULT_SERVER_DATA_DIR);

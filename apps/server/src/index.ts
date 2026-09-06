@@ -37,6 +37,7 @@ import { ensureTls, localIps } from "./tls";
 import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
 import { runAgentCli } from "./agent/agent-cli";
+import { runAuthCli } from "./auth-cli";
 import { serveStatic } from "./static";
 import { handleRpc, isRpcPath } from "./http/rpc";
 import { EventHub, type WsData } from "./http/ws";
@@ -57,6 +58,14 @@ if (cliArgs.includes("--agent")) {
 // The installed systemd unit runs with no TTY, so it skips both and boots below.
 if (cliArgs.includes("--install-server")) {
     await runServerInstallCli(cliArgs);
+    process.exit(0);
+}
+
+// Offline account recovery, for the lockout case where the only configured way in
+// is unreachable. Reads the account store straight off disk and never boots the
+// control plane — see doc/idea_sign_in_methods.md §1.
+if (cliArgs.includes("--reset-password")) {
+    await runAuthCli(cliArgs);
     process.exit(0);
 }
 if (cliArgs.length === 0 && process.stdin.isTTY && await offerInteractiveInstall()) {
