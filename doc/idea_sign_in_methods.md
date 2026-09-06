@@ -1,6 +1,7 @@
 # Sign-in methods and the identity provider
 
-Status: plan. §0 and §7 are settled (2026-09-06); three items remain open at the end of §7.
+Status: in progress. Phases 0 and 1 shipped 2026-09-07 (`a2401da`, `64f9e86`, `f71f047`);
+phases 2-4 are still plan. §0 and §7 are settled; four items remain open at the end of §7.
 
 Scope: the **left column** — how a human or device proves who they are, and what the
 built-in OIDC provider hands out afterwards. The **right column** (gate cookie, forward-auth
@@ -38,7 +39,7 @@ are not.
 - **Federation is allowed to become the owner's only door.** Accepted risk: recovery is
   "SSH into the control plane host". That is only true once phase 0 ships.
 
-## 1. Phase 0 — make the accepted risk true
+## 1. Phase 0 — make the accepted risk true — **shipped `a2401da`**
 
 Small, and a prerequisite for the federation decision above rather than for any feature.
 
@@ -54,7 +55,7 @@ Small, and a prerequisite for the federation decision above rather than for any 
   dumps every account's argon2id hash into journald on every boot. Unrelated to this plan,
   one line, do it here.
 
-## 2. Phase 1 — email and claim correctness
+## 2. Phase 1 — email and claim correctness — **shipped `64f9e86`, `f71f047`**
 
 The gap that actually blocks Immich today: `UserRecord` has no email, and Immich's OAuth
 defaults to scope `openid email profile` and keys accounts on `email`.
@@ -122,6 +123,20 @@ a check, not a schema change.
 fail the authorize with a legible error, not silently omit the claim — a silent omission makes
 Immich create a broken account that is then annoying to reconcile. See §7 Q1 for whether email
 is mandatory at account creation.
+
+**The owner needed its own answer**, which this plan did not anticipate. Its permission set
+is the single node `*`; filtering that for `app.*` yields nothing, so the control plane's most
+privileged account would have signed into every app as its least privileged user. Since
+`app.*` is an open namespace there is no registry to expand `*` against, so the owner receives
+the union of: every `app.*` node the installation actually uses
+(`AuthStore.knownAppPermissions`), any app nodes on the account itself, and — for a client
+declaring a `groupPrefix` — the conventional `app.<prefix>.admin` leaf, so a freshly
+registered app that nobody holds grants for yet still admits the owner as an admin.
+
+That last part is a **convention, not knowledge**: an app whose admin role is named something
+else needs the node granted explicitly. The proper fix is a per-client list of declared role
+names, which replaces the guess with a fact and gives the Users screen the dropdown `next.md`
+already wants in place of free-text app roles. Tracked in "Still open" below.
 
 **Tests.** [`oidc.test.ts`](../apps/server/test/integration/oidc.test.ts) covers the store and
 token layer well and stops at the HTTP boundary. Extend it for scope filtering and the `aud`
@@ -338,15 +353,22 @@ is the hook for any future policy that wants to treat methods differently (§7 Q
   per-IP.
 - Whether federated **auto-create** is off by default, or off entirely in v1 with explicit
   linking the only path.
+- **Per-client declared role names.** Would replace the conventional `.admin` guess for the
+  owner (§2) with a registered fact, give the Users screen a dropdown instead of free-text
+  `app.*` entry, and provide typo detection on a namespace that is otherwise unvalidated —
+  a lockout a typo can cause, as the gateway doc's §4 notes. Small, and it retires a guess.
 
 ## 8. Ordering
 
 Phases 0–3 are pure identity-provider work with no dependency on the proxy, so each ships and
 is useful before any of the gateway exists.
 
-0. Recovery CLI + the log-leak fix (§1)
-1. Email, scope-aware claims, `aud` check on userinfo (§2) — makes Immich-via-SC-SSO work today
-2. Refresh tokens (§3)
+0. ~~Recovery CLI + the log-leak fix (§1)~~ — done, `a2401da`
+1. ~~Email, scope-aware claims, `aud` check on userinfo, per-client group scoping (§2)~~ —
+   done, `64f9e86` (server) and `f71f047` (UI). Immich-via-SC-SSO is unblocked; what remains
+   before calling it proven is a real relying party against a real server, which the `verify`
+   skill and the e2e lab exist for.
+2. Refresh tokens (§3) — **next**
 3. Device grant + `/device` page (§4)
 4. Federated login, generic OIDC + Google (§5)
 
