@@ -30,6 +30,7 @@ export * from "./tasks";
 export * from "./permissions";
 
 export * from "./domain/auth";
+export * from "./domain/binary";
 export * from "./domain/compose";
 export * from "./domain/dashboards";
 export * from "./domain/docker";

@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import type { ApiEvent, ApiHandlers, CentralApiOperations } from "@central/shared";
-import { API_PREFIX, MAX_UPLOAD_BYTES, userCan } from "@central/shared";
+import { API_PREFIX, UPLOAD_REQUEST_BYTES, userCan } from "@central/shared";
 import { DEFAULT_FORWARDED_HEADER, headerForPeer, parseTrustedProxies, parseTrustedProxiesEnv, resolveClientIp, type TrustedProxyEntry } from "./client-ip";
 import { corsHeaders as buildCorsHeaders, originAllowsRequest, resolveAllowedOrigins } from "./cors";
 import { ComposeStackStore } from "./features/compose/store";
@@ -259,10 +259,18 @@ function clientIp(req: Request, serverCtx: { requestIP(req: Request): { address:
 
 // ---- HTTP / WebSocket ----------------------------------------------------------
 
-// uploadFile ships the file as base64 (~4/3 the raw size) inside a JSON body, so the
-// HTTP body cap has to clear MAX_UPLOAD_BYTES by more than Bun's ~128MB default before
-// the request even reaches the handler to enforce the real limit itself.
-const MAX_REQUEST_BODY_BYTES = Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 16 * 1024 * 1024;
+// The largest body any request may carry — one slice of an upload, plus framing.
+// Not the largest file: a file is uploaded as however many slices it takes, so
+// there is no per-file limit to size this against any more.
+//
+// It has to be set at all because Bun's ~128MB default would 413 a large body
+// before the request reached a handler that could judge it. And it is deliberately
+// close to UPLOAD_REQUEST_BYTES rather than generous, because it is also the real
+// bound on what one upload can cost this process: `req.body` does not push
+// backpressure down to TCP, so a sender that outruns the reader has its unread
+// body buffered by Bun. Bounding the request is what bounds that buffer — and why
+// a file of any size can now be uploaded in flat memory.
+const MAX_REQUEST_BODY_BYTES = UPLOAD_REQUEST_BYTES + 16 * 1024 * 1024;
 
 // Unset binds every interface. Behind a TLS-terminating proxy on the same host,
 // setting this to 127.0.0.1 keeps the plaintext port off the network entirely.

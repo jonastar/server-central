@@ -56,6 +56,9 @@ feature may run longer; most don't earn it.
 
 ### Fixed
 
+- **A failed upload no longer truncates the file it was replacing.** The agent writes to a temp
+  sibling and renames it into place, so a dropped transfer leaves the original intact.
+
 - **The OIDC `groups` claim leaked control-plane structure.** It carried the user's role name,
   and would have carried every `panel.*` node; it now carries only their `app.*` grants.
 - **`panel.tasks.run` granted arbitrary shell.** The `cmd` task kind runs any command on any
@@ -100,6 +103,14 @@ feature may run longer; most don't earn it.
   task is still reachable without going to the Tasks view.
 
 ### Changed
+
+- **Uploads are no longer size-limited.** `MAX_UPLOAD_BYTES` (256MB) is gone: a file is uploaded
+  as however many requests it takes, so what fits is a question about the host's disk.
+- **Uploads stream end to end.** Browser, control plane and agent each hold one chunk instead of
+  the whole file — a 4GB upload costs the control plane ~150MB, the same as a 2GB one.
+- **Operations can declare binary fields** (`BinaryPart`). A call carrying one is framed as
+  multipart automatically — handlers still receive one ordinary payload object.
+- **The file browser shows upload progress** per file, and multi-file batches show their position.
 
 - **Widget data is polled through one shared cache**, deduped per host and paused on hidden tabs,
   so a page of cards costs one request per distinct query rather than one per card.

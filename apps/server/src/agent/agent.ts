@@ -2,7 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ControlMessage, DirEntry, DirEntryType, FileContent, InstallMechanism, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
-import { AGENT_VERSION, MAX_UPLOAD_BYTES, METRICS_HISTORY_MAX, MetricsCollector } from "@central/shared";
+import { AGENT_VERSION, METRICS_HISTORY_MAX, MetricsCollector } from "@central/shared";
+import { tempSibling } from "../fs-atomic";
 import { probeDir } from "./mounts";
 import { probeHostCapabilities } from "./host-capabilities";
 import { discoverWanIp } from "../stun";
@@ -23,6 +24,20 @@ const HISTORY_MAX = METRICS_HISTORY_MAX;
 const MAX_FILE_BYTES = 1024 * 1024;
 /** Images can be larger than text files since they're previewed, not edited. */
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
+
+/**
+ * How long a chunked upload may sit without a chunk before the agent gives it up
+ * and removes its temp file.
+ *
+ * There has to be a timer, not just an abort message: the browser tab that
+ * started an upload can close, the control plane can die, the link can drop —
+ * and every one of those leaves an open fd and a `.sc-tmp-*` file that nothing
+ * will ever finish. `uploadAbort` handles the cases where someone is still
+ * around to send it; this handles the rest. Generously sized, since the gap
+ * between chunks is a round trip plus however long a slow link takes to move
+ * UPLOAD_CHUNK_BYTES.
+ */
+const UPLOAD_IDLE_TIMEOUT_MS = 120_000;
 
 /** Recognized image extensions → MIME type, for in-browser preview. */
 const IMAGE_MIME: Record<string, string> = {
@@ -213,6 +228,24 @@ interface ActiveShell {
 }
 
 /**
+ * A chunked upload in progress: an open handle on a temp sibling of the target,
+ * plus the bookkeeping that decides whether the next chunk is allowed to be
+ * written to it.
+ */
+interface ActiveUpload {
+    /** Final destination. Written only by the rename at the end. */
+    path: string;
+    /** Where bytes actually land until then. */
+    tempPath: string;
+    handle: Awaited<ReturnType<typeof fs.open>>;
+    /** Bytes committed so far, which is also the only `offset` the next chunk
+     *  may claim. Anything else is a lost or duplicated request, and either way
+     *  must not be appended at the wrong place. */
+    bytesWritten: number;
+    idleTimer: ReturnType<typeof setTimeout>;
+}
+
+/**
  * Runs on a managed host — both embedded (control plane, via `server --agent`'s
  * in-process transport) and remote (the agent binary, via a WebSocket transport).
  * Receives ControlMessages, executes operations, and sends NodeMessages via the
@@ -225,6 +258,9 @@ export class Agent {
     private readonly collector = new MetricsCollector();
     private metricsTimer: ReturnType<typeof setInterval> | null = null;
     private readonly shells = new Map<string, ActiveShell>();
+    /** Chunked uploads mid-flight, by uploadId. Entries are removed by the final
+     *  chunk, by an abort, or by their own idle timer — never left behind. */
+    private readonly uploads = new Map<string, ActiveUpload>();
 
     constructor(
         private readonly transport: AgentTransport,
@@ -349,6 +385,25 @@ export class Agent {
                 } catch (e) {
                     this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
                 }
+                break;
+            }
+
+            case "uploadChunkRequest": {
+                try {
+                    const bytesWritten = await this.runUploadChunk(msg.uploadId, msg.path, msg.offset, msg.contentBase64, msg.final);
+                    this.transport.send({ type: "uploadChunkResponse", requestId: msg.requestId, bytesWritten });
+                } catch (e) {
+                    // Any failure ends the upload: the temp file goes, and the
+                    // sender learns from the rejected chunk rather than from a
+                    // half-written file appearing at the destination.
+                    await this.discardUpload(msg.uploadId);
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
+
+            case "uploadAbort": {
+                await this.discardUpload(msg.uploadId);
                 break;
             }
 
@@ -673,12 +728,95 @@ export class Agent {
         await fs.writeFile(normalizePath(filePath), content, "utf8");
     }
 
+    /**
+     * The whole-file upload path, kept for control planes still talking to this
+     * agent the old way. Holds the entire file in memory twice over (the base64
+     * string and the decoded buffer), which is what `runUploadChunk` exists to
+     * avoid — so the control plane only routes a single-request upload here.
+     */
     private async runUploadFile(filePath: string, contentBase64: string): Promise<void> {
+        await fs.writeFile(normalizePath(filePath), Buffer.from(contentBase64, "base64"));
+    }
+
+    /**
+     * Append one slice of a chunked upload, and on the last one put the finished
+     * file in place.
+     *
+     * Bytes land in a temp sibling of the target and reach the target itself
+     * only through `rename`, which is atomic within a filesystem. So an upload
+     * that dies halfway — dropped link, rejected chunk, killed browser — leaves
+     * the previous file exactly as it was, instead of a truncated one where the
+     * real one used to be. (The pre-chunking path wrote straight to the
+     * destination and had no such property.)
+     *
+     * Returns the running total written, which is the sender's confirmation that
+     * this agent and it agree about how much has actually landed.
+     */
+    private async runUploadChunk(uploadId: string, filePath: string, offset: number, contentBase64: string, final: boolean): Promise<number> {
         const data = Buffer.from(contentBase64, "base64");
-        if (data.length > MAX_UPLOAD_BYTES) {
-            throw new Error(`File too large: ${data.length} bytes (max ${MAX_UPLOAD_BYTES})`);
+        let upload = this.uploads.get(uploadId);
+
+        if (offset === 0 && !upload) {
+            const target = normalizePath(filePath);
+            const tempPath = tempSibling(target);
+            // "wx" so a colliding temp name fails loudly instead of two uploads
+            // interleaving into one file. tempSibling already randomizes, so a
+            // collision here means something is wrong that silence would hide.
+            const handle = await fs.open(tempPath, "wx");
+            upload = {
+                path: target,
+                tempPath,
+                handle,
+                bytesWritten: 0,
+                idleTimer: setTimeout(() => void this.discardUpload(uploadId), UPLOAD_IDLE_TIMEOUT_MS),
+            };
+            this.uploads.set(uploadId, upload);
         }
-        await fs.writeFile(normalizePath(filePath), data);
+
+        if (!upload) {
+            // Either a chunk for an upload that was never started, or one for an
+            // upload already cleaned up (its idle timer fired, or a previous
+            // chunk failed). Both mean the temp file this belongs to is gone.
+            throw new Error(`Unknown upload ${uploadId} (offset ${offset})`);
+        }
+        // The check that makes a multi-request upload safe: the browser says
+        // where a slice belongs, and it has to match what actually landed.
+        if (offset !== upload.bytesWritten) {
+            throw new Error(`Upload ${uploadId}: expected offset ${upload.bytesWritten}, got ${offset}`);
+        }
+        if (upload.path !== normalizePath(filePath)) {
+            throw new Error(`Upload ${uploadId}: path changed mid-upload`);
+        }
+
+        await upload.handle.write(data);
+        upload.bytesWritten += data.length;
+        upload.idleTimer.refresh();
+
+        if (!final) {
+            return upload.bytesWritten;
+        }
+
+        clearTimeout(upload.idleTimer);
+        this.uploads.delete(uploadId);
+        await upload.handle.close();
+        await fs.rename(upload.tempPath, upload.path);
+        return upload.bytesWritten;
+    }
+
+    /**
+     * End an upload without publishing it: close the handle and remove the temp
+     * file. Best-effort by design — this runs on failure paths, and a cleanup
+     * that throws would replace the real error with its own.
+     */
+    private async discardUpload(uploadId: string): Promise<void> {
+        const upload = this.uploads.get(uploadId);
+        if (!upload) {
+            return;
+        }
+        clearTimeout(upload.idleTimer);
+        this.uploads.delete(uploadId);
+        await upload.handle.close().catch(() => { });
+        await fs.rm(upload.tempPath, { force: true }).catch(() => { });
     }
 
     private async runCreateDir(dirPath: string): Promise<void> {

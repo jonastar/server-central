@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { MAX_UPLOAD_BYTES, type DirEntry } from "@central/shared";
+import { UPLOAD_REQUEST_BYTES, type DirEntry } from "@central/shared";
 import { api } from "../api";
-import { base64ToBytes, bytesToBase64, cx, fmtBytes, fmtDateTime } from "../utils";
+import { base64ToBytes, cx, fmtBytes, fmtDateTime, randomId } from "../utils";
 import { CodeEditor } from "./CodeEditor";
 import { ErrorBanner } from "./ui";
 import styles from "./FilesView.module.css";
@@ -51,6 +51,9 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
     const [file, setFile] = useState<OpenFile | null>(null);
     const [saving, setSaving] = useState(false);
     const [uploading, setUploading] = useState(false);
+    /** Which file is going up and how far it's got — the transfer is streamed, so
+     *  unlike the old read-then-send it can actually be reported as it happens. */
+    const [uploadProgress, setUploadProgress] = useState<{ name: string; sent: number; total: number; index: number; count: number } | null>(null);
     const [busy, setBusy] = useState(false);
     /** Names (relative to `path`) of the rows ticked for a toolbar action. */
     const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -166,18 +169,48 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         // One bad file (too large, rejected, ...) shouldn't stop the rest of the batch —
         // collect failures and keep going, then report them all together.
         const failures: string[] = [];
-        for (const f of Array.from(files)) {
-            if (f.size > MAX_UPLOAD_BYTES) {
-                failures.push(`${f.name}: too large (${fmtBytes(f.size)}, max ${fmtBytes(MAX_UPLOAD_BYTES)})`);
-                continue;
-            }
+        const list = Array.from(files);
+        for (const [index, f] of list.entries()) {
+            // No size check: there is no size limit. A file goes up as however
+            // many requests it takes, and nothing on the way holds more than one
+            // slice, so what fits is a question about the host's disk.
+            setUploadProgress({ name: f.name, sent: 0, total: f.size, index, count: list.length });
             try {
-                const bytes = new Uint8Array(await f.arrayBuffer());
-                await api("files", "upload", { serverId, path: joinPath(path, f.name), contentBase64: bytesToBase64(bytes) });
+                // Not crypto.randomUUID: it doesn't exist over plain HTTP at a
+                // LAN address, which is how this panel is often reached.
+                const uploadId = randomId();
+                const target = joinPath(path, f.name);
+                // `slice` hands back a Blob that still refers to the file on
+                // disk — the browser streams it when the request is sent, so
+                // this tab never reads the file, whatever its size. One request
+                // at a time, each saying where its slice belongs.
+                for (let offset = 0; ; offset += UPLOAD_REQUEST_BYTES) {
+                    const end = Math.min(offset + UPLOAD_REQUEST_BYTES, f.size);
+                    const final = end >= f.size;
+                    const sliceStart = offset;
+                    await api("files", "upload", {
+                        serverId, path: target, uploadId, offset, final, content: f.slice(offset, end),
+                    }, {
+                        // A request reports progress through its own body; the
+                        // file's progress is where this slice starts plus how
+                        // far into it that has got.
+                        onProgress: (sent, total) => setUploadProgress({
+                            name: f.name,
+                            sent: Math.min(f.size, sliceStart + Math.round((sent / Math.max(1, total)) * (end - sliceStart))),
+                            total: f.size,
+                            index,
+                            count: list.length,
+                        }),
+                    });
+                    if (final) {
+                        break;
+                    }
+                }
             } catch (err) {
                 failures.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
             }
         }
+        setUploadProgress(null);
         void load(path);
         setUploading(false);
         if (failures.length > 0) {
@@ -340,7 +373,9 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
                 <button className={shared.btn} onClick={newFile}>New file</button>
                 <button className={shared.btn} onClick={mkdir}>New folder</button>
                 <button className={shared.btn} onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-                    {uploading ? "Uploading…" : "Upload"}
+                    {uploadProgress
+                        ? `Uploading ${uploadProgress.count > 1 ? `${uploadProgress.index + 1}/${uploadProgress.count} ` : ""}— ${Math.floor((uploadProgress.sent / Math.max(1, uploadProgress.total)) * 100)}%`
+                        : uploading ? "Uploading…" : "Upload"}
                 </button>
                 <button className={shared.btn} onClick={() => void load(path)}>Refresh</button>
                 <input

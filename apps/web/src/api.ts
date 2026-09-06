@@ -1,5 +1,5 @@
-import type { ApiNamespace, CentralApiOperations } from "@central/shared";
-import { API_PREFIX } from "@central/shared";
+import type { ApiNamespace, BinaryPart, CentralApiOperations, MultipartMeta } from "@central/shared";
+import { API_PREFIX, MULTIPART_META_FIELD, isBinaryPart } from "@central/shared";
 
 /**
  * Every request goes to the page's own origin, under {@link API_PREFIX}.
@@ -79,20 +79,119 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
  * operations the second argument accepts, and `data`/the return type follow from
  * both.
  */
+export interface ApiCallOptions {
+    /**
+     * Bytes sent so far, for a call carrying binary fields. `total` counts the
+     * whole request body, so it's a little larger than the file itself — close
+     * enough for a progress bar and honest about what's actually on the wire.
+     */
+    onProgress?(sent: number, total: number): void;
+    /** Abort in flight. The only way to stop a large upload once it's started. */
+    signal?: AbortSignal;
+}
+
+/** What both transports below reduce to, so the response handling is written once. */
+interface RawResponse {
+    status: number;
+    ok: boolean;
+    body: string;
+}
+
+/**
+ * A call carrying binary fields, as `multipart/form-data`.
+ *
+ * The framing mirrors `MultipartMeta`: a JSON part naming every ordinary field
+ * and declaring the binary ones, then one part per binary field in that order.
+ * `FormData` preserves insertion order, which is what lets the server build the
+ * whole payload from the first part and stream the rest into it.
+ *
+ * Two things here are deliberate. The `Blob` goes in untouched — the browser
+ * streams a `File` off disk, so nothing reads the file into the tab. And no
+ * `Content-Type` is set: only the browser knows the boundary it generated, and
+ * setting the header by hand would strip it.
+ */
+function multipartBody(data: unknown, binaryFields: Array<[string, BinaryPart]>): FormData {
+    const binaryNames = new Set(binaryFields.map(([name]) => name));
+    const fields = Object.fromEntries(
+        Object.entries(data as Record<string, unknown>).filter(([name]) => !binaryNames.has(name)),
+    );
+    const meta: MultipartMeta = {
+        fields,
+        binary: binaryFields.map(([name, part]) => ({ name, size: part.size, type: part.type ?? "" })),
+    };
+
+    const form = new FormData();
+    form.set(MULTIPART_META_FIELD, JSON.stringify(meta));
+    for (const [name, part] of binaryFields) {
+        form.set(name, part as unknown as Blob);
+    }
+    return form;
+}
+
+/**
+ * Send a body via XMLHttpRequest rather than fetch.
+ *
+ * The one reason: `fetch` reports no upload progress. A 200MB file otherwise
+ * gives the user a spinner and no way to tell a slow transfer from a stuck one,
+ * for however many minutes it takes. XHR's `upload.onprogress` is the only
+ * browser API that answers that, so binary calls go through it.
+ */
+function xhrSend(url: string, token: string | null, form: FormData, opts: ApiCallOptions | undefined): Promise<RawResponse> {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", url);
+        if (token) {
+            xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        }
+        if (opts?.onProgress) {
+            xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) {
+                    opts.onProgress?.(event.loaded, event.total);
+                }
+            };
+        }
+        xhr.onload = () => resolve({ status: xhr.status, ok: xhr.status >= 200 && xhr.status < 300, body: xhr.responseText });
+        xhr.onerror = () => reject(new Error("Network error"));
+        xhr.ontimeout = () => reject(new Error("Request timed out"));
+        xhr.onabort = () => reject(new DOMException("Upload cancelled", "AbortError"));
+        if (opts?.signal) {
+            if (opts.signal.aborted) {
+                reject(new DOMException("Upload cancelled", "AbortError"));
+                return;
+            }
+            opts.signal.addEventListener("abort", () => xhr.abort(), { once: true });
+        }
+        xhr.send(form);
+    });
+}
+
 export async function api<N extends ApiNamespace, O extends keyof CentralApiOperations[N]>(
     namespace: N,
     operation: O,
     data: CentralApiOperations[N][O] extends { data: infer D } ? D : never,
+    opts?: ApiCallOptions,
 ): Promise<CentralApiOperations[N][O] extends { response: infer R } ? R : never> {
     const token = getToken();
-    const res = await fetch(`${API_BASE}/${String(namespace)}/${String(operation)}`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(data ?? null),
-    });
+    const url = `${API_BASE}/${String(namespace)}/${String(operation)}`;
+
+    // The payload decides the framing, not the call site: an operation whose
+    // type declares a `BinaryPart` field is handed a `File`, and that's enough
+    // to know this call carries bytes. Top-level only — operation payloads are
+    // flat, and a recursive walk would buy nothing but a way to be surprised.
+    const binaryFields = (data && typeof data === "object" ? Object.entries(data) : [])
+        .filter((entry): entry is [string, BinaryPart] => isBinaryPart(entry[1]));
+
+    const res: RawResponse = binaryFields.length > 0
+        ? await xhrSend(url, token, multipartBody(data, binaryFields), opts)
+        : await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(data ?? null),
+            signal: opts?.signal,
+        }).then(async (r) => ({ status: r.status, ok: r.ok, body: await r.text() }));
 
     if (res.status === 401) {
         clearToken();
@@ -100,10 +199,12 @@ export async function api<N extends ApiNamespace, O extends keyof CentralApiOper
         throw new Error("Session expired — please sign in again");
     }
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
+        let error: string | undefined;
+        try {
+            error = (JSON.parse(res.body) as { error?: string }).error;
+        } catch { /* not JSON — fall back to the status */ }
+        throw new Error(error ?? `HTTP ${res.status}`);
     }
 
-    const text = await res.text();
-    return (text && text !== "null" ? JSON.parse(text) : undefined) as CentralApiOperations[N][O] extends { response: infer R } ? R : never;
+    return (res.body && res.body !== "null" ? JSON.parse(res.body) : undefined) as CentralApiOperations[N][O] extends { response: infer R } ? R : never;
 }

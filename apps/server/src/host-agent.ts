@@ -1,13 +1,22 @@
-import type { AgentMode, ControlMessage, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ResolvedPath, ServerStatus, SystemInfo } from "@central/shared";
-import { METRICS_HISTORY_MAX } from "@central/shared";
+import type { AgentMode, BinaryPart, ControlMessage, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ResolvedPath, ServerStatus, SystemInfo } from "@central/shared";
+import { METRICS_HISTORY_MAX, UPLOAD_CHUNK_BYTES } from "@central/shared";
 import { shellCommandFor, shQuote } from "./shell-quote";
 
 const REQUEST_TIMEOUT_MS = 30_000;
 /**
- * `uploadFile` alone can carry up to MAX_UPLOAD_BYTES (256MB, as base64 ~341MB) over
- * the same request/response channel as every quick RPC — the fixed 30s ceiling was
- * sized for those, not a few-hundred-MB transfer over a possibly slow link. A flat,
- * generous timeout here beats making every other request wait longer to fail.
+ * Ceiling on one upload chunk's round trip. Sized for UPLOAD_CHUNK_BYTES over a
+ * link slow enough to be worth waiting for, not for a whole file — that's the
+ * difference chunking makes to this number. It applies per chunk, so a large
+ * upload is bounded by how long each 4MB slice may take, and a genuinely wedged
+ * host still fails in a minute rather than after the whole transfer's worth of
+ * patience.
+ */
+const UPLOAD_CHUNK_TIMEOUT_MS = 60_000;
+/**
+ * Ceiling for the legacy whole-file upload, which an agent without the
+ * "uploadChunk" capability still gets. That one carries a whole request's worth
+ * of file in a single message, so it keeps the old generous flat timeout;
+ * nothing else on this channel needs one.
  */
 const UPLOAD_TIMEOUT_MS = 120_000;
 /**
@@ -45,6 +54,24 @@ export interface ExecOptions {
  *  would treat as syntax — the one place a value still reaches an old agent's
  *  shell unquoted (see {@link HostAgent.resolvePaths}). */
 const SAFE_GLOB_RE = /^\/[A-Za-z0-9_.\-/*?]*$/;
+
+/**
+ * Which part of which upload a call to {@link HostAgent.uploadFile} carries.
+ *
+ * A file larger than one request arrives as several calls sharing `uploadId`,
+ * so this is what turns a stateless HTTP request back into a position in a file.
+ * The control plane keeps no upload state of its own: `offset` says where the
+ * slice goes and the host verifies it, which means a dropped or repeated request
+ * fails rather than corrupting the file.
+ */
+export interface UploadSession {
+    /** Groups the requests of one file. Chosen by the client. */
+    uploadId: string;
+    /** Absolute position of this slice in the finished file. */
+    offset: number;
+    /** Whether this slice ends the file, and so publishes it. */
+    final: boolean;
+}
 
 /** An interactive PTY session on the agent's host. */
 export interface ShellSession {
@@ -425,10 +452,136 @@ export class HostAgent {
         });
     }
 
-    async uploadFile(filePath: string, contentBase64: string): Promise<void> {
+    /**
+     * Write an uploaded file to the host, streaming it there.
+     *
+     * `content` is a handle to bytes still arriving from the browser, not the
+     * bytes themselves (see BinaryPart), and this method is the second half of
+     * keeping it that way: it pulls one UPLOAD_CHUNK_BYTES slice at a time and
+     * hands each to the agent, awaiting the ack before pulling the next. The
+     * await is the backpressure — without it the control plane would read the
+     * request as fast as the browser could send and queue the whole file in the
+     * websocket's send buffer, which is the same memory problem one layer down.
+     *
+     * So the control plane holds a chunk, never a file, whatever the file's size.
+     *
+     * Returns the agent's own count of what it wrote, not ours.
+     */
+    async uploadFile(filePath: string, content: BinaryPart, session: UploadSession): Promise<{ bytesWritten: number }> {
+        if (!this.capabilities.has("uploadChunk")) {
+            return this.uploadWholeFile(filePath, content, session);
+        }
+
+        const { uploadId } = session;
+        const reader = content.stream().getReader();
+        /** Bytes of *this request* handed over so far; the host is told where
+         *  each chunk belongs as an absolute position in the file. */
+        let sentHere = 0;
+        let bytesWritten = 0;
+        let pending: Buffer[] = [];
+        let pendingBytes = 0;
+
+        /** Split exactly `n` bytes off the front of what's been read but not yet
+         *  sent. Bounded by one chunk plus one source chunk — the only buffer in
+         *  this whole path. */
+        const take = (n: number): Buffer => {
+            const all = pending.length === 1 && pending[0].length === n ? pending[0] : Buffer.concat(pending, pendingBytes);
+            const head = all.subarray(0, n);
+            const tail = all.subarray(n);
+            pending = tail.length > 0 ? [tail] : [];
+            pendingBytes = tail.length;
+            return head;
+        };
+
+        const send = async (chunk: Buffer, final: boolean): Promise<void> => {
+            const resp = await this.request<Extract<NodeMessage, { type: "uploadChunkResponse" }>>({
+                type: "uploadChunkRequest",
+                requestId: crypto.randomUUID(),
+                uploadId,
+                path: filePath,
+                offset: session.offset + sentHere,
+                contentBase64: chunk.toString("base64"),
+                final,
+            }, UPLOAD_CHUNK_TIMEOUT_MS);
+            sentHere += chunk.length;
+            bytesWritten = resp.bytesWritten;
+        };
+
+        try {
+            for (;;) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+                // Copied, not wrapped as a view over `value.buffer`. A chunk
+                // off the parser is a view into a larger buffer, and keeping it
+                // alive in `pending` would keep that whole buffer alive with it
+                // — measurably so: viewing rather than copying cost ~250MB of
+                // extra peak on a 200MB upload. The copy is bounded by one
+                // source chunk.
+                pending.push(Buffer.from(value));
+                pendingBytes += value.byteLength;
+                while (pendingBytes >= UPLOAD_CHUNK_BYTES) {
+                    await send(take(UPLOAD_CHUNK_BYTES), false);
+                }
+            }
+            // The remainder of this request. `session.final` — not "the stream
+            // ended" — decides whether it also ends the file: several requests
+            // feed one upload, and only the last publishes it. A final chunk is
+            // sent even when empty, since that's what performs the rename, and
+            // an empty file is a legitimate upload that must still arrive.
+            if (pendingBytes > 0 || session.final) {
+                await send(take(pendingBytes), session.final);
+            }
+            return { bytesWritten };
+        } catch (err) {
+            // The agent has an open handle on a temp file that will never be
+            // completed. Tell it so it can drop it now rather than waiting out
+            // its idle timer; deliberately not awaited-for-a-reply, since the
+            // failure being cleaned up may well be this socket.
+            this.sendControl({ type: "uploadAbort", uploadId });
+            throw err;
+        } finally {
+            await reader.cancel().catch(() => { });
+        }
+    }
+
+    /**
+     * Upload to an agent that predates the "uploadChunk" capability: collect the
+     * whole thing and send it in one message, the way it always worked. The one
+     * place left where a file's full size is held in the control plane.
+     *
+     * Which is why it only handles an upload that arrived as a single request.
+     * Such an agent has no notion of an upload spanning requests — each message
+     * writes a whole file — so feeding it slices would silently leave only the
+     * last one on disk. Better to say so.
+     */
+    private async uploadWholeFile(filePath: string, content: BinaryPart, session: UploadSession): Promise<{ bytesWritten: number }> {
+        if (session.offset !== 0 || !session.final) {
+            throw new Error(`The agent on ${this.name} (${this.info?.agentVersion ?? "unknown version"}) can't accept a file this large — update the agent, then retry`);
+        }
+        const chunks: Buffer[] = [];
+        let total = 0;
+        const reader = content.stream().getReader();
+        try {
+            for (;;) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+                chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+                total += value.byteLength;
+            }
+        } finally {
+            await reader.cancel().catch(() => { });
+        }
         await this.request<Extract<NodeMessage, { type: "uploadFileResponse" }>>({
-            type: "uploadFileRequest", requestId: crypto.randomUUID(), path: filePath, contentBase64,
+            type: "uploadFileRequest",
+            requestId: crypto.randomUUID(),
+            path: filePath,
+            contentBase64: Buffer.concat(chunks, total).toString("base64"),
         }, UPLOAD_TIMEOUT_MS);
+        return { bytesWritten: total };
     }
 
     async createDir(dirPath: string): Promise<void> {

@@ -23,7 +23,14 @@ export const createFilesFeature = (fleet: Fleet) => defineFeature({
         },
 
         async upload(data) {
-            await fleet.get(data.serverId).uploadFile(data.path, data.contentBase64);
+            // `data.content` is a stream off the incoming request, not bytes,
+            // and this may be one slice of a much larger file. Nothing here has
+            // to know either — which is the point.
+            return fleet.get(data.serverId).uploadFile(data.path, data.content, {
+                uploadId: data.uploadId,
+                offset: data.offset,
+                final: data.final,
+            });
         },
 
         async createDir(data) {

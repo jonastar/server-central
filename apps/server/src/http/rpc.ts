@@ -1,6 +1,8 @@
 import type { ApiOperation, OpRequirement, UserInfo } from "@central/shared";
-import { API_PREFIX, OP_REQUIREMENTS, userCan } from "@central/shared";
+import { API_PREFIX, OP_REQUIREMENTS, UPLOAD_REQUEST_BYTES, userCan } from "@central/shared";
 import type { AuthStore, AuthContext } from "../auth";
+import type { RpcMultipart } from "./multipart";
+import { multipartBoundary, parseRpcMultipart } from "./multipart";
 
 // ---- The JSON-RPC surface -------------------------------------------------------
 //
@@ -70,6 +72,10 @@ export function authorize(command: Command, user: UserInfo | null): { ok: true }
     return { ok: true };
 }
 
+/** Slack over UPLOAD_REQUEST_BYTES for a slice that doesn't divide evenly and for
+ *  the multipart framing around it. */
+const MAX_BINARY_REQUEST_BYTES = UPLOAD_REQUEST_BYTES + 8 * 1024 * 1024;
+
 export async function handleRpc(req: Request, url: URL, cors: Record<string, string>, deps: RpcDeps): Promise<Response> {
     if (req.method !== "POST") {
         return Response.json({ error: "Use POST" }, { status: 405, headers: cors });
@@ -104,7 +110,35 @@ export async function handleRpc(req: Request, url: URL, cors: Record<string, str
 
     const ip = deps.clientIp(req);
     const userAgent = req.headers.get("user-agent");
-    const data = await req.json().catch(() => null);
+
+    // Two framings, one handler signature. An ordinary call is a JSON body; a
+    // call carrying bytes is multipart, whose first part is that same JSON and
+    // whose remaining parts are the binary fields, still arriving. Either way
+    // `fn` receives one complete payload object — the framing stops here.
+    //
+    // Note what this ordering buys: the operation is named by the URL path, not
+    // by the body, so `authorize` above has already run. Not one byte of an
+    // upload is read on behalf of a caller who may not perform it, and the check
+    // costs nothing to keep that way. Don't move body parsing above the gate.
+    let multipart: RpcMultipart | null = null;
+    let data: unknown;
+    if (multipartBoundary(req.headers.get("content-type"))) {
+        try {
+            // Per request, not per file: an upload is split into requests of at
+            // most UPLOAD_REQUEST_BYTES, so this bounds what any one call can
+            // put through the control plane without bounding a file's size.
+            multipart = await parseRpcMultipart(req, { maxBytes: MAX_BINARY_REQUEST_BYTES });
+            data = multipart.data;
+        } catch (err) {
+            // A body we can't frame is the caller's error, not ours — and it's
+            // reported before a handler ever sees a half-built payload.
+            const message = err instanceof Error ? err.message : "Malformed multipart body";
+            return Response.json({ error: message }, { status: 400, headers: cors });
+        }
+    } else {
+        data = await req.json().catch(() => null);
+    }
+
     try {
         const result = await fn(data ?? undefined, { token, user, ip, userAgent });
         return new Response(result === undefined ? "null" : JSON.stringify(result), {
@@ -113,5 +147,11 @@ export async function handleRpc(req: Request, url: URL, cors: Record<string, str
     } catch (err) {
         const message = err instanceof Error ? err.message : "Unexpected server error";
         return Response.json({ error: message }, { status: 500, headers: cors });
+    } finally {
+        // A handler that ignored a binary field, or failed before reading one,
+        // leaves bytes queued on the socket; answering with them still in flight
+        // wedges the connection. Unconditional, and cheap when there's nothing
+        // left to release.
+        await multipart?.drain();
     }
 }

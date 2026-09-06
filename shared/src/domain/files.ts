@@ -1,3 +1,5 @@
+import type { BinaryPart } from "./binary";
+
 // ---- Files -------------------------------------------------------------------
 
 export type DirEntryType = "file" | "dir" | "symlink" | "other";
@@ -103,8 +105,25 @@ export interface FilesOperations {
     listDir: { data: { serverId: string; path: string }; response: { path: string; entries: DirEntry[] } };
     read: { data: { serverId: string; path: string }; response: FileContent };
     write: { data: { serverId: string; path: string; content: string }; response: void };
-    // Upload raw bytes (base64-encoded) — binary-safe, unlike writeFile's utf8 text.
-    upload: { data: { serverId: string; path: string; contentBase64: string }; response: void };
+    // Append one slice of an upload — binary-safe, unlike writeFile's utf8 text.
+    //
+    // `content` is a handle, not the bytes (see BinaryPart): the browser passes
+    // a slice of the `File` straight through, the control plane receives a
+    // stream off the socket, and neither ever holds it. The call is framed as
+    // multipart automatically because this field is binary — nothing here or in
+    // the handler mentions the framing.
+    //
+    // A file larger than UPLOAD_REQUEST_BYTES arrives as several of these calls
+    // sharing one `uploadId`, which is what keeps memory flat for a file of any
+    // size. `offset` is where this slice belongs and must be exactly what the
+    // host has already written — the host checks, so a lost or duplicated call
+    // fails the upload instead of silently corrupting the file. The bytes land
+    // in a temp file until the call with `final`, which puts it in place.
+    upload: {
+        data: { serverId: string; path: string; uploadId: string; offset: number; final: boolean; content: BinaryPart };
+        /** Total bytes on the host so far, as the host counted them. */
+        response: { bytesWritten: number };
+    };
     createDir: { data: { serverId: string; path: string }; response: void };
     delete: { data: { serverId: string; path: string }; response: void };
     rename: { data: { serverId: string; from: string; to: string }; response: void };

@@ -42,6 +42,12 @@ export type NodeMessage =
     | { type: "readFileResponse"; requestId: string; result: FileContent }
     | { type: "writeFileResponse"; requestId: string }
     | { type: "uploadFileResponse"; requestId: string }
+    // Ack for one uploadChunkRequest. `bytesWritten` is the running total the
+    // agent has committed to the temp file, which is what makes the ack worth
+    // waiting for: it's both the backpressure signal (the control plane sends
+    // the next chunk only once this arrives) and the agent's own count, so a
+    // sender whose idea of the total disagrees finds out at the end.
+    | { type: "uploadChunkResponse"; requestId: string; bytesWritten: number }
     | { type: "createDirResponse"; requestId: string }
     | { type: "deletePathResponse"; requestId: string }
     | { type: "renameResponse"; requestId: string }
@@ -111,7 +117,35 @@ export type ControlMessage =
     | { type: "listDirRequest"; requestId: string; path: string }
     | { type: "readFileRequest"; requestId: string; path: string }
     | { type: "writeFileRequest"; requestId: string; path: string; content: string }
+    // Whole-file upload: the entire file, base64, in one message. Superseded by
+    // uploadChunkRequest and kept only for agents that predate the "uploadChunk"
+    // capability — it costs the file's full size in memory on both ends, which
+    // is why it is only used for a file that fits in a single request.
     | { type: "uploadFileRequest"; requestId: string; path: string; contentBase64: string }
+    // One slice of an upload, base64 (~4/3 the raw size — small enough per
+    // message that the overhead is wire, not memory). Chunks of one `uploadId`
+    // are acked before the next is sent; the agent appends them to a temp
+    // sibling of `path` and renames it over the target on the chunk marked
+    // `final`, so a failed transfer never leaves a truncated file where the real
+    // one was.
+    //
+    // `offset` is this chunk's absolute position in the file, and the agent
+    // refuses anything but the position it has actually written to. An absolute
+    // offset rather than a sequence number because an upload spans several HTTP
+    // requests: the browser knows where each slice belongs, so the control plane
+    // needs no per-upload state of its own to place it, and a lost or repeated
+    // request fails loudly instead of writing bytes at the wrong place.
+    //
+    // Sent only to agents advertising "uploadChunk"; older ones get the
+    // buffered uploadFileRequest above (see HostAgent.uploadFile).
+    | { type: "uploadChunkRequest"; requestId: string; uploadId: string; path: string; offset: number; contentBase64: string; final: boolean }
+    // Give up on an in-flight upload: close the temp file and unlink it. Sent
+    // when the browser hangs up mid-transfer or a chunk is rejected. Deliberately
+    // has no reply — it runs on paths where the failure being cleaned up may be
+    // the socket itself, and waiting for an ack there would just add a second
+    // failure to report. The agent's own idle timer is the backstop that makes
+    // this an optimization rather than the only cleanup.
+    | { type: "uploadAbort"; uploadId: string }
     | { type: "createDirRequest"; requestId: string; path: string }
     | { type: "deletePathRequest"; requestId: string; path: string }
     | { type: "renamePathRequest"; requestId: string; from: string; to: string }

@@ -84,16 +84,10 @@ export function fmtUptime(seconds: number): string {
 }
 
 /** Base64-encode raw bytes, chunked to avoid blowing the call stack on large files. */
-export function bytesToBase64(bytes: Uint8Array): string {
-    let binary = "";
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    }
-    return btoa(binary);
-}
-
-/** Inverse of {@link bytesToBase64}. */
+/** Decode base64 bytes the agent sent inline — currently image previews, which
+ *  are size-capped and arrive inside the JSON `FileContent`. There is deliberately
+ *  no encoding counterpart: an upload streams its `File` through multipart
+ *  instead, so nothing in the browser turns a file into base64 any more. */
 export function base64ToBytes(base64: string): Uint8Array {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
@@ -127,6 +121,29 @@ export async function copyToClipboard(text: string): Promise<void> {
     } finally {
         document.body.removeChild(textarea);
     }
+}
+
+/**
+ * A random UUID, without requiring a secure context.
+ *
+ * `crypto.randomUUID` is only exposed over HTTPS or on localhost — the same
+ * restriction that {@link copyToClipboard} works around — so it is simply
+ * missing when the control plane is reached over plain HTTP at a LAN address,
+ * which is a normal way to run this. `crypto.getRandomValues` has no such
+ * restriction and is always there, so the fallback is a real v4 UUID rather
+ * than a weaker id.
+ *
+ * Reach for this instead of `crypto.randomUUID` anywhere in the web app.
+ */
+export function randomId(): string {
+    if (typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID();
+    }
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 1
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export function fmtDateTime(msEpoch: number): string {

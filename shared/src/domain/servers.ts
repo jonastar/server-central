@@ -40,7 +40,7 @@ export const AGENT_VERSION: string = pkg.version;
  * it would silently do the wrong thing about, rather than merely less of it
  * ("shellAsUser": an agent that drops `openShell.asUser` opens a root shell).
  */
-export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream", "shellAsUser", "execArgv", "resolvePaths"];
+export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream", "shellAsUser", "execArgv", "resolvePaths", "uploadChunk"];
 
 /**
  * Common Name (and a baseline SAN entry) of the control-plane leaf cert. Agents
@@ -71,13 +71,42 @@ export const API_PREFIX = "/api";
 export const METRICS_HISTORY_MAX = 720;
 
 /**
- * Cap on a single `uploadFile` body, enforced by the agent. Shared so the web client
- * can reject an oversized file before spending time base64-encoding and transferring
- * it, instead of only finding out from the agent's rejection after the fact. The
- * control plane's HTTP `maxRequestBodySize` (`apps/server/src/index.ts`) is sized off
- * this constant (base64 is ~4/3 the raw size) — bump both together.
+ * Bytes of file per HTTP request. A file larger than this is uploaded as several
+ * requests against one `uploadId`, appended in order on the host.
+ *
+ * This is the constant that replaced the old MAX_UPLOAD_BYTES, and it's worth
+ * being clear about why a per-request bound lets the per-*file* bound disappear.
+ * `req.body` doesn't push backpressure down to TCP: a sender that outruns the
+ * reader has its unread body buffered by Bun, so the control plane's exposure
+ * tracks how far ahead the sender can get — which, in a single-request upload,
+ * is the whole file (measured: 200MB in one request cost ~1.4GB of peak RSS on
+ * loopback). Splitting the file across requests caps that at one request's
+ * worth, whatever the file's size, because the browser can never have more than
+ * one in flight. Uploads are therefore bounded by disk, not by memory.
+ *
+ * 8MB, chosen by measurement rather than intuition. Peak RSS tracks this
+ * constant closely (1GB uploaded: 119MB at a 4MB slice, 139MB at 8MB, 197MB at
+ * 16MB, 420MB at 32MB), and — against expectation — a smaller slice was also
+ * *faster*: 2GB moved in 7.6s at 8MB versus 9.4s at 32MB, since a large request
+ * mostly buys more of the unread body sitting in Bun's buffer. There is no
+ * throughput being traded away here, which is why it isn't larger. Below ~4MB
+ * the memory gain flattens while the request count keeps doubling.
  */
-export const MAX_UPLOAD_BYTES = 256 * 1024 * 1024;
+export const UPLOAD_REQUEST_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Raw bytes per `uploadChunkRequest`, before base64 makes the message ~4/3 that.
+ *
+ * Sized by two limits, not by throughput. Bun's websocket server refuses an
+ * inbound frame over 16MB and closes the *connection* when one arrives, so a
+ * chunk must stay well clear of that even though uploads currently travel the
+ * other way (control plane → agent) and would not hit it; a later download path
+ * reverses the direction, and a limit that kills the agent link is not one to
+ * leave a design sitting next to. The second is simply that this is the unit of
+ * memory each hop holds, so it wants to be small. At 4MB a 256MB upload is 64
+ * round trips — nothing on a LAN, where the round trip is sub-millisecond.
+ */
+export const UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
 
 export interface SystemInfo {
     hostname: string;
