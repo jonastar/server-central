@@ -9,6 +9,7 @@ import { colorVars } from "../../styles/colorVars";
 function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated: (client: OidcClient) => void }) {
     const [name, setName] = useState("");
     const [redirectUris, setRedirectUris] = useState("");
+    const [groupPrefix, setGroupPrefix] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [created, setCreated] = useState<{ client: OidcClient; clientSecret: string } | null>(null);
@@ -20,7 +21,7 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
         setBusy(true);
         try {
             const uris = redirectUris.split("\n").map((s) => s.trim()).filter(Boolean);
-            const result = await api("oidc", "createClient", { name, redirectUris: uris });
+            const result = await api("oidc", "createClient", { name, redirectUris: uris, groupPrefix: groupPrefix.trim() || null });
             setCreated(result);
             onCreated(result.client);
         } catch (err) {
@@ -84,6 +85,14 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
                         placeholder="https://app.example.com/callback"
                     />
                 </label>
+                <label className={shared["login-field"]}>
+                    <span>App name for roles (optional)</span>
+                    <input value={groupPrefix} onChange={(e) => setGroupPrefix(e.target.value)} placeholder="immich" />
+                    <span className={shared.dim} style={{ fontSize: 12 }}>
+                        Limits the <code>groups</code> claim to <code>app.{groupPrefix.trim() || "<name>"}.*</code>, so this client
+                        is not told which roles the user holds in your other apps. Leave empty to send every <code>app.*</code> role.
+                    </span>
+                </label>
                 <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
                     <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
                     <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy}>
@@ -143,6 +152,7 @@ export function OidcClientsTab() {
                                 <th>Name</th>
                                 <th>Client ID</th>
                                 <th>Redirect URIs</th>
+                                <th>Roles</th>
                                 <th>Created</th>
                                 <th />
                             </tr>
@@ -153,6 +163,11 @@ export function OidcClientsTab() {
                                     <td className={shared["file-name"]}>{c.name}</td>
                                     <td className={cx(shared.mono, shared.dim)}>{c.id}</td>
                                     <td className={shared.dim}>{c.redirectUris.join(", ")}</td>
+                                    <td className={shared.dim}>
+                                        {c.groupPrefix
+                                            ? <span className={shared.mono}>app.{c.groupPrefix}.*</span>
+                                            : <span className={shared.dim}>all app.*</span>}
+                                    </td>
                                     <td className={shared.dim}>{new Date(c.createdAt).toLocaleString()}</td>
                                     <td className={shared["row-actions-always"]}>
                                         <button className={shared.btn} disabled={busyId === c.id} onClick={() => void handleDelete(c)}>

@@ -166,6 +166,51 @@ function ChangePasswordForm({ userId, onDone }: { userId: string; onDone: () => 
     );
 }
 
+function EmailForm({ user, onSaved }: { user: UserInfo; onSaved: () => void }) {
+    const [value, setValue] = useState(user.email ?? "");
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [done, setDone] = useState(false);
+
+    async function handleSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        setBusy(true);
+        setError(null);
+        setDone(false);
+        try {
+            await api("auth", "setUserEmail", { userId: user.id, email: value.trim() || null });
+            setDone(true);
+            onSaved();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <form onSubmit={handleSubmit} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <input
+                className={shared.mono}
+                type="email"
+                placeholder="none"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                style={{ width: 240 }}
+            />
+            <button className={cx(shared.btn, shared["btn-sm"])} type="submit" disabled={busy}>
+                {busy ? "Saving…" : "Save"}
+            </button>
+            <span className={shared.dim} style={{ fontSize: 12 }}>
+                {done
+                    ? "Saved — sent as the `email` claim from the next sign-in onwards."
+                    : "Sent to SSO clients as the `email` claim. Apps that key accounts on it (Immich does) refuse to sign this account in without one."}
+            </span>
+            {error && <span className={shared.dim} style={{ fontSize: 12, color: "var(--err)" }}>{error}</span>}
+        </form>
+    );
+}
+
 function SystemUserForm({ user, onSaved }: { user: UserInfo; onSaved: () => void }) {
     const [value, setValue] = useState(user.systemUser ?? "");
     const [busy, setBusy] = useState(false);
@@ -335,6 +380,11 @@ function UserDetailBody({ user, roles, busy, onRolesChange, onChanged }: {
                             </tbody>
                         </table>
                     )}
+
+                    <div style={{ marginTop: 12 }}>
+                        <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>Email</div>
+                        <EmailForm user={user} onSaved={onChanged} />
+                    </div>
 
                     <div style={{ marginTop: 12 }}>
                         <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>System user</div>
@@ -549,6 +599,7 @@ export function UsersTab() {
                                 <th className={shared["col-expander"]} />
                                 <th>Username</th>
                                 <th>Role</th>
+                                <th>Email</th>
                                 <th>System user</th>
                                 <th>Created</th>
                                 <th />
@@ -578,6 +629,7 @@ export function UsersTab() {
                                                     ))
                                                 )}
                                             </td>
+                                            <td>{u.email ? <span className={shared.mono}>{u.email}</span> : <span className={shared.dim}>—</span>}</td>
                                             <td>{u.systemUser ? <span className={shared.mono}>{u.systemUser}</span> : <span className={shared.dim}>—</span>}</td>
                                             <td className={shared.dim}>{new Date(u.createdAt).toLocaleString()}</td>
                                             <td className={shared["row-actions-always"]} onClick={(e) => e.stopPropagation()}>
@@ -591,7 +643,7 @@ export function UsersTab() {
                                         {expanded && (
                                             <tr className={shared["row-detail-tr"]}>
                                                 <td />
-                                                <td colSpan={5}>
+                                                <td colSpan={6}>
                                                     <div className={shared["row-detail-wrap"]}>
                                                         <UserDetailBody
                                                             user={u}
