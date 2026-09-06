@@ -29,6 +29,15 @@ export interface UserInfo {
      *  unmapped: owner/admin fall back to the agent's own user (root), while
      *  operator/viewer are denied a terminal entirely. */
     systemUser: string | null;
+    /** Address handed to relying parties as the `email` claim. Optional, but
+     *  effectively required for SSO against anything that keys accounts on it
+     *  (Immich does). Normalized and unique across accounts — see AuthStore.
+     *
+     *  There is deliberately no `emailVerified` companion: SC has no self-signup,
+     *  so an address is either owner-asserted or came from an upstream provider
+     *  that verified it, and the claim is therefore always true. See
+     *  doc/idea_sign_in_methods.md §2. */
+    email: string | null;
 }
 
 /** A single active login session for a user, surfaced on the admin user-detail view. */
@@ -76,7 +85,7 @@ export interface AuthOperations {
 
     // Users (owner-only)
     listUsers: { data: void; response: UserInfo[] };
-    createUser: { data: { username: string; password: string; roleIds: string[] }; response: UserInfo };
+    createUser: { data: { username: string; password: string; roleIds: string[]; email?: string | null }; response: UserInfo };
     deleteUser: { data: { userId: string }; response: void };
     setUserRoles: { data: { userId: string; roleIds: string[] }; response: void };
     /** Sessions + last-active, fetched on demand when a row expands in the Users tab. */
@@ -87,6 +96,8 @@ export interface AuthOperations {
     adminSetPassword: { data: { userId: string; password: string }; response: void };
     /** Map a user to an OS account (null clears the mapping). See UserInfo.systemUser. */
     setUserSystemUser: { data: { userId: string; systemUser: string | null }; response: void };
+    /** Set or clear the address sent as the `email` claim (null clears it). */
+    setUserEmail: { data: { userId: string; email: string | null }; response: void };
     // Ad-hoc permission nodes granted on top of the user's role bundle — how an
     // account reaches one app and nothing else (role `none` + `app.immich.user`).
     setUserPermissions: { data: { userId: string; permissions: Permission[] }; response: void };

@@ -46,7 +46,7 @@ export const createAuthFeature = (auth: AuthStore, roles: RoleStore) => defineFe
         },
 
         async createUser(data) {
-            return auth.addUser(data.username, data.password, data.roleIds);
+            return auth.addUser(data.username, data.password, data.roleIds, data.email ?? null);
         },
 
         async deleteUser(data, ctx?: AuthContext) {
@@ -71,6 +71,10 @@ export const createAuthFeature = (auth: AuthStore, roles: RoleStore) => defineFe
 
         async setUserSystemUser(data, ctx?: AuthContext) {
             await auth.setSystemUser(data.userId, data.systemUser);
+        },
+
+        async setUserEmail(data) {
+            await auth.setEmail(data.userId, data.email);
         },
 
         async setUserPermissions(data) {

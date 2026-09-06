@@ -88,4 +88,68 @@ describe("AuthStore", () => {
         expect(second.needsSetup()).toBe(false);
         expect(await second.authenticate(token)).toMatchObject({ username: "alice" });
     });
+
+    describe("email", () => {
+        test("is optional, and normalized on the way in", async () => {
+            const store = await freshStore();
+            const { user } = await store.setupOwner("alice", "supersecret");
+            expect(user.email).toBeNull();
+
+            await store.setEmail(user.id, "  Alice@Example.COM  ");
+            expect(store.getUserById(user.id)?.email).toBe("alice@example.com");
+        });
+
+        test("clears on null, and on a value that is only whitespace", async () => {
+            const store = await freshStore();
+            const { user } = await store.setupOwner("alice", "supersecret");
+            await store.setEmail(user.id, "alice@example.com");
+
+            await store.setEmail(user.id, null);
+            expect(store.getUserById(user.id)?.email).toBeNull();
+
+            // An empty string must not persist as one: two accounts holding ""
+            // would compare equal and trip the uniqueness check against
+            // each other.
+            await store.setEmail(user.id, "   ");
+            expect(store.getUserById(user.id)?.email).toBeNull();
+        });
+
+        test("is unique across accounts", async () => {
+            const store = await freshStore();
+            const { user: owner } = await store.setupOwner("alice", "supersecret");
+            const bob = await store.addUser("bob", "supersecret", []);
+            await store.setEmail(owner.id, "shared@example.com");
+
+            // Relying parties key accounts on the address (Immich does), so two
+            // accounts sharing one collapse into a single account over there.
+            await expect(store.setEmail(bob.id, "shared@example.com")).rejects.toThrow(/already uses/i);
+            await expect(store.setEmail(bob.id, "SHARED@example.com")).rejects.toThrow(/already uses/i);
+            expect(store.getUserById(bob.id)?.email).toBeNull();
+
+            // Re-setting your own address is not a collision with yourself.
+            await store.setEmail(owner.id, "shared@example.com");
+            expect(store.getUserById(owner.id)?.email).toBe("shared@example.com");
+        });
+
+        test("rejects addresses that would break a relying party", async () => {
+            const store = await freshStore();
+            const { user } = await store.setupOwner("alice", "supersecret");
+            for (const bad of ["alice", "alice@", "@example.com", "alice@example", "a b@example.com"]) {
+                await expect(store.setEmail(user.id, bad)).rejects.toThrow(/invalid email/i);
+            }
+            expect(store.getUserById(user.id)?.email).toBeNull();
+        });
+
+        test("can be set at creation, and survives a restart", async () => {
+            const first = await freshStore();
+            await first.setupOwner("alice", "supersecret");
+            const bob = await first.addUser("bob", "supersecret", [], "Bob@Example.com");
+            expect(bob.email).toBe("bob@example.com");
+
+            await expect(first.addUser("carol", "supersecret", [], "bob@example.com")).rejects.toThrow(/already uses/i);
+
+            const second = await freshStore();
+            expect(second.getUserById(bob.id)?.email).toBe("bob@example.com");
+        });
+    });
 });

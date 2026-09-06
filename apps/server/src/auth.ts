@@ -28,6 +28,10 @@ interface UserRecord {
      *  records, which is the same as none — the role alone then decides, so
      *  existing accounts keep exactly the access their role implies. */
     extraPermissions?: Permission[];
+    /** Address sent as the `email` claim (see UserInfo.email). Absent on older
+     *  records, which is the same as unset — no migration needed, since it is
+     *  optional and nothing reads it until a relying party asks for the scope. */
+    email?: string;
 }
 
 interface SessionRecord {
@@ -67,6 +71,7 @@ function toUserInfo(rec: UserRecord, roles: RoleStore): UserInfo {
         permissions: effectivePermissions(rec.isOwner === true, roles.resolve(roleIds), rec.extraPermissions ?? []),
         createdAt: rec.createdAt,
         systemUser: rec.systemUser ?? null,
+        email: rec.email ?? null,
     };
 }
 
@@ -202,6 +207,35 @@ export class AuthStore {
         return Object.values(this.users).map((r) => toUserInfo(r, this.roles));
     }
 
+    /**
+     * Every `app.*` node this installation is aware of — the union of what roles
+     * grant and what accounts hold directly.
+     *
+     * Exists because the owner's permission set is the single node `*`, which no
+     * relying party can interpret. The `app.*` namespace is deliberately open
+     * (SC never learns another app's role names), so there is no registry to
+     * expand `*` against; enumerating what is actually in use is the closest
+     * honest answer. See `groupsForClient`.
+     */
+    knownAppPermissions(): Permission[] {
+        const nodes = new Set<Permission>();
+        for (const role of this.roles.list()) {
+            for (const node of role.permissions) {
+                if (node.startsWith("app.")) {
+                    nodes.add(node);
+                }
+            }
+        }
+        for (const rec of Object.values(this.users)) {
+            for (const node of rec.extraPermissions ?? []) {
+                if (node.startsWith("app.")) {
+                    nodes.add(node);
+                }
+            }
+        }
+        return [...nodes].sort();
+    }
+
     /** Look up a user directly by id — used by the OIDC token/userinfo endpoints,
      *  which authenticate via a client credential or an OIDC access token rather
      *  than a session bearer token. */
@@ -211,8 +245,8 @@ export class AuthStore {
     }
 
     /** Create an additional account. Gated by `panel.users.admin` on the caller. */
-    async addUser(username: string, password: string, roleIds: string[]): Promise<UserInfo> {
-        return this.createUser(username, password, this.knownRoleIds(roleIds));
+    async addUser(username: string, password: string, roleIds: string[], email: string | null = null): Promise<UserInfo> {
+        return this.createUser(username, password, this.knownRoleIds(roleIds), false, email);
     }
 
     /** Remove an account. The owner is a singleton and can't be deleted, nor can a
@@ -310,6 +344,39 @@ export class AuthStore {
         await this.persistUsers();
     }
 
+    /**
+     * Set or clear the address sent as the `email` claim (null clears it).
+     *
+     * Normalized and unique across accounts, and not merely for tidiness:
+     * relying parties key accounts on this — Immich does — so two SC accounts
+     * sharing one address silently collapse into a single account there, which
+     * cannot be untangled afterwards.
+     */
+    async setEmail(userId: string, email: string | null): Promise<void> {
+        const rec = this.users[userId];
+        if (!rec) {
+            throw new Error("User not found");
+        }
+        const normalized = normalizeEmail(email);
+        if (normalized) {
+            this.assertEmailAvailable(normalized, userId);
+            rec.email = normalized;
+        } else {
+            delete rec.email;
+        }
+        await this.persistUsers();
+    }
+
+    /** Throws when another account already holds `email`. Shape is validated
+     *  first, so a malformed address fails on its own terms rather than as a
+     *  confusing "already taken". */
+    private assertEmailAvailable(email: string, exceptUserId: string | null): void {
+        assertEmailShape(email);
+        if (Object.values(this.users).some((u) => u.id !== exceptUserId && u.email === email)) {
+            throw new Error("Another account already uses that email address");
+        }
+    }
+
     /** Sessions + last-active for the admin user-detail view. `currentToken` (the
      *  caller's own bearer token) flags which session is "this one". */
     getUserDetail(userId: string, currentToken: string | null): UserDetail {
@@ -404,7 +471,7 @@ export class AuthStore {
         return toUserInfo(rec, this.roles);
     }
 
-    private async createUser(username: string, password: string, roleIds: string[], isOwner = false): Promise<UserInfo> {
+    private async createUser(username: string, password: string, roleIds: string[], isOwner = false, email: string | null = null): Promise<UserInfo> {
         const name = normalizeUsername(username);
         if (!name) {
             throw new Error("Username is required");
@@ -415,6 +482,10 @@ export class AuthStore {
         if (Object.values(this.users).some((u) => u.username === name)) {
             throw new Error("Username already taken");
         }
+        const normalizedEmail = normalizeEmail(email);
+        if (normalizedEmail) {
+            this.assertEmailAvailable(normalizedEmail, null);
+        }
         const rec: UserRecord = {
             id: randomUUID(),
             username: name,
@@ -422,6 +493,7 @@ export class AuthStore {
             isOwner,
             roleIds,
             createdAt: Date.now(),
+            ...(normalizedEmail ? { email: normalizedEmail } : {}),
         };
         this.users[rec.id] = rec;
         await this.persistUsers();
@@ -461,6 +533,22 @@ export class AuthStore {
 
 function normalizeUsername(username: string): string {
     return username.trim().toLowerCase();
+}
+
+/** Empty and whitespace-only both mean "no address", so they normalize to null
+ *  rather than to a stored empty string that would compare equal between users. */
+function normalizeEmail(email: string | null): string | null {
+    return email?.trim().toLowerCase() || null;
+}
+
+/** Shape check only, and deliberately loose. There is no confirmation flow and
+ *  no self-signup — the address is asserted by whoever administers the account
+ *  (doc/idea_sign_in_methods.md §2) — so this exists to catch the typo that
+ *  would break a relying party, not to adjudicate what a valid address is. */
+function assertEmailShape(email: string): void {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new Error(`Invalid email address: ${email}`);
+    }
 }
 
 async function readJson<T>(file: string): Promise<T> {

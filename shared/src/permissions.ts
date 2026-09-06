@@ -327,7 +327,7 @@ export const PANEL_PERMISSIONS = {
     "panel.users.admin": {
         label: "Manage accounts",
         description: "Create and delete accounts, set passwords, assign roles and grant permissions — including granting permissions to oneself.",
-        ops: ["auth/createUser", "auth/deleteUser", "auth/setUserRoles", "auth/revokeUserSession", "auth/adminSetPassword", "auth/setUserSystemUser", "auth/setUserPermissions"],
+        ops: ["auth/createUser", "auth/deleteUser", "auth/setUserRoles", "auth/revokeUserSession", "auth/adminSetPassword", "auth/setUserSystemUser", "auth/setUserPermissions", "auth/setUserEmail"],
         escalation: "Granting oneself any permission is one edit away, and every root-equivalent permission is reachable from there.",
         sensitive: true,
     },

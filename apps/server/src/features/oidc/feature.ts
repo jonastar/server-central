@@ -5,7 +5,7 @@ import type { HttpRoute } from "../../feature";
 import { defineFeature } from "../../feature";
 import type { OidcStore } from "./store";
 import { discoveryDocument } from "./discovery";
-import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, verifyJwt, verifyPkce } from "./tokens";
+import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, scopedClaims, verifyJwt, verifyPkce } from "./tokens";
 
 // An OIDC client is a relying-party registration (id/secret + redirect URIs) for
 // Central's built-in OIDC provider — unrelated to the App entity (compose stacks
@@ -33,7 +33,7 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore) => defineFea
             if (!config.primaryUrl) {
                 throw new Error("Set a Primary URL in Settings before registering OIDC clients");
             }
-            return oidc.createClient(data.name, data.redirectUris);
+            return oidc.createClient(data.name, data.redirectUris, data.groupPrefix ?? null);
         },
 
         async deleteClient(data, ctx?: AuthContext) {
@@ -58,6 +58,13 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore) => defineFea
                 throw new Error("Not authenticated");
             }
             const app = oidc.validateRequest(data);
+            // An RP that asks for `email` almost certainly keys its accounts on
+            // it (Immich does). Silently dropping the claim lets it create a
+            // broken account that then has to be reconciled by hand, so fail
+            // here instead — while the user is still looking at a screen.
+            if (data.scope.split(/\s+/).includes("email") && !ctx.user.email) {
+                throw new Error(`${app.name} requires an email address, and your account has none. Ask an administrator to set one.`);
+            }
             const code = oidc.issueCode({
                 userId: ctx.user.id,
                 clientId: app.id,
@@ -163,7 +170,7 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore): HttpRoute[] {
                 }
 
                 const key = oidc.key;
-                const idToken = buildIdToken(user, { issuer: config.primaryUrl, clientId: client.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000) }, key);
+                const idToken = buildIdToken(user, { issuer: config.primaryUrl, clientId: client.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000), scope: grant.scope, groupPrefix: client.groupPrefix, knownAppNodes: auth.knownAppPermissions() }, key);
                 const accessToken = buildAccessToken(user, { issuer: config.primaryUrl, clientId: client.id, scope: grant.scope }, key);
                 return Response.json({
                     access_token: accessToken,
@@ -181,10 +188,17 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore): HttpRoute[] {
                 const payload = token ? verifyJwt(token, oidc.key.publicKeyPem) : null;
                 const sub = payload && typeof payload.sub === "string" ? payload.sub : null;
                 const user = sub ? auth.getUserById(sub) : null;
-                if (!user) {
+                // Bind the response to the audience the token was minted for. A
+                // valid signature alone used to be enough, so a token issued to
+                // one client answered for every other — and the reply carried
+                // every `app.*` grant regardless of what was asked for.
+                const aud = payload && typeof payload.aud === "string" ? payload.aud : null;
+                const client = aud ? oidc.getClient(aud) : null;
+                if (!user || !client) {
                     return Response.json({ error: "invalid_token" }, { status: 401, headers: cors });
                 }
-                return Response.json({ sub: user.id, preferred_username: user.username, groups: user.permissions.filter((p) => p.startsWith("app.")) }, { headers: cors });
+                const scope = typeof payload?.scope === "string" ? payload.scope : "";
+                return Response.json(scopedClaims(user, scope, client.groupPrefix, auth.knownAppPermissions()), { headers: cors });
             },
         },
     ];

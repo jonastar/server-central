@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, createSign, createVerify } from "node:crypto";
-import type { UserInfo } from "@central/shared";
+import type { Permission, UserInfo } from "@central/shared";
 import type { SigningKey } from "./store";
 
 /** ID tokens are exchanged immediately after issuance, so they can afford to be
@@ -50,25 +50,93 @@ export function verifyPkce(codeVerifier: string, codeChallenge: string): boolean
     return base64url(createHash("sha256").update(codeVerifier).digest()) === codeChallenge;
 }
 
+/** Scope values are a space-separated list (RFC 6749 §3.3). */
+function hasScope(scope: string, wanted: string): boolean {
+    return scope.split(/\s+/).filter(Boolean).includes(wanted);
+}
+
+/**
+ * The `app.*` grants one relying party is allowed to see.
+ *
+ * Never the `panel.*` half: a relying party has no use for the control plane's
+ * internal nodes, and sending them leaks its structure to every app the owner
+ * registers. `groupPrefix` narrows further, to a single app's namespace, so
+ * Jellyfin isn't told which roles the user holds in Immich. Null keeps the
+ * pre-existing behaviour of sending every `app.*` node.
+ *
+ * The owner is the awkward case. Its permission set is the single node `*`,
+ * which filters to nothing and would silently sign the owner into every app
+ * with no roles at all — the control plane's most privileged account arriving
+ * as the app's least privileged user. Since `app.*` is an open namespace there
+ * is nothing to expand `*` against, so the owner receives the union of:
+ *
+ *   - `knownAppNodes`, every `app.*` node this installation actually uses
+ *     (see AuthStore.knownAppPermissions),
+ *   - any app nodes listed on the account itself, and
+ *   - `app.<prefix>.admin` when the client declares a prefix — the `.admin`
+ *     leaf is this codebase's naming convention, and without it a freshly
+ *     registered app that nobody holds grants for yet would still hand the
+ *     owner an empty list.
+ *
+ * That last one is a convention, not knowledge: an app whose admin role is
+ * named something else needs the node granted explicitly. A per-client list of
+ * declared role names would replace this guess with a fact — see
+ * doc/idea_sign_in_methods.md.
+ */
+export function groupsForClient(user: UserInfo, groupPrefix: string | null, knownAppNodes: readonly Permission[] = []): Permission[] {
+    const node = groupPrefix ? `app.${groupPrefix}` : null;
+    const inScope = (p: Permission): boolean =>
+        node === null ? p.startsWith("app.") : p === node || p.startsWith(`${node}.`);
+
+    if (!user.isOwner) {
+        return user.permissions.filter(inScope);
+    }
+    const owned = new Set<Permission>([...knownAppNodes, ...user.permissions].filter(inScope));
+    if (node) {
+        owned.add(`${node}.admin`);
+    }
+    return [...owned].sort();
+}
+
+/**
+ * Identity claims a given scope earns, shared by the ID token and the userinfo
+ * response so the two cannot drift. `sub` is unconditional; everything else is
+ * gated, because `groups` was previously emitted whether or not it was asked
+ * for and `profile` was advertised while adding nothing.
+ *
+ * `email_verified` is always true when an address exists: SC has no self-signup,
+ * so the address was either asserted by an administrator or accepted from an
+ * upstream provider that verified it. See doc/idea_sign_in_methods.md §2.
+ */
+export function scopedClaims(user: UserInfo, scope: string, groupPrefix: string | null, knownAppNodes: readonly Permission[] = []): Record<string, unknown> {
+    const claims: Record<string, unknown> = { sub: user.id };
+    if (hasScope(scope, "profile")) {
+        claims.preferred_username = user.username;
+    }
+    if (hasScope(scope, "email") && user.email) {
+        claims.email = user.email;
+        claims.email_verified = true;
+    }
+    if (hasScope(scope, "groups")) {
+        // Custom claim (not OIDC-standard) — how grants are exposed for SSO.
+        claims.groups = groupsForClient(user, groupPrefix, knownAppNodes);
+    }
+    return claims;
+}
+
 export function buildIdToken(
     user: UserInfo,
-    opts: { issuer: string; clientId: string; nonce: string | null; authTime: number },
+    opts: { issuer: string; clientId: string; nonce: string | null; authTime: number; scope: string; groupPrefix: string | null; knownAppNodes?: readonly Permission[] },
     key: SigningKey,
 ): string {
     const now = Math.floor(Date.now() / 1000);
     const payload: Record<string, unknown> = {
+        ...scopedClaims(user, opts.scope, opts.groupPrefix, opts.knownAppNodes ?? []),
         iss: opts.issuer,
-        sub: user.id,
         aud: opts.clientId,
         exp: now + ID_TOKEN_TTL_S,
         iat: now,
         auth_time: opts.authTime,
-        preferred_username: user.username,
-        // Custom claim (not OIDC-standard) — how grants are exposed for SSO.
-        // Only the `app.*` half: a relying party has no use for the control
-        // plane's internal nodes, and sending them leaks its structure to every
-        // app the owner registers.
-        groups: user.permissions.filter((p) => p.startsWith("app.")),
     };
     if (opts.nonce) {
         payload.nonce = opts.nonce;

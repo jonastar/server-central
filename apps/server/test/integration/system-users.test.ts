@@ -156,6 +156,7 @@ describe("resolveShellUser", () => {
             permissions: effectivePermissions(opts.isOwner === true, role ? [role] : []),
             createdAt: 0,
             systemUser: opts.systemUser,
+            email: null,
         };
     }
 

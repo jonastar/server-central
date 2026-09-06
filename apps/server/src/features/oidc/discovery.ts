@@ -11,10 +11,10 @@ export function discoveryDocument(issuer: string): Record<string, unknown> {
         response_types_supported: ["code"],
         subject_types_supported: ["public"],
         id_token_signing_alg_values_supported: ["RS256"],
-        scopes_supported: ["openid", "profile", "groups"],
+        scopes_supported: ["openid", "profile", "email", "groups"],
         token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
         code_challenge_methods_supported: ["S256"],
-        claims_supported: ["sub", "iss", "aud", "exp", "iat", "auth_time", "preferred_username", "groups"],
+        claims_supported: ["sub", "iss", "aud", "exp", "iat", "auth_time", "preferred_username", "email", "email_verified", "groups"],
         grant_types_supported: ["authorization_code"],
     };
 }
