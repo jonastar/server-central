@@ -15,11 +15,15 @@ export interface OidcClient {
     name: string;
     redirectUris: string[];
     createdAt: number;
+    /** The App this client signs people into, if any. Supersedes `groupPrefix`:
+     *  the App's slug *is* the prefix, defined once instead of retyped here. */
+    appId: string | null;
     /** Which slice of the user's `app.*` grants this client is allowed to see.
      *  `"immich"` sends only `app.immich.*` in the `groups` claim; null sends
      *  every `app.*` node, which tells Jellyfin what roles you hold in Immich.
-     *  Null is the pre-existing behaviour and stays the default so registered
-     *  clients keep working. */
+     *
+     *  Retained for registrations made before Apps existed, which set it
+     *  directly. `appId` wins where both are present; see `effectiveGroupPrefix`. */
     groupPrefix: string | null;
 }
 
@@ -45,7 +49,7 @@ export interface OidcAuthorizeParams {
 export interface OidcOperations {
     listClients: { data: void; response: OidcClient[] };
     /** clientSecret is returned once, at creation, and never again. */
-    createClient: { data: { name: string; redirectUris: string[]; groupPrefix?: string | null }; response: { client: OidcClient; clientSecret: string } };
+    createClient: { data: { name: string; redirectUris: string[]; appId?: string | null }; response: { client: OidcClient; clientSecret: string } };
     deleteClient: { data: { clientId: string }; response: void };
     getAuthorizeRequest: { data: OidcAuthorizeParams; response: { appName: string; redirectUri: string } };
     completeAuthorize: { data: OidcAuthorizeParams; response: { redirectUrl: string } };

@@ -295,6 +295,17 @@ export const PANEL_PERMISSIONS = {
         escalation: "Replaces the control plane's own binary, and edits the trusted-proxy list that decides which client addresses are believed.",
     },
 
+    "panel.apps.read": {
+        label: "View apps",
+        description: "See the registered apps and the role names each one declares.",
+        ops: ["apps/list"],
+    },
+    "panel.apps.admin": {
+        label: "Manage apps",
+        description: "Register and remove apps, and declare the role names they understand.",
+        ops: ["apps/create", "apps/update", "apps/delete"],
+    },
+
     "panel.oidc.read": {
         label: "View SSO clients",
         description: "See registered OpenID Connect relying parties.",
@@ -646,6 +657,8 @@ export const SEED_ROLES: readonly RoleDef[] = [
             "panel.files.write",
             "panel.mounts.read",
             "panel.network.read",
+            "panel.apps.admin",
+            "panel.apps.read",
             "panel.oidc.admin",
             "panel.oidc.read",
             "panel.processes.read",

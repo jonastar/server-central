@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
-import type { OidcClient } from "@central/shared";
+import type { App, OidcClient } from "@central/shared";
 import { api } from "../../api";
 import { EmptyState, ErrorBanner, Modal } from "../ui";
 import { cx, copyToClipboard } from "../../utils";
 import shared from "../../styles/shared.module.css";
 import { colorVars } from "../../styles/colorVars";
 
-function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated: (client: OidcClient) => void }) {
+function AddClientModal({ apps, onClose, onCreated }: { apps: App[]; onClose: () => void; onCreated: (client: OidcClient) => void }) {
     const [name, setName] = useState("");
     const [redirectUris, setRedirectUris] = useState("");
-    const [groupPrefix, setGroupPrefix] = useState("");
+    const [appId, setAppId] = useState("");
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [created, setCreated] = useState<{ client: OidcClient; clientSecret: string } | null>(null);
@@ -21,7 +21,7 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
         setBusy(true);
         try {
             const uris = redirectUris.split("\n").map((s) => s.trim()).filter(Boolean);
-            const result = await api("oidc", "createClient", { name, redirectUris: uris, groupPrefix: groupPrefix.trim() || null });
+            const result = await api("oidc", "createClient", { name, redirectUris: uris, appId: appId || null });
             setCreated(result);
             onCreated(result.client);
         } catch (err) {
@@ -86,11 +86,15 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
                     />
                 </label>
                 <label className={shared["login-field"]}>
-                    <span>App name for roles (optional)</span>
-                    <input value={groupPrefix} onChange={(e) => setGroupPrefix(e.target.value)} placeholder="immich" />
+                    <span>App (optional)</span>
+                    <select value={appId} onChange={(e) => setAppId(e.target.value)}>
+                        <option value="">Not linked — sends every app role</option>
+                        {apps.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
                     <span className={shared.dim} style={{ fontSize: 12 }}>
-                        Limits the <code>groups</code> claim to <code>app.{groupPrefix.trim() || "<name>"}.*</code>, so this client
-                        is not told which roles the user holds in your other apps. Leave empty to send every <code>app.*</code> role.
+                        {appId
+                            ? <>Limits the <code>groups</code> claim to <code>app.{apps.find((a) => a.id === appId)?.slug}.*</code>, so this client is not told which roles the user holds in your other apps.</>
+                            : <>Unlinked clients receive every <code>app.*</code> role the user holds, including roles belonging to your other apps. Register the app under Settings → Apps to scope it.</>}
                     </span>
                 </label>
                 <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
@@ -104,8 +108,22 @@ function AddClientModal({ onClose, onCreated }: { onClose: () => void; onCreated
     );
 }
 
+/** How a client's group scoping reads in the list: the linked App, a legacy
+ *  direct prefix from before Apps existed, or the unscoped default. */
+function appLabel(client: OidcClient, apps: App[]) {
+    const app = apps.find((a) => a.id === client.appId);
+    if (app) {
+        return <span className={shared.mono}>app.{app.slug}.*</span>;
+    }
+    if (client.groupPrefix) {
+        return <span className={shared.mono}>app.{client.groupPrefix}.*</span>;
+    }
+    return <span className={shared.dim}>all app.*</span>;
+}
+
 export function OidcClientsTab() {
     const [clients, setClients] = useState<OidcClient[] | null>(null);
+    const [apps, setApps] = useState<App[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
@@ -115,6 +133,9 @@ export function OidcClientsTab() {
     }
 
     useEffect(refresh, []);
+    // Registered apps drive the link dropdown; an empty list just means every
+    // client stays unscoped, so a failure here is not worth an error banner.
+    useEffect(() => { api("apps", "list", undefined).then(setApps).catch(() => setApps([])); }, []);
 
     async function handleDelete(client: OidcClient) {
         if (!confirm(`Delete client "${client.name}"? Anything using it will stop being able to sign in.`)) {
@@ -152,7 +173,7 @@ export function OidcClientsTab() {
                                 <th>Name</th>
                                 <th>Client ID</th>
                                 <th>Redirect URIs</th>
-                                <th>Roles</th>
+                                <th>App</th>
                                 <th>Created</th>
                                 <th />
                             </tr>
@@ -164,9 +185,7 @@ export function OidcClientsTab() {
                                     <td className={cx(shared.mono, shared.dim)}>{c.id}</td>
                                     <td className={shared.dim}>{c.redirectUris.join(", ")}</td>
                                     <td className={shared.dim}>
-                                        {c.groupPrefix
-                                            ? <span className={shared.mono}>app.{c.groupPrefix}.*</span>
-                                            : <span className={shared.dim}>all app.*</span>}
+                                        {appLabel(c, apps)}
                                     </td>
                                     <td className={shared.dim}>{new Date(c.createdAt).toLocaleString()}</td>
                                     <td className={shared["row-actions-always"]}>
@@ -183,6 +202,7 @@ export function OidcClientsTab() {
 
             {adding && (
                 <AddClientModal
+                    apps={apps}
                     onClose={() => setAdding(false)}
                     onCreated={(client) => setClients((prev) => [...(prev ?? []), client])}
                 />

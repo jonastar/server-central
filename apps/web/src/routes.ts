@@ -87,12 +87,13 @@ export const SERVER_TABS: Array<{ id: ServerTab; label: string; requires?: HostC
  * thing this exists to stop. Finer-grained gating (a disabled button) belongs in
  * the view, next to the action it guards.
  */
-export type SettingsTab = "general" | "users" | "roles" | "oidc" | "debug";
+export type SettingsTab = "general" | "users" | "roles" | "apps" | "oidc" | "debug";
 
 export const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; permission: Permission }> = [
     { id: "general", label: "General", permission: "panel.settings.read" },
     { id: "users", label: "Users", permission: "panel.users.read" },
     { id: "roles", label: "Roles", permission: "panel.roles.read" },
+    { id: "apps", label: "Apps", permission: "panel.apps.read" },
     { id: "oidc", label: "SSO Clients", permission: "panel.oidc.read" },
     { id: "debug", label: "Debug", permission: "panel.settings.admin" },
 ];

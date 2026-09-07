@@ -3,6 +3,7 @@ import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import { UsersTab } from "./settings/UsersTab";
 import { RolesTab } from "./settings/RolesTab";
+import { AppsTab } from "./settings/AppsTab";
 import { OidcClientsTab } from "./settings/OidcClientsTab";
 import { DebugTab } from "./settings/DebugTab";
 import { cx } from "../utils";
@@ -579,6 +580,7 @@ export function SettingsView() {
             {active === "general" && <GeneralSettings />}
             {active === "users" && <UsersTab />}
             {active === "roles" && <RolesTab />}
+            {active === "apps" && <AppsTab />}
             {active === "oidc" && <OidcClientsTab />}
             {active === "debug" && <DebugTab />}
         </div>

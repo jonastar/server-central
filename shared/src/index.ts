@@ -1,5 +1,6 @@
 
 import type { HostCapability } from "./domain/host-capabilities";
+import type { AppOperations } from "./domain/apps";
 import type { AuthOperations } from "./domain/auth";
 import type { ComposeOperations } from "./domain/compose";
 import type { DashboardOperations } from "./domain/dashboards";
@@ -29,6 +30,7 @@ export * from "./metrics";
 export * from "./tasks";
 export * from "./permissions";
 
+export * from "./domain/apps";
 export * from "./domain/auth";
 export * from "./domain/binary";
 export * from "./domain/compose";
@@ -116,6 +118,7 @@ export interface FeatureDescriptor {
  * doc/idea_feature_convention.md §4.
  */
 export interface CentralApiOperations {
+    apps: AppOperations;
     auth: AuthOperations;
     compose: ComposeOperations;
     dashboard: DashboardOperations;

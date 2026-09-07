@@ -16,6 +16,8 @@ import { sweepTempFilesIn } from "./fs-atomic";
 import { AuthStore } from "./auth";
 import { Fleet } from "./fleet";
 import { createNetworkFeature } from "./features/network/feature";
+import { AppStore } from "./features/apps/store";
+import { createAppsFeature } from "./features/apps/feature";
 import { OidcStore } from "./features/oidc/store";
 import { createOidcFeature } from "./features/oidc/feature";
 import { createProcessesFeature } from "./features/processes/feature";
@@ -148,6 +150,7 @@ function applyTrustedProxies(configured: TrustedProxyEntry[]): void {
 applyTrustedProxies(startupConfig.trustedProxies ?? []);
 
 const oidcStore = new OidcStore();
+const appStore = new AppStore();
 const dashboardStore = new DashboardStore();
 const proxyStore = new ProxyStore();
 const proxyManager = new ProxyManager(fleet, proxyStore);
@@ -176,7 +179,8 @@ const baseFeatures = defineFeatures(
     createTerminalFeature(),
     createDebugFeature(),
     createAuthFeature(auth, roleStore),
-    createOidcFeature(oidcStore, auth),
+    createAppsFeature(appStore, oidcStore),
+    createOidcFeature(oidcStore, auth, appStore),
     createDashboardFeature(dashboardStore),
     createProxyFeature(proxyManager, proxyStore),
     createServersFeature(fleet, nodeServer),

@@ -10,13 +10,21 @@ interface OidcClientRecord {
     redirectUris: string[];
     secretHash: string;
     createdAt: number;
-    /** See OidcClient.groupPrefix. Absent on records registered before it
-     *  existed, which reads as null — every `app.*` node, the old behaviour. */
+    /** See OidcClient.appId — the App whose slug scopes the groups claim. */
+    appId?: string;
+    /** Legacy direct prefix, from before Apps existed. See OidcClient.groupPrefix. */
     groupPrefix?: string;
 }
 
 function toPublic(rec: OidcClientRecord): OidcClient {
-    return { id: rec.id, name: rec.name, redirectUris: rec.redirectUris, createdAt: rec.createdAt, groupPrefix: rec.groupPrefix ?? null };
+    return {
+        id: rec.id,
+        name: rec.name,
+        redirectUris: rec.redirectUris,
+        createdAt: rec.createdAt,
+        appId: rec.appId ?? null,
+        groupPrefix: rec.groupPrefix ?? null,
+    };
 }
 
 export interface SigningKey {
@@ -98,7 +106,7 @@ export class OidcStore {
         return rec ? toPublic(rec) : null;
     }
 
-    async createClient(name: string, redirectUris: string[], groupPrefix: string | null = null): Promise<{ client: OidcClient; clientSecret: string }> {
+    async createClient(name: string, redirectUris: string[], appId: string | null = null): Promise<{ client: OidcClient; clientSecret: string }> {
         const trimmedName = name.trim();
         if (!trimmedName) {
             throw new Error("Client name is required");
@@ -114,13 +122,6 @@ export class OidcStore {
                 throw new Error(`Invalid redirect URI: ${uri}`);
             }
         }
-        // The prefix names a namespace segment (`app.<prefix>.*`), so it has to
-        // look like one — a dotted or spaced value would silently match nothing
-        // and the client would just never receive groups.
-        const prefix = groupPrefix?.trim() || null;
-        if (prefix && !/^[a-z0-9][a-z0-9_-]*$/i.test(prefix)) {
-            throw new Error(`Invalid group prefix: ${prefix}. Use a single name segment, e.g. "immich".`);
-        }
         const clientSecret = randomBytes(32).toString("base64url");
         const rec: OidcClientRecord = {
             id: randomUUID(),
@@ -128,7 +129,7 @@ export class OidcStore {
             redirectUris: uris,
             secretHash: await Bun.password.hash(clientSecret),
             createdAt: Date.now(),
-            ...(prefix ? { groupPrefix: prefix } : {}),
+            ...(appId ? { appId } : {}),
         };
         this.apps[rec.id] = rec;
         await this.persistApps();
