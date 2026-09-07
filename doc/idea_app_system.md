@@ -1,6 +1,24 @@
 # App System — v1 (scoped)
 
-Status: idea / design. Not yet scheduled. Supersedes the registry half of
+Status: **spine shipped 2026-09-07 (`b469bfd`)**; the rest is still design.
+
+The blocker this doc was scoped around is gone. §"Why v1 is scoped down" defers on the
+Role-set redesign "which hasn't started" — that shipped as RBAC v2 (`5648aed`): permission
+nodes on every operation, roles as editable bundles, users holding several. Nothing here is
+waiting on it any more.
+
+What shipped is deliberately *less* than the v1 below: an `App` is identity (`id`, `name`,
+`slug`) plus the role names it declares, with `appId` on the OIDC client pointing at it.
+No directory, no compose stack, no lifecycle. It was pulled forward out of the auth work
+(doc/idea_sign_in_methods.md), not the stack work: an app's name had started being retyped
+as free text in three unvalidated places, and the third — a proxy route group's
+`requirePermissions` — is a lockout a typo can cause. The record exists so those become
+references.
+
+Everything from §3 (directory layout) onwards is unbuilt and unchanged, and lands on this
+same record. The high-fidelity design handoff in `doc/apps feature design/` still applies.
+
+Supersedes the registry half of
 [idea_stack_registry.md](idea_stack_registry.md) (an App's directory *is* a stack root —
 see §6) and is the first real implementation of the placeholder sketched in `next.md`
 under "App system" (2026-07-02 / 2026-07-13) and the `App` type stub already in

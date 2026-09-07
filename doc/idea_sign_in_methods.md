@@ -283,6 +283,23 @@ identity authority, which the gateway doc's whole permission model depends on re
   fall back to explicit linking. This check is what makes §2's "we always assert verified"
   a true invariant rather than an assumption.
 
+## 5a. Where the sign-in surfaces live
+
+Three interstitial pages, easily conflated, that differ in what they mint:
+
+| Route | Reached from | Mints |
+| --- | --- | --- |
+| `/login` | no session anywhere | an SC session |
+| `/oidc/authorize` | a relying party's code flow | an OIDC authorization code |
+| `/gate` | Caddy's forward-auth 302 | a gate cookie, then bounces back |
+
+They share the login form and the "you arrived from somewhere, return there" shell, and
+should be one component family — but the gate page is **not** the OIDC page, and building
+the second one as if it were will produce a page that mints the wrong credential.
+
+Forward auth needs no screen of its own: its policy lives on the proxy **route group**
+(gateway doc §4), as a section of the Proxy view that already exists.
+
 ## 6. Cross-cutting
 
 ### Where this code lives (answers §7 Q6)
@@ -353,10 +370,12 @@ is the hook for any future policy that wants to treat methods differently (§7 Q
   per-IP.
 - Whether federated **auto-create** is off by default, or off entirely in v1 with explicit
   linking the only path.
-- **Per-client declared role names.** Would replace the conventional `.admin` guess for the
-  owner (§2) with a registered fact, give the Users screen a dropdown instead of free-text
-  `app.*` entry, and provide typo detection on a namespace that is otherwise unvalidated —
-  a lockout a typo can cause, as the gateway doc's §4 notes. Small, and it retires a guess.
+- ~~**Per-client declared role names.**~~ Answered structurally by the App registry
+  (`b469bfd`, [idea_app_system.md](idea_app_system.md)): roles are declared on the **App**
+  rather than per client, which is the better home — several clients can front one app, and
+  the names belong to the app either way. Stored and displayed; still to consume in the
+  Users permission editor, which remains free text, and in the owner's `.admin` guess (§2),
+  which a declared role list can now replace with a fact.
 
 ## 8. Ordering
 
