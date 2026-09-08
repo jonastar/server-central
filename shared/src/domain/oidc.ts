@@ -51,6 +51,10 @@ export interface OidcOperations {
     /** clientSecret is returned once, at creation, and never again. */
     createClient: { data: { name: string; redirectUris: string[]; appId?: string | null }; response: { client: OidcClient; clientSecret: string } };
     deleteClient: { data: { clientId: string }; response: void };
+    /** Issue a fresh secret for an existing registration, keeping its client id.
+     *  Without this, a lost secret means delete + re-register, which mints a new
+     *  id and so means reconfiguring the app rather than pasting one value. */
+    regenerateSecret: { data: { clientId: string }; response: { clientSecret: string } };
     getAuthorizeRequest: { data: OidcAuthorizeParams; response: { appName: string; redirectUri: string } };
     completeAuthorize: { data: OidcAuthorizeParams; response: { redirectUrl: string } };
 }

@@ -11,16 +11,58 @@ import { colorVars } from "../../styles/colorVars";
 // as a top-level section. Apps v1 (doc/idea_app_system.md) adds stacks, volumes
 // and controls to this same record, and graduates it to its own nav item.
 
-/** Roles are edited as a comma-separated list — short, ordered, and usually two
- *  entries. A chip editor would be more than this earns. */
-function parseRoles(text: string): string[] {
-    return text.split(",").map((r) => r.trim()).filter(Boolean);
+/** Add-and-remove list for the app's declared role names. Each entry becomes
+ *  `app.<slug>.<role>`, so the preview shows the node it will produce. */
+function RoleList({ slug, roles, onChange }: { slug: string; roles: string[]; onChange: (next: string[]) => void }) {
+    const [draft, setDraft] = useState("");
+
+    function add() {
+        const role = draft.trim().toLowerCase();
+        if (role && !roles.includes(role)) {
+            onChange([...roles, role]);
+        }
+        setDraft("");
+    }
+
+    return (
+        <div>
+            {roles.length > 0 && (
+                <ul style={{ listStyle: "none", margin: "0 0 8px", padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {roles.map((role) => (
+                        <li key={role} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span className={cx(shared.mono, shared.dim)} style={{ flex: 1 }}>app.{slug || "<id>"}.{role}</span>
+                            <button
+                                type="button"
+                                className={cx(shared.btn, shared["btn-sm"])}
+                                onClick={() => onChange(roles.filter((r) => r !== role))}
+                            >
+                                Remove
+                            </button>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+                <input
+                    className={shared.mono}
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    // Enter would otherwise submit the surrounding form.
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+                    placeholder="admin"
+                    style={{ flex: 1 }}
+                />
+                <button type="button" className={shared.btn} onClick={add} disabled={!draft.trim()}>Add role</button>
+            </div>
+        </div>
+    );
 }
 
 function AppModal({ existing, onClose, onSaved }: { existing: App | null; onClose: () => void; onSaved: () => void }) {
     const [name, setName] = useState(existing?.name ?? "");
     const [slug, setSlug] = useState(existing?.slug ?? "");
-    const [roles, setRoles] = useState((existing?.roles ?? []).join(", "));
+    const [roles, setRoles] = useState<string[]>(existing?.roles ?? []);
+    const [requireRole, setRequireRole] = useState(existing?.requireRole ?? false);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     // Only while creating: once an App has a slug, other records reference it.
@@ -39,9 +81,9 @@ function AppModal({ existing, onClose, onSaved }: { existing: App | null; onClos
         setBusy(true);
         try {
             if (existing) {
-                await api("apps", "update", { app: { ...existing, name, slug, roles: parseRoles(roles) } });
+                await api("apps", "update", { app: { ...existing, name, slug, roles, requireRole } });
             } else {
-                await api("apps", "create", { name, slug, roles: parseRoles(roles) });
+                await api("apps", "create", { name, slug, roles, requireRole });
             }
             onSaved();
             onClose();
@@ -74,12 +116,29 @@ function AppModal({ existing, onClose, onSaved }: { existing: App | null; onClos
                     </span>
                 </label>
                 <label className={shared["login-field"]}>
-                    <span>Roles (comma separated)</span>
-                    <input className={shared.mono} value={roles} onChange={(e) => setRoles(e.target.value)} placeholder="user, admin" />
+                    <span>Roles</span>
+                    <RoleList slug={slug} roles={roles} onChange={setRoles} />
                     <span className={shared.dim} style={{ fontSize: 12 }}>
                         The role names this app itself understands — Server Central never interprets them, it
                         only passes them on. Declaring them here is what lets other screens offer a list instead
                         of a free-text box you can typo.
+                    </span>
+                </label>
+                <label className={shared["login-field"]}>
+                    <span>Access</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input
+                            type="checkbox"
+                            checked={requireRole}
+                            onChange={(e) => setRequireRole(e.target.checked)}
+                            style={{ width: "auto", margin: 0 }}
+                        />
+                        <span>Require at least one role to sign in</span>
+                    </span>
+                    <span className={shared.dim} style={{ fontSize: 12 }}>
+                        {requireRole
+                            ? <>An account holding no <code>app.{slug || "<id>"}.*</code> role is refused at sign-in, rather than being handed to the app with an empty role list for it to interpret — usually as "create a new account".</>
+                            : <>Any account that can sign in to Server Central can sign in to this app, and the app decides what someone with no roles may do. Leave this off for apps where everyone should get a basic account.</>}
                     </span>
                 </label>
                 <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
@@ -148,6 +207,7 @@ export function AppsTab() {
                                 <th>Name</th>
                                 <th>Permissions</th>
                                 <th>Roles</th>
+                                <th>Access</th>
                                 <th>Created</th>
                                 <th />
                             </tr>
@@ -163,6 +223,11 @@ export function AppsTab() {
                                             : a.roles.map((r) => (
                                                 <span key={r} className={shared.badge} style={{ marginRight: 4 }}>{r}</span>
                                             ))}
+                                    </td>
+                                    <td className={shared.dim}>
+                                        {a.requireRole
+                                            ? <span className={shared.badge}>role required</span>
+                                            : <span className={shared.dim}>any account</span>}
                                     </td>
                                     <td className={shared.dim}>{new Date(a.createdAt).toLocaleString()}</td>
                                     <td className={shared["row-actions-always"]}>

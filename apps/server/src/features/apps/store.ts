@@ -30,11 +30,16 @@ export class AppStore {
     }
 
     list(): App[] {
-        return Object.values(this.apps).sort((a, b) => a.name.localeCompare(b.name));
+        return Object.values(this.apps)
+            .map((rec) => ({ ...rec, requireRole: rec.requireRole === true }))
+            .sort((a, b) => a.name.localeCompare(b.name));
     }
 
     get(appId: string): App | null {
-        return this.apps[appId] ?? null;
+        const rec = this.apps[appId];
+        // Records written before `requireRole` existed read as false, which is
+        // the permissive default they were already behaving as.
+        return rec ? { ...rec, requireRole: rec.requireRole === true } : null;
     }
 
     /** The `app.<slug>.` namespace an App owns, or null for an unknown id. Used
@@ -43,12 +48,13 @@ export class AppStore {
         return appId ? this.apps[appId]?.slug ?? null : null;
     }
 
-    async create(name: string, slug: string, roles: string[] = []): Promise<App> {
+    async create(name: string, slug: string, roles: string[] = [], requireRole = false): Promise<App> {
         const app: App = {
             id: randomUUID(),
             name: assertName(name),
             slug: assertSlug(slug),
             roles: assertRoles(roles),
+            requireRole,
             createdAt: Date.now(),
         };
         this.assertSlugFree(app.slug, null);
@@ -65,7 +71,13 @@ export class AppStore {
         const slug = assertSlug(next.slug);
         this.assertSlugFree(slug, next.id);
         // createdAt is the record's own, never the caller's.
-        this.apps[next.id] = { ...existing, name: assertName(next.name), slug, roles: assertRoles(next.roles) };
+        this.apps[next.id] = {
+            ...existing,
+            name: assertName(next.name),
+            slug,
+            roles: assertRoles(next.roles),
+            requireRole: next.requireRole === true,
+        };
         await this.persist();
     }
 

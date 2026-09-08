@@ -6,7 +6,7 @@ import { defineFeature } from "../../feature";
 import type { AppStore } from "../apps/store";
 import type { OidcStore } from "./store";
 import { discoveryDocument } from "./discovery";
-import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, jwks, scopedClaims, verifyJwt, verifyPkce } from "./tokens";
+import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, groupsForClient, jwks, scopedClaims, verifyJwt, verifyPkce } from "./tokens";
 
 // An OIDC client is a relying-party registration (id/secret + redirect URIs) for
 // Central's built-in OIDC provider — unrelated to the App entity (compose stacks
@@ -41,6 +41,10 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
             await oidc.deleteClient(data.clientId);
         },
 
+        async regenerateSecret(data) {
+            return { clientSecret: await oidc.regenerateSecret(data.clientId) };
+        },
+
         // ---- Front-channel (authenticated user) --------------------------------
         //
         // Driven by the SPA's /oidc/authorize route: it resolves the request to
@@ -58,17 +62,31 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
             if (!ctx?.user) {
                 throw new Error("Not authenticated");
             }
-            const app = oidc.validateRequest(data);
+            const client = oidc.validateRequest(data);
             // An RP that asks for `email` almost certainly keys its accounts on
             // it (Immich does). Silently dropping the claim lets it create a
             // broken account that then has to be reconciled by hand, so fail
             // here instead — while the user is still looking at a screen.
             if (data.scope.split(/\s+/).includes("email") && !ctx.user.email) {
-                throw new Error(`${app.name} requires an email address, and your account has none. Ask an administrator to set one.`);
+                throw new Error(`${client.name} requires an email address, and your account has none. Ask an administrator to set one.`);
+            }
+            // Access gate, when the linked App asks for one. Without it an
+            // `app.*` grant only *describes* access — anyone who can sign into
+            // the control plane could complete this flow and let the app decide
+            // what an unknown user means, which is usually "create an account".
+            const linked = client.appId ? apps.get(client.appId) : null;
+            if (linked?.requireRole) {
+                // The same predicate that decides the `groups` claim, so the
+                // owner passes on its expanded roles rather than on a special
+                // case, and a user passes exactly when the app would have been
+                // told about at least one of their roles.
+                if (groupsForClient(ctx.user, linked.slug, auth.knownAppPermissions()).length === 0) {
+                    throw new Error(`Your account has no access to ${linked.name}. Ask an administrator to grant you a role.`);
+                }
             }
             const code = oidc.issueCode({
                 userId: ctx.user.id,
-                clientId: app.id,
+                clientId: client.id,
                 redirectUri: data.redirectUri,
                 scope: data.scope,
                 codeChallenge: data.codeChallenge,

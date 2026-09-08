@@ -136,6 +136,19 @@ export class OidcStore {
         return { client: toPublic(rec), clientSecret };
     }
 
+    /** Replace a client's secret and return the new one. Shown once, like the
+     *  original; every token exchange using the old secret fails immediately. */
+    async regenerateSecret(clientId: string): Promise<string> {
+        const rec = this.apps[clientId];
+        if (!rec) {
+            throw new Error("Unknown client");
+        }
+        const clientSecret = randomBytes(32).toString("base64url");
+        rec.secretHash = await Bun.password.hash(clientSecret);
+        await this.persistApps();
+        return clientSecret;
+    }
+
     async deleteClient(clientId: string): Promise<void> {
         if (this.apps[clientId]) {
             delete this.apps[clientId];

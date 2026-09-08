@@ -36,6 +36,20 @@ export interface App {
      * dropdown and typo detection need. Empty is fine and means "not declared".
      */
     roles: string[];
+    /**
+     * Refuse to sign a user in unless they hold at least one `app.<slug>.*` node.
+     *
+     * Off by default, and off is not merely the safe migration: plenty of apps
+     * want "anyone who can sign in gets a basic account", and forcing an explicit
+     * grant per user would be wrong for them.
+     *
+     * Deliberately on the **App**, not the OIDC client. It answers "does this
+     * person have access to this app", which is the same question a proxy route
+     * group's `requirePermissions` asks (see idea_proxy_auth_gateway.md §4).
+     * Putting it on the client would give that question two answers in two
+     * places, which is the sprawl the App record exists to prevent.
+     */
+    requireRole: boolean;
     createdAt: number;
 }
 
@@ -54,7 +68,7 @@ export function appRoleNode(app: Pick<App, "slug">, role: string): string {
  */
 export interface AppOperations {
     list: { data: void; response: App[] };
-    create: { data: { name: string; slug: string; roles?: string[] }; response: App };
+    create: { data: { name: string; slug: string; roles?: string[]; requireRole?: boolean }; response: App };
     update: { data: { app: App }; response: void };
     delete: { data: { appId: string }; response: void };
 }

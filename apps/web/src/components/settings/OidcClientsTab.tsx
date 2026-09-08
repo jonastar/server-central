@@ -6,6 +6,42 @@ import { cx, copyToClipboard } from "../../utils";
 import shared from "../../styles/shared.module.css";
 import { colorVars } from "../../styles/colorVars";
 
+/** The secret exists in memory only while this is open — the server keeps a hash,
+ *  exactly like a user password, so there is no second chance to read it. */
+function SecretModal({ title, clientId, clientSecret, onClose }: { title: string; clientId: string; clientSecret: string; onClose: () => void }) {
+    const [copied, setCopied] = useState(false);
+
+    async function handleCopy() {
+        await copyToClipboard(clientSecret);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }
+
+    return (
+        <Modal title={title} onClose={onClose} width={480}>
+            <p style={{ marginTop: 0, color: colorVars.muted }}>
+                This is the only time the client secret is shown — copy it into the client's config now.
+            </p>
+            <label className={shared["login-field"]}>
+                <span>Client ID</span>
+                <input readOnly value={clientId} />
+            </label>
+            <label className={shared["login-field"]}>
+                <span>Client secret</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                    <input readOnly value={clientSecret} style={{ flex: 1 }} />
+                    <button type="button" className={cx(shared.btn, copied && shared["btn-primary"])} onClick={handleCopy}>
+                        {copied ? "Copied!" : "Copy"}
+                    </button>
+                </div>
+            </label>
+            <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                <button className={cx(shared.btn, shared["btn-primary"])} onClick={onClose}>Done</button>
+            </div>
+        </Modal>
+    );
+}
+
 function AddClientModal({ apps, onClose, onCreated }: { apps: App[]; onClose: () => void; onCreated: (client: OidcClient) => void }) {
     const [name, setName] = useState("");
     const [redirectUris, setRedirectUris] = useState("");
@@ -13,7 +49,6 @@ function AddClientModal({ apps, onClose, onCreated }: { apps: App[]; onClose: ()
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [created, setCreated] = useState<{ client: OidcClient; clientSecret: string } | null>(null);
-    const [copied, setCopied] = useState(false);
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -31,41 +66,8 @@ function AddClientModal({ apps, onClose, onCreated }: { apps: App[]; onClose: ()
         }
     }
 
-    async function handleCopy() {
-        if (!created) {
-            return;
-        }
-        await copyToClipboard(created.clientSecret);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    }
-
-    // The secret only exists in memory here — once this modal closes it's gone
-    // for good (only the hash is persisted server-side).
     if (created) {
-        return (
-            <Modal title="Client created" onClose={onClose} width={480}>
-                <p style={{ marginTop: 0, color: colorVars.muted }}>
-                    This is the only time the client secret is shown — copy it into the client's config now.
-                </p>
-                <label className={shared["login-field"]}>
-                    <span>Client ID</span>
-                    <input readOnly value={created.client.id} />
-                </label>
-                <label className={shared["login-field"]}>
-                    <span>Client secret</span>
-                    <div style={{ display: "flex", gap: 8 }}>
-                        <input readOnly value={created.clientSecret} style={{ flex: 1 }} />
-                        <button type="button" className={cx(shared.btn, copied && shared["btn-primary"])} onClick={handleCopy}>
-                            {copied ? "Copied!" : "Copy"}
-                        </button>
-                    </div>
-                </label>
-                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
-                    <button className={cx(shared.btn, shared["btn-primary"])} onClick={onClose}>Done</button>
-                </div>
-            </Modal>
-        );
+        return <SecretModal title="Client created" clientId={created.client.id} clientSecret={created.clientSecret} onClose={onClose} />;
     }
 
     return (
@@ -127,6 +129,7 @@ export function OidcClientsTab() {
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
+    const [rotated, setRotated] = useState<{ clientId: string; clientSecret: string } | null>(null);
 
     function refresh() {
         api("oidc", "listClients", undefined).then(setClients).catch((err) => setError(err instanceof Error ? err.message : String(err)));
@@ -136,6 +139,22 @@ export function OidcClientsTab() {
     // Registered apps drive the link dropdown; an empty list just means every
     // client stays unscoped, so a failure here is not worth an error banner.
     useEffect(() => { api("apps", "list", undefined).then(setApps).catch(() => setApps([])); }, []);
+
+    async function handleRegenerate(client: OidcClient) {
+        if (!confirm(`Issue a new secret for "${client.name}"? The current one stops working immediately, and the app cannot sign anyone in until its config is updated.`)) {
+            return;
+        }
+        setBusyId(client.id);
+        setError(null);
+        try {
+            const { clientSecret } = await api("oidc", "regenerateSecret", { clientId: client.id });
+            setRotated({ clientId: client.id, clientSecret });
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusyId(null);
+        }
+    }
 
     async function handleDelete(client: OidcClient) {
         if (!confirm(`Delete client "${client.name}"? Anything using it will stop being able to sign in.`)) {
@@ -189,6 +208,9 @@ export function OidcClientsTab() {
                                     </td>
                                     <td className={shared.dim}>{new Date(c.createdAt).toLocaleString()}</td>
                                     <td className={shared["row-actions-always"]}>
+                                        <button className={shared.btn} disabled={busyId === c.id} onClick={() => void handleRegenerate(c)}>
+                                            New secret
+                                        </button>
                                         <button className={shared.btn} disabled={busyId === c.id} onClick={() => void handleDelete(c)}>
                                             Delete
                                         </button>
@@ -198,6 +220,15 @@ export function OidcClientsTab() {
                         </tbody>
                     </table>
                 </section>
+            )}
+
+            {rotated && (
+                <SecretModal
+                    title="New client secret"
+                    clientId={rotated.clientId}
+                    clientSecret={rotated.clientSecret}
+                    onClose={() => setRotated(null)}
+                />
             )}
 
             {adding && (

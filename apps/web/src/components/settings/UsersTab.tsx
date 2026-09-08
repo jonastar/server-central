@@ -616,7 +616,7 @@ export function UsersTab() {
                                         >
                                             <td className={shared["col-expander"]}><span className={cx(shared["row-expander"], expanded && shared.open)}>▸</span></td>
                                             <td className={shared["file-name"]}>{u.username}</td>
-                                            <td onClick={(e) => e.stopPropagation()}>
+                                            <td>
                                                 {u.isOwner ? (
                                                     <span className={shared.badge}>owner</span>
                                                 ) : u.roleIds.length === 0 ? (

@@ -62,6 +62,28 @@ describe("AppStore", () => {
         expect(apps.get(app.id)?.createdAt).toBe(app.createdAt);
     });
 
+    test("requireRole defaults off, round-trips, and reads false on older records", async () => {
+        const app = await apps.create("Immich", "immich");
+        // Off is the migration-safe default *and* the right one: plenty of apps
+        // want anyone who can sign in to get a basic account.
+        expect(app.requireRole).toBe(false);
+
+        await apps.update({ ...app, requireRole: true });
+        expect(apps.get(app.id)?.requireRole).toBe(true);
+        expect(apps.list()[0]?.requireRole).toBe(true);
+
+        // A record written before the field existed must read as false rather
+        // than undefined, or the checkbox renders uncontrolled.
+        await fs.writeFile(
+            path.join(dir, "apps-registry.json"),
+            JSON.stringify({ legacy: { id: "legacy", slug: "old", name: "Old", roles: [], createdAt: 0 } }),
+        );
+        const reopened = new AppStore(dir);
+        await reopened.init();
+        expect(reopened.get("legacy")?.requireRole).toBe(false);
+        expect(reopened.list()[0]?.requireRole).toBe(false);
+    });
+
     test("refuses to delete an app an SSO client still points at", async () => {
         const app = await apps.create("Immich", "immich");
         // Deleting would leave a dangling appId, which resolves to "no prefix" —
@@ -90,6 +112,18 @@ describe("effectiveGroupPrefix", () => {
 
     afterEach(async () => {
         await fs.rm(dir, { recursive: true, force: true });
+    });
+
+    test("regenerating a secret invalidates the old one and keeps the client id", async () => {
+        const { client, clientSecret } = await oidc.createClient("Immich", ["https://p.example.com/cb"]);
+        const next = await oidc.regenerateSecret(client.id);
+
+        expect(next).not.toBe(clientSecret);
+        // Keeping the id is the whole point: delete + re-register would mint a
+        // new one, so the app needs reconfiguring rather than a pasted value.
+        expect(await oidc.verifyClientSecret(client.id, next)).toMatchObject({ id: client.id });
+        expect(await oidc.verifyClientSecret(client.id, clientSecret)).toBeNull();
+        await expect(oidc.regenerateSecret("no-such-client")).rejects.toThrow(/unknown client/i);
     });
 
     test("resolves through the linked app, falls back, and defaults to unscoped", async () => {

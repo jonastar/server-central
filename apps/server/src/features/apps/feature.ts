@@ -23,7 +23,7 @@ export const createAppsFeature = (apps: AppStore, oidc: OidcStore) => defineFeat
         },
 
         async create(data) {
-            return apps.create(data.name, data.slug, data.roles ?? []);
+            return apps.create(data.name, data.slug, data.roles ?? [], data.requireRole === true);
         },
 
         async update(data) {
