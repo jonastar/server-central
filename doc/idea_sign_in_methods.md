@@ -1,7 +1,8 @@
 # Sign-in methods and the identity provider
 
-Status: in progress. Phases 0-2 shipped (`a2401da`, `64f9e86`, `f71f047`, `9ba4e2e`, `9cc968c`);
-phases 3-4 are still plan. §0 and §7 are settled; four items remain open at the end of §7.
+Status: in progress. Phases 0-3 shipped (`a2401da`, `64f9e86`, `f71f047`, `9ba4e2e`, `9cc968c`,
+`2fc1168`); phase 4 is still plan. §0 and §7 are settled; one item remains open at the end
+of §7 — whether federated auto-create exists at all in v1.
 
 Scope: the **left column** — how a human or device proves who they are, and what the
 built-in OIDC provider hands out afterwards. The **right column** (gate cookie, forward-auth
@@ -177,7 +178,7 @@ browser (silent, once §5 auto-continue exists), fatal for a TV.
   own revoke. Decide explicitly what the existing actions do to it: `adminSetPassword` should
   revoke app grants too (it is a compromise-response action), ordinary `logout` should not.
 
-## 4. Phase 3 — device grant / quick connect
+## 4. Phase 3 — device grant / quick connect — **shipped `2fc1168`**
 
 For TVs and anything else with a screen and no usable keyboard.
 
@@ -211,6 +212,28 @@ being avoided.
   ops (`getDeviceRequest`, `approveDevice`, `denyDevice`) in `SESSION_OPS` alongside the
   existing authorize ops.
 - Discovery gains `device_authorization_endpoint` and the grant type.
+
+**What landed.** All of the above, plus one thing the shape above did not say out loud: the
+access gate runs on **approval**, not only in the browser code flow. `completeAuthorize` had
+the `email`-scope check and the App's `requireRole` check written inline; the device grant
+would have been the way around both — same account, same app, no check — so they moved to a
+shared `assertMayAccess` that both front channels call. That is what "one credential type,
+two ways to mint" has to mean if it means anything.
+
+Two deliberate departures from the sketch:
+
+- **No geolocation on the approval screen.** It shows the requesting address and user-agent,
+  which is the evidence that exists; turning an address into a city needs a GeoIP database
+  this server does not ship and cannot fetch on an offline install. The address alone is
+  still the tell in the read-me-a-code-over-the-phone case, which is what the line was for.
+- **The device endpoint requires a client secret**, per RFC 8628 §3.1's "same as the token
+  endpoint". This provider has no public clients at all, so the alternative was inventing
+  them for this one grant. A device app ships a secret exactly as it would to use any other
+  grant here.
+
+`HttpRoute.handle` gained a third argument carrying the resolved client IP, since a raw route
+previously had no way to ask who was calling and the per-address cap needs one. It resolves
+through the same trusted-proxy logic a login does.
 
 **This half-solves the gateway doc's §7.** A long-lived, revocable, per-device grant is the
 same record whether it was minted by a device flow (a TV, which speaks the protocol) or by a
@@ -367,8 +390,17 @@ is the hook for any future policy that wants to treat methods differently (§7 Q
 - ~~Refresh token **lifetime**~~ — 60 days, sliding (each rotation restarts it), independent
   of `SESSION_TTL_MS`. Spent links are remembered for 7 days so a prompt replay still takes
   the chain down; a replay after that is refused but no longer revokes the family.
-- The **cap** on concurrent pending device authorizations (§4) — a real number, global and
-  per-IP.
+- ~~The **cap** on concurrent pending device authorizations (§4)~~ — **64 globally, 8 per
+  source address**, with a 5-minute TTL. At family scale the live set is single digits, so 64
+  is pure headroom against a flood while keeping rejection sampling free; 8 per address means
+  one source needs eight addresses to fill the global budget, and a household legitimately
+  pairing more than eight devices inside five minutes is not a case. Over the cap answers
+  `429` with `slow_down` — not one of §3.2's codes, because it has none for this, but it is
+  the RFC's own word for "you are asking too often". The **rejection sampling** is stricter
+  than "minimum edit distance 2": codes are fixed-length, so the two typos that can reach
+  another *valid* code are a wrong key and an adjacent swap, and generation rejects both
+  against every live code. A dropped or doubled character changes the length and is caught by
+  the format check instead.
 - Whether federated **auto-create** is off by default, or off entirely in v1 with explicit
   linking the only path.
 - ~~**Per-client declared role names.**~~ Answered structurally by the App registry
@@ -389,8 +421,8 @@ is useful before any of the gateway exists.
    skill and the e2e lab exist for.
 2. ~~Refresh tokens (§3)~~ — done, `9cc968c`. Also retired the owner's guessed
    `.admin` leaf: where an App declares its roles the owner gets those instead.
-3. Device grant + `/device` page (§4) — **next**. Refresh tokens were its hard
-   prerequisite, so nothing blocks it now.
-4. Federated login, generic OIDC + Google (§5)
+3. ~~Device grant + `/device` page (§4)~~ — done, `2fc1168`. Also moved the authorize
+   guards into a shared `assertMayAccess`, so the new front channel cannot skip them.
+4. Federated login, generic OIDC + Google (§5) — **next**.
 
 Then the gateway doc's §2–§4 (gate session, verifier, route groups) picks up, unchanged.
