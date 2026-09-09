@@ -1,7 +1,7 @@
 # Sign-in methods and the identity provider
 
-Status: in progress. Phases 0 and 1 shipped 2026-09-07 (`a2401da`, `64f9e86`, `f71f047`);
-phases 2-4 are still plan. §0 and §7 are settled; four items remain open at the end of §7.
+Status: in progress. Phases 0-2 shipped (`a2401da`, `64f9e86`, `f71f047`, `9ba4e2e`, `9cc968c`);
+phases 3-4 are still plan. §0 and §7 are settled; four items remain open at the end of §7.
 
 Scope: the **left column** — how a human or device proves who they are, and what the
 built-in OIDC provider hands out afterwards. The **right column** (gate cookie, forward-auth
@@ -143,7 +143,7 @@ token layer well and stops at the HTTP boundary. Extend it for scope filtering a
 check, and add the first real-RP-against-a-real-server case using the `verify` skill and the
 e2e lab.
 
-## 3. Phase 2 — refresh tokens
+## 3. Phase 2 — refresh tokens — **shipped `9cc968c`**
 
 A 1h access token with no refresh means the RP re-runs the whole flow hourly. Tolerable for a
 browser (silent, once §5 auto-continue exists), fatal for a TV.
@@ -364,18 +364,18 @@ is the hook for any future policy that wants to treat methods differently (§7 Q
 
 ### Still open
 
-- Refresh token **lifetime**, now that it is decoupled from `SESSION_TTL_MS`. Absolute or
-  sliding, and what number.
+- ~~Refresh token **lifetime**~~ — 60 days, sliding (each rotation restarts it), independent
+  of `SESSION_TTL_MS`. Spent links are remembered for 7 days so a prompt replay still takes
+  the chain down; a replay after that is refused but no longer revokes the family.
 - The **cap** on concurrent pending device authorizations (§4) — a real number, global and
   per-IP.
 - Whether federated **auto-create** is off by default, or off entirely in v1 with explicit
   linking the only path.
 - ~~**Per-client declared role names.**~~ Answered structurally by the App registry
   (`b469bfd`, [idea_app_system.md](idea_app_system.md)): roles are declared on the **App**
-  rather than per client, which is the better home — several clients can front one app, and
-  the names belong to the app either way. Stored and displayed; still to consume in the
-  Users permission editor, which remains free text, and in the owner's `.admin` guess (§2),
-  which a declared role list can now replace with a fact.
+  rather than per client — several clients can front one app, and the names belong to the
+  app either way. Both consumers landed in `9cc968c`: the Users permission editor renders
+  them as checkboxes, and the owner's `*` expands to them instead of the guessed `.admin`.
 
 ## 8. Ordering
 
@@ -387,8 +387,10 @@ is useful before any of the gateway exists.
    done, `64f9e86` (server) and `f71f047` (UI). Immich-via-SC-SSO is unblocked; what remains
    before calling it proven is a real relying party against a real server, which the `verify`
    skill and the e2e lab exist for.
-2. Refresh tokens (§3) — **next**
-3. Device grant + `/device` page (§4)
+2. ~~Refresh tokens (§3)~~ — done, `9cc968c`. Also retired the owner's guessed
+   `.admin` leaf: where an App declares its roles the owner gets those instead.
+3. Device grant + `/device` page (§4) — **next**. Refresh tokens were its hard
+   prerequisite, so nothing blocks it now.
 4. Federated login, generic OIDC + Google (§5)
 
 Then the gateway doc's §2–§4 (gate session, verifier, route groups) picks up, unchanged.
