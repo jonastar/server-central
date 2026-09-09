@@ -21,8 +21,15 @@ export interface HttpRoute {
     path: string;
     method?: string;
     /** `cors` is the already-resolved `Access-Control-*` header set for this
-     *  request — the same one the RPC layer answers with. */
-    handle(req: Request, cors: Record<string, string>): Promise<Response>;
+     *  request — the same one the RPC layer answers with. `ctx` carries what
+     *  only the server wiring can resolve: the address to attribute the request
+     *  to, worked out per peer from the trusted-proxy config, exactly as the RPC
+     *  layer resolves it for a login. */
+    handle(req: Request, cors: Record<string, string>, ctx: HttpRouteCtx): Promise<Response>;
+}
+
+export interface HttpRouteCtx {
+    clientIp: string | null;
 }
 
 export interface FeatureBootCtx {

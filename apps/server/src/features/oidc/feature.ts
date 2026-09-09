@@ -7,13 +7,15 @@ import type { AppStore } from "../apps/store";
 import type { RefreshTokenStore } from "./refresh";
 import type { OidcStore } from "./store";
 import { discoveryDocument } from "./discovery";
+import type { DeviceCodeStore } from "./device";
+import { DEVICE_CODE_GRANT, DeviceCapError, POLL_INTERVAL_S, formatUserCode } from "./device";
 import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, groupsForClient, jwks, scopedClaims, verifyJwt, verifyPkce } from "./tokens";
 
 // An OIDC client is a relying-party registration (id/secret + redirect URIs) for
 // Central's built-in OIDC provider — unrelated to the App entity (compose stacks
 // on a host) the apps feature owns.
 
-export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppStore, refresh: RefreshTokenStore) => defineFeature({
+export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppStore, refresh: RefreshTokenStore, devices: DeviceCodeStore) => defineFeature({
     id: "oidc",
     name: "OIDC provider",
     description: "Central's built-in OpenID Connect provider and its client registrations.",
@@ -86,27 +88,7 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
                 throw new Error("Not authenticated");
             }
             const client = oidc.validateRequest(data);
-            // An RP that asks for `email` almost certainly keys its accounts on
-            // it (Immich does). Silently dropping the claim lets it create a
-            // broken account that then has to be reconciled by hand, so fail
-            // here instead — while the user is still looking at a screen.
-            if (data.scope.split(/\s+/).includes("email") && !ctx.user.email) {
-                throw new Error(`${client.name} requires an email address, and your account has none. Ask an administrator to set one.`);
-            }
-            // Access gate, when the linked App asks for one. Without it an
-            // `app.*` grant only *describes* access — anyone who can sign into
-            // the control plane could complete this flow and let the app decide
-            // what an unknown user means, which is usually "create an account".
-            const linked = client.appId ? apps.get(client.appId) : null;
-            if (linked?.requireRole) {
-                // The same predicate that decides the `groups` claim, so the
-                // owner passes on its expanded roles rather than on a special
-                // case, and a user passes exactly when the app would have been
-                // told about at least one of their roles.
-                if (groupsForClient(ctx.user, linked.slug, auth.knownAppPermissions(), linked.roles).length === 0) {
-                    throw new Error(`Your account has no access to ${linked.name}. Ask an administrator to grant you a role.`);
-                }
-            }
+            assertMayAccess(ctx.user, client, data.scope, apps, auth);
             const code = oidc.issueCode({
                 userId: ctx.user.id,
                 clientId: client.id,
@@ -120,8 +102,66 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
             url.searchParams.set("state", data.state);
             return { redirectUrl: url.toString() };
         },
+
+        // ---- Device grant, browser half (RFC 8628 §3.3) ------------------------
+        //
+        // The device polls `/oidc/token` for an answer; these three are what
+        // produces one. Reached from the SPA's `/device` route, where a human
+        // types the code their television is displaying.
+
+        async getDeviceRequest(data) {
+            const rec = devices.findPending(data.userCode);
+            if (!rec) {
+                // Expired, already answered, and never existed are one answer on
+                // purpose. Distinguishing them would tell an unauthenticated-
+                // enough caller which codes are live, and none of the three
+                // changes what the person in front of the screen should do.
+                return null;
+            }
+            return {
+                // What matched, not what was typed — the screen can then show
+                // the canonical form and a dash-less entry is visibly accepted.
+                userCode: formatUserCode(rec.userCode),
+                appName: oidc.getClient(rec.clientId)?.name ?? "(deleted client)",
+                scope: rec.scope,
+                ip: rec.ip,
+                userAgent: rec.userAgent,
+                requestedAt: rec.createdAt,
+                expiresAt: rec.expiresAt,
+            };
+        },
+
+        async approveDevice(data, ctx?: AuthContext) {
+            if (!ctx?.user) {
+                throw new Error("Not authenticated");
+            }
+            const rec = devices.findPending(data.userCode);
+            if (!rec) {
+                throw new Error("That code is no longer valid. Check the code on your device, or start again there.");
+            }
+            const client = oidc.getClient(rec.clientId);
+            if (!client) {
+                throw new Error("The app that requested this code is no longer registered.");
+            }
+            // The same gate the browser flow runs. Without it the device grant
+            // would be the way around an App's `requireRole`: same account, same
+            // app, no check — which is what "one credential type, two ways to
+            // mint" has to mean if it is to mean anything.
+            assertMayAccess(ctx.user, client, rec.scope, apps, auth);
+            devices.resolve(data.userCode, "approved", ctx.user.id);
+        },
+
+        async denyDevice(data, ctx?: AuthContext) {
+            if (!ctx?.user) {
+                throw new Error("Not authenticated");
+            }
+            // No error when nothing matches: "that code is gone" and "I have now
+            // refused it" are the same outcome to a person who came here to say
+            // no, and the device is left to time out either way.
+            devices.resolve(data.userCode, "denied", ctx.user.id);
+        },
     },
-    httpRoutes: () => oidcHttpRoutes(oidc, auth, apps, refresh),
+    httpRoutes: () => oidcHttpRoutes(oidc, auth, apps, refresh, devices),
 });
 
 // ---- Raw HTTP endpoints ---------------------------------------------------------
@@ -132,6 +172,41 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
 // own credential (client_secret_post or HTTP Basic) rather than a session bearer
 // token. `GET /oidc/authorize` needs no entry — it's a plain browser navigation
 // that falls through to the SPA shell, and the React app recognizes the path.
+
+/**
+ * The two conditions that must hold before a user is granted anything for a
+ * client, in either front channel.
+ *
+ * Both were written inline in `completeAuthorize` when the browser code flow was
+ * the only way to reach them. The device grant is the second way, and leaving
+ * them inline would have made it the way around them — so they moved here,
+ * where there is one copy for both callers to run.
+ *
+ * Throws a message written for the person reading it on a screen.
+ */
+export function assertMayAccess(user: UserInfo, client: OidcClient, scope: string, apps: AppStore, auth: AuthStore): void {
+    // An RP that asks for `email` almost certainly keys its accounts on it
+    // (Immich does). Silently dropping the claim lets it create a broken account
+    // that then has to be reconciled by hand, so fail here instead — while the
+    // user is still looking at a screen.
+    if (scope.split(/\s+/).includes("email") && !user.email) {
+        throw new Error(`${client.name} requires an email address, and your account has none. Ask an administrator to set one.`);
+    }
+    // Access gate, when the linked App asks for one. Without it an `app.*` grant
+    // only *describes* access — anyone who can sign into the control plane could
+    // complete this flow and let the app decide what an unknown user means,
+    // which is usually "create an account".
+    const linked = client.appId ? apps.get(client.appId) : null;
+    if (linked?.requireRole) {
+        // The same predicate that decides the `groups` claim, so the owner
+        // passes on its expanded roles rather than on a special case, and a user
+        // passes exactly when the app would have been told about at least one of
+        // their roles.
+        if (groupsForClient(user, linked.slug, auth.knownAppPermissions(), linked.roles).length === 0) {
+            throw new Error(`Your account has no access to ${linked.name}. Ask an administrator to grant you a role.`);
+        }
+    }
+}
 
 function clientCredentials(req: Request, body: URLSearchParams): { clientId: string; clientSecret: string } | null {
     const basic = req.headers.get("Authorization");
@@ -173,7 +248,7 @@ export function declaredRolesFor(client: OidcClient, apps: AppStore): string[] {
     return (client.appId ? apps.get(client.appId)?.roles : null) ?? [];
 }
 
-export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore, refresh: RefreshTokenStore): HttpRoute[] {
+export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore, refresh: RefreshTokenStore, devices: DeviceCodeStore): HttpRoute[] {
     async function discovery(_req: Request, cors: Record<string, string>, which: "config" | "jwks"): Promise<Response> {
         const config = await readConfig();
         if (!config.primaryUrl) {
@@ -244,6 +319,61 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore,
         }, { headers: cors });
     }
 
+    /**
+     * `grant_type=urn:ietf:params:oauth:grant-type:device_code` — the device
+     * collecting the answer to what a human approved in a browser.
+     *
+     * Unlike the refresh grant this *does* mint an ID token: the approval was a
+     * fresh authentication by a present human, so `auth_time` has something true
+     * to say. There is no `nonce` — the device never ran a browser redirect, so
+     * there was no round trip to bind one to.
+     */
+    async function deviceGrant(body: URLSearchParams, req: Request, cors: Record<string, string>): Promise<Response> {
+        const deviceCode = body.get("device_code");
+        const creds = clientCredentials(req, body);
+        if (!deviceCode || !creds) {
+            return Response.json({ error: "invalid_request" }, { status: 400, headers: cors });
+        }
+        const client = await oidc.verifyClientSecret(creds.clientId, creds.clientSecret);
+        if (!client) {
+            return Response.json({ error: "invalid_client" }, { status: 401, headers: cors });
+        }
+        const result = devices.poll(deviceCode, client.id);
+        if ("error" in result) {
+            // Every one of these is a 400 with an OAuth error code, including
+            // the two that are not failures — `authorization_pending` and
+            // `slow_down` are how RFC 8628 §3.5 says "keep waiting".
+            return Response.json({ error: result.error }, { status: 400, headers: cors });
+        }
+        const user = auth.getUserById(result.record.userId);
+        if (!user) {
+            return Response.json({ error: "invalid_grant", error_description: "User no longer exists" }, { status: 400, headers: cors });
+        }
+        const config = await readConfig();
+        if (!config.primaryUrl) {
+            return Response.json({ error: "server_error", error_description: "Primary URL is not configured" }, { status: 500, headers: cors });
+        }
+        const scope = result.record.scope;
+        return Response.json({
+            ...tokenResponse(user, client, scope, config.primaryUrl),
+            id_token: buildIdToken(user, {
+                issuer: config.primaryUrl,
+                clientId: client.id,
+                nonce: null,
+                authTime: Math.floor(result.record.approvedAt / 1000),
+                scope,
+                groupPrefix: effectiveGroupPrefix(client, apps),
+                knownAppNodes: auth.knownAppPermissions(),
+                declaredRoles: declaredRolesFor(client, apps),
+            }, oidc.key),
+            // The whole point of pairing a television: it must not have to come
+            // back through a flow that needs a keyboard.
+            ...(hasOfflineAccess(scope)
+                ? { refresh_token: await refresh.issue({ userId: user.id, clientId: client.id, scope }) }
+                : {}),
+        }, { headers: cors });
+    }
+
     return [
         {
             path: "/.well-known/openid-configuration",
@@ -261,6 +391,9 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore,
                 const grantType = body.get("grant_type");
                 if (grantType === "refresh_token") {
                     return refreshGrant(body, req, cors);
+                }
+                if (grantType === DEVICE_CODE_GRANT) {
+                    return deviceGrant(body, req, cors);
                 }
                 if (grantType !== "authorization_code") {
                     return Response.json({ error: "unsupported_grant_type" }, { status: 400, headers: cors });
@@ -311,6 +444,63 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore,
                     ...(hasOfflineAccess(grant.scope)
                         ? { refresh_token: await refresh.issue({ userId: user.id, clientId: client.id, scope: grant.scope }) }
                         : {}),
+                }, { headers: cors });
+            },
+        },
+        {
+            path: "/oidc/device_authorization",
+            method: "POST",
+            // RFC 8628 §3.1. Client authentication is the token endpoint's, per
+            // spec — which for this provider means a client secret, since it has
+            // no public clients. A device app therefore ships one, the same way
+            // it would to use any other grant here.
+            async handle(req, cors, ctx) {
+                const config = await readConfig();
+                if (!config.primaryUrl) {
+                    return Response.json({ error: "server_error", error_description: "Primary URL is not configured" }, { status: 500, headers: cors });
+                }
+                const body = new URLSearchParams(await req.text());
+                const creds = clientCredentials(req, body);
+                if (!creds) {
+                    return Response.json({ error: "invalid_request" }, { status: 400, headers: cors });
+                }
+                const client = await oidc.verifyClientSecret(creds.clientId, creds.clientSecret);
+                if (!client) {
+                    return Response.json({ error: "invalid_client" }, { status: 401, headers: cors });
+                }
+                let rec;
+                try {
+                    rec = devices.request({
+                        clientId: client.id,
+                        // `openid` alone is the useful floor: without it this
+                        // mints an OAuth access token and no identity, which is
+                        // never what a device pairing against an OIDC provider
+                        // meant to ask for.
+                        scope: body.get("scope") || "openid",
+                        ip: ctx.clientIp,
+                        userAgent: req.headers.get("user-agent"),
+                    });
+                } catch (err) {
+                    if (err instanceof DeviceCapError) {
+                        // Not one of §3.2's codes, because it has none for this.
+                        // `slow_down` is the RFC's own word for "you are asking
+                        // too often", and 429 is what a client's HTTP layer
+                        // already knows to back off from.
+                        return Response.json({ error: "slow_down", error_description: err.message }, { status: 429, headers: cors });
+                    }
+                    throw err;
+                }
+                const userCode = formatUserCode(rec.userCode);
+                const verificationUri = `${config.primaryUrl}/device`;
+                return Response.json({
+                    device_code: rec.deviceCode,
+                    user_code: userCode,
+                    verification_uri: verificationUri,
+                    // What the QR code on the television encodes, so the phone
+                    // that scans it skips the typing entirely.
+                    verification_uri_complete: `${verificationUri}?user_code=${encodeURIComponent(userCode)}`,
+                    expires_in: Math.round((rec.expiresAt - Date.now()) / 1000),
+                    interval: POLL_INTERVAL_S,
                 }, { headers: cors });
             },
         },

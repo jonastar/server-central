@@ -64,6 +64,28 @@ export interface OidcAuthorizeParams {
 
 
 /**
+ * A pending device authorization, as the `/device` approval screen sees it.
+ *
+ * Everything here except `appName` is request metadata rather than identity,
+ * and that is the point: a television has no identity to show, so the address
+ * and user-agent it asked from are the only evidence a human can actually weigh
+ * before approving. It is also what defends the social-engineering variant,
+ * where an attacker reads a victim their own code over the phone — an
+ * unfamiliar address on the prompt is the tell.
+ */
+export interface DeviceAuthorizationRequest {
+    /** Display form (`XXXX-XXXX`), echoed back so the screen can confirm what
+     *  was matched rather than what was typed. */
+    userCode: string;
+    appName: string;
+    scope: string;
+    ip: string | null;
+    userAgent: string | null;
+    requestedAt: number;
+    expiresAt: number;
+}
+
+/**
  * Client administration (owner-only) plus the front-channel operations driven
  * by the `/oidc/authorize` SPA route. The code-for-token exchange happens over
  * raw HTTP at `POST /oidc/token` (form-encoded, per spec), not through this RPC
@@ -84,4 +106,12 @@ export interface OidcOperations {
     revokeGrant: { data: { familyId: string }; response: void };
     getAuthorizeRequest: { data: OidcAuthorizeParams; response: { appName: string; redirectUri: string } };
     completeAuthorize: { data: OidcAuthorizeParams; response: { redirectUrl: string } };
+    /** Resolve a code a human typed into `/device`. Null when nothing pending
+     *  matches — expired, already answered, or simply mistyped, which are
+     *  deliberately one answer rather than three. */
+    getDeviceRequest: { data: { userCode: string }; response: DeviceAuthorizationRequest | null };
+    /** Approve a pending device authorization, minting the grant the device
+     *  collects on its next poll. */
+    approveDevice: { data: { userCode: string }; response: void };
+    denyDevice: { data: { userCode: string }; response: void };
 }

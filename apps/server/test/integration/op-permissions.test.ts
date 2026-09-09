@@ -100,7 +100,23 @@ describe("registry integrity", () => {
 
     test("only session-shaped operations skip the permission check", () => {
         const anyUser = Object.entries(OP_REQUIREMENTS).filter(([, r]) => r === "authenticated").map(([op]) => op).sort();
-        expect(anyUser).toEqual(["auth/logout", "auth/me", "oidc/completeAuthorize", "oidc/getAuthorizeRequest"]);
+        // Every entry here is reachable by anyone with a session, so this list
+        // is meant to be edited deliberately rather than to be kept passing.
+        // The OIDC five are the two front channels — the browser code flow and
+        // the device grant's approval screen — and both are about the caller's
+        // own identity: they authorize an app as *you*, and hold no more than
+        // your own account already does. Gating them on a panel node would mean
+        // an account that can sign into an app in a browser cannot sign the same
+        // app in on a television.
+        expect(anyUser).toEqual([
+            "auth/logout",
+            "auth/me",
+            "oidc/approveDevice",
+            "oidc/completeAuthorize",
+            "oidc/denyDevice",
+            "oidc/getAuthorizeRequest",
+            "oidc/getDeviceRequest",
+        ]);
     });
 });
 

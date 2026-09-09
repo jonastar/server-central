@@ -21,6 +21,7 @@ import { createAppsFeature } from "./features/apps/feature";
 import { OidcStore } from "./features/oidc/store";
 import { RefreshTokenStore } from "./features/oidc/refresh";
 import { createOidcFeature } from "./features/oidc/feature";
+import { DeviceCodeStore } from "./features/oidc/device";
 import { createProcessesFeature } from "./features/processes/feature";
 import { ProxyManager } from "./features/proxy/manager";
 import { DashboardStore } from "./features/dashboard/store";
@@ -153,6 +154,10 @@ applyTrustedProxies(startupConfig.trustedProxies ?? []);
 const oidcStore = new OidcStore();
 const appStore = new AppStore();
 const refreshStore = new RefreshTokenStore();
+// Pending device authorizations, unlike the three above, are in-memory only —
+// worthless five minutes after they are made, so there is no data directory to
+// hand them and a restart mid-pairing costs one button press on the device.
+const deviceStore = new DeviceCodeStore();
 // Deleting an account or resetting its password must take its app access with
 // it; without this the browser session goes and an app holding a refresh token
 // keeps minting access tokens for it.
@@ -186,7 +191,7 @@ const baseFeatures = defineFeatures(
     createDebugFeature(),
     createAuthFeature(auth, roleStore),
     createAppsFeature(appStore, oidcStore),
-    createOidcFeature(oidcStore, auth, appStore, refreshStore),
+    createOidcFeature(oidcStore, auth, appStore, refreshStore, deviceStore),
     createDashboardFeature(dashboardStore),
     createProxyFeature(proxyManager, proxyStore),
     createServersFeature(fleet, nodeServer),
@@ -309,7 +314,7 @@ const server = Bun.serve<WsData>({
 
         const route = matchHttpRoute(httpRoutes, req.method, url.pathname);
         if (route) {
-            return route.handle(req, corsHeaders);
+            return route.handle(req, corsHeaders, { clientIp: clientIp(req, serverCtx) });
         }
 
         // WebSocket channels carry the bearer token as a query param, since

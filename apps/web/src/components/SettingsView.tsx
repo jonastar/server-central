@@ -372,6 +372,31 @@ function GeneralSettings() {
             </div>
 
             <div style={{ maxWidth: 480, marginBottom: 28 }}>
+                <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>Connect a device</h2>
+                <p style={{ margin: "0 0 12px", color: colorVars.muted, fontSize: 13 }}>
+                    Sign a television, console or anything else without a usable keyboard into an
+                    app that uses this server for SSO. Start the sign-in on the device, then come
+                    here and type the code it shows you.
+                </p>
+                {primarySaved ? (
+                    <>
+                        {/* A real navigation, not a hash route: /device is also the
+                            verification_uri handed to the device, and is meant to be
+                            retyped from a screen. */}
+                        <a className={cx(shared.btn, shared["btn-primary"])} href="/device">Enter a device code</a>
+                        <div style={{ marginTop: 8, fontSize: 12, color: colorVars.muted }}>
+                            Devices are told to go to <code>{primarySaved}/device</code>.
+                        </div>
+                    </>
+                ) : (
+                    <div style={{ fontSize: 12, color: colorVars.muted }}>
+                        Set a <strong>Primary URL</strong> above first — it is the address devices
+                        are told to send you to.
+                    </div>
+                )}
+            </div>
+
+            <div style={{ maxWidth: 480, marginBottom: 28 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>Trusted proxies</h2>
                 <p style={{ margin: "0 0 12px", color: colorVars.muted, fontSize: 13 }}>
                     Reverse proxies in front of this server, as an IP or CIDR range. Only these are

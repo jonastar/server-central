@@ -371,7 +371,19 @@ export const PUBLIC_OPS = ["auth/getState", "auth/setupOwner", "auth/login"] as 
 /** Callable by any signed-in user regardless of grants — the session's own
  *  bookkeeping, plus the OIDC front-channel, which is about the caller's own
  *  identity rather than any control-plane resource. */
-export const SESSION_OPS = ["auth/logout", "auth/me", "oidc/getAuthorizeRequest", "oidc/completeAuthorize"] as const satisfies readonly ApiOp[];
+export const SESSION_OPS = [
+    "auth/logout",
+    "auth/me",
+    "oidc/getAuthorizeRequest",
+    "oidc/completeAuthorize",
+    // Same reasoning for the device grant: approving a device authorizes it as
+    // *you*, so the decision needs a session and nothing more. Gating it on a
+    // panel node would mean an account that can sign into an app through the
+    // browser cannot sign the same app in on a television.
+    "oidc/getDeviceRequest",
+    "oidc/approveDevice",
+    "oidc/denyDevice",
+] as const satisfies readonly ApiOp[];
 
 // ---- Exhaustiveness ----------------------------------------------------------
 //
