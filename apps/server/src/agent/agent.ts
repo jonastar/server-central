@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ControlMessage, DirEntry, DirEntryType, FileContent, InstallMechanism, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
+import type { AgentConfigReport, ControlMessage, DirEntry, DirEntryType, FileContent, InstallMechanism, MetricsSnapshot, NodeMessage, SystemInfo } from "@central/shared";
 import { AGENT_VERSION, METRICS_HISTORY_MAX, MetricsCollector } from "@central/shared";
 import { tempSibling } from "../fs-atomic";
 import { probeDir } from "./mounts";
@@ -272,6 +272,10 @@ export class Agent {
         /** Performs the self-update to `version` when the control plane requests
          *  it. Absent for the embedded agent, which ships with the control plane. */
         private readonly onUpdateService?: (version: string, force?: boolean) => Promise<void>,
+        /** Describes how this agent was launched, for the Agents view's config
+         *  panel. Absent for the embedded agent, which has no launch config —
+         *  only the connect loop in agent-cli.ts knows these values. */
+        private readonly onDescribeConfig?: () => Promise<AgentConfigReport>,
     ) {
         this.isEmbedded = isEmbedded;
     }
@@ -484,6 +488,22 @@ export class Agent {
                 try {
                     const result = await probeDir(msg.path);
                     this.transport.send({ type: "probeInstallPathResponse", requestId: msg.requestId, result });
+                } catch (e) {
+                    this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
+                }
+                break;
+            }
+
+            case "agentConfigRequest": {
+                try {
+                    if (!this.onDescribeConfig) {
+                        throw new Error("This agent has no launch config of its own");
+                    }
+                    this.transport.send({
+                        type: "agentConfigResponse",
+                        requestId: msg.requestId,
+                        config: await this.onDescribeConfig(),
+                    });
                 } catch (e) {
                     this.transport.send({ type: "error", requestId: msg.requestId, message: String(e) });
                 }

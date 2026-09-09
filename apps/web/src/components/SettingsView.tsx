@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import type { SettingsOperations } from "@central/shared";
 import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import { UsersTab } from "./settings/UsersTab";
@@ -10,16 +11,12 @@ import { cx } from "../utils";
 import { SETTINGS_TABS, type SettingsTab } from "../routes";
 import { EmptyState } from "./ui";
 import { useCan } from "../hooks/usePermissions";
+import { LogViewerModal } from "./LogViewerModal";
 import shared from "../styles/shared.module.css";
 import uiStyles from "./ui.module.css";
 import { colorVars } from "../styles/colorVars";
 
-interface ControlPlaneStatus {
-    version: string;
-    installed: boolean;
-    latestVersion: string | null;
-    updateAvailable: boolean;
-}
+type ControlPlaneStatus = SettingsOperations["getControlPlaneStatus"]["response"];
 
 
 
@@ -61,8 +58,18 @@ function GeneralSettings() {
     const [updating, setUpdating] = useState(false);
     const [cpMsg, setCpMsg] = useState<string | null>(null);
 
+    /** Open state for the control plane's own journal — see `logUnit` below. */
+    const [showLogs, setShowLogs] = useState(false);
+    const can = useCan();
+
     // Latest control-plane WAN IP check (a `find_wan_ip` task run, newest first).
-    const { tasks } = useConnection();
+    const { tasks, servers } = useConnection();
+    // The control plane's journal lives on the machine the control plane runs on,
+    // which is exactly the host its embedded agent reports for — so the shortcut
+    // is the ordinary systemd log endpoint pointed at that host and unit.
+    const embeddedHost = servers.find((s) => s.status.mode === "embedded");
+    const logUnit = cp?.logUnit ?? null;
+    const canReadLogs = logUnit !== null && embeddedHost !== undefined && can("panel.systemd.read");
     const wanRun = tasks.find((t) => t.target === null && t.spec.kind === "find_wan_ip");
     const wanInFlight = wanRun?.status === "pending" || wanRun?.status === "running";
 
@@ -273,11 +280,36 @@ function GeneralSettings() {
                             </div>
                         )}
                         {cpMsg && <div style={{ marginTop: 8, fontSize: 12, color: colorVars.muted }}>{cpMsg}</div>}
+
+                        <div style={{ marginTop: 12 }}>
+                            {canReadLogs ? (
+                                <button className={shared.btn} type="button" onClick={() => setShowLogs(true)}>
+                                    View logs
+                                </button>
+                            ) : (
+                                <div style={{ fontSize: 12, color: colorVars.muted }}>
+                                    {logUnit === null
+                                        ? "No journal to read — the control plane isn't running under a systemd unit, so its output goes wherever it was started from."
+                                        : !embeddedHost
+                                            ? "The control plane's own host isn't reporting an agent, so its journal can't be read from here."
+                                            : "Reading the control plane's journal needs the systemd view permission."}
+                                </div>
+                            )}
+                        </div>
                     </>
                 ) : (
                     <p style={{ margin: 0, color: colorVars.muted, fontSize: 13 }}>Loading…</p>
                 )}
             </div>
+
+            {showLogs && canReadLogs && (
+                <LogViewerModal
+                    title={`Control plane logs — ${logUnit}`}
+                    onClose={() => setShowLogs(false)}
+                    caps={{ priority: true }}
+                    fetchLogs={(q) => api("systemd", "serviceLogs", { serverId: embeddedHost.id, unit: logUnit, ...q }).then((r) => r.logs)}
+                />
+            )}
 
             <div style={{ maxWidth: 480, marginBottom: 28 }}>
                 <h2 style={{ fontSize: 15, fontWeight: 600, margin: "0 0 4px" }}>External (WAN) IP</h2>

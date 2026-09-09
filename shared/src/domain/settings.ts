@@ -51,7 +51,17 @@ export interface SettingsOperations {
     // unless the control plane is installed as a service and a newer release exists.
     getControlPlaneStatus: {
         data: void;
-        response: { version: string; installed: boolean; latestVersion: string | null; updateAvailable: boolean };
+        response: {
+            version: string;
+            installed: boolean;
+            latestVersion: string | null;
+            updateAvailable: boolean;
+            // The control plane's own systemd unit, for the "View logs" shortcut
+            // in Settings. Null when nothing is reading its output into a journal
+            // (manual install, container, `bun dev`), which is what the UI needs
+            // to know before offering the button at all.
+            logUnit: string | null;
+        };
     };
     updateControlPlane: { data: void; response: void };
 }

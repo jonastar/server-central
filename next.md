@@ -5,14 +5,11 @@ re-document finished work here, and delete an item from this file once it lands.
 
 ## Smaller items
 
-- View agent config in the agents section
-- Shortcut to `sc` logs
 - base64-encoding the blob to send it manually in the body is not ideal — can we support
   multipart somehow?
 - Better process list? Or is it better to just jump into `htop` in the terminal at that point?
 - Host user authorized keys mangement
   - Option to sync authorized keys across all mapped users?
-- Default stack location
 - Fleet-level dashboard widgets — `Dashboard.tsx` is still a hand-written card grid. The host
   registry (`apps/web/src/dashboard`) is the model; fleet widgets aggregate across hosts, so
   they need their own `WidgetProps` and a separate registry sharing `useHostPoll` and the layout

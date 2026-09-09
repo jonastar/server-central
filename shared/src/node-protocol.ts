@@ -1,4 +1,4 @@
-import type { AgentMode, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, SystemInfo } from "./index";
+import type { AgentConfigReport, AgentMode, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, SystemInfo } from "./index";
 
 export interface NodeExecResult {
     stdout: string;
@@ -59,6 +59,7 @@ export type NodeMessage =
     | { type: "installServiceResponse"; requestId: string; startCommand: string | null }
     | { type: "updateServiceResponse"; requestId: string }
     | { type: "hostCapabilitiesResponse"; requestId: string; report: HostCapabilityReport }
+    | { type: "agentConfigResponse"; requestId: string; config: AgentConfigReport }
     | { type: "resolvePathsResponse"; requestId: string; result: ResolvedPath[] }
     // Reply to a control-plane `ping`. The control plane doesn't need it for
     // liveness (metrics already flow every 5s) — it exists so the exchange is a
@@ -191,6 +192,13 @@ export type ControlMessage =
     // agents advertising the "hostCapabilities" protocol capability; older ones
     // would never reply and the request would die as a protocol timeout.
     | { type: "hostCapabilitiesRequest"; requestId: string }
+    // Ask the agent to describe how it was launched: config file path, endpoints,
+    // cert and install/data dirs, supervision mechanism, and the endpoint that
+    // last worked. Read-only, and deliberately never includes the agent's durable
+    // token — see AgentConfigReport. Sent only to agents advertising
+    // "agentConfig"; the embedded agent answers with an error, having no launch
+    // config of its own.
+    | { type: "agentConfigRequest"; requestId: string }
     // Periodic liveness beat, sent only to agents advertising the "heartbeat"
     // capability. The agent replies `pong` and, more importantly, treats a
     // missing beat as a dead link: TCP alone can leave a half-open socket the

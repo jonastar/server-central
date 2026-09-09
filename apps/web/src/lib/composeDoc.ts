@@ -186,6 +186,67 @@ export function looksLikeHostPath(source: string): boolean {
     return source.startsWith("/") || source.startsWith("./") || source.startsWith("../") || source.startsWith("~");
 }
 
+/** Drop a trailing slash, except from "/" itself. */
+function trimTrailingSlash(dir: string): string {
+    return dir.length > 1 ? dir.replace(/\/+$/, "") : dir;
+}
+
+/**
+ * Rewrite an absolute host path into one relative to the stack's own directory
+ * (`/opt/sc-apps/blog/data` → `./data`) when it sits at or under it.
+ *
+ * Compose resolves a relative bind source against the directory holding the
+ * compose file, so the relative form is what survives moving or copying a stack:
+ * the absolute form keeps pointing at where the stack used to be, and does it
+ * silently, since the old path usually still exists.
+ *
+ * Only paths inside the stack are rewritten. A `../` chain climbing out of it
+ * would be relative in name only — it still depends on where the stack sits —
+ * while being harder to read than the absolute path it replaced.
+ *
+ * The leading `./` is not cosmetic: compose reads a bare `data` as a *named
+ * volume*, not a bind mount, so dropping it changes what the entry means.
+ */
+export function relativizeToStack(source: string, stackDir: string): string {
+    const stack = trimTrailingSlash(stackDir);
+    // "/" as a stack dir would make every path on the host "inside" it.
+    if (!source.startsWith("/") || stack === "/" || !stack) {
+        return source;
+    }
+    const path = trimTrailingSlash(source);
+    if (path === stack) {
+        return ".";
+    }
+    return path.startsWith(`${stack}/`) ? `.${path.slice(stack.length)}` : source;
+}
+
+/**
+ * Inverse of {@link relativizeToStack}: the absolute host path a source resolves
+ * to, for the pickers and anything else that has to browse it. Sources that
+ * aren't stack-relative (absolute, `~`, a named volume) come back untouched.
+ */
+export function resolveAgainstStack(source: string, stackDir: string): string {
+    if (source !== "." && !source.startsWith("./") && !source.startsWith("../")) {
+        return source;
+    }
+    const segments = trimTrailingSlash(stackDir).split("/");
+    for (const part of source.split("/")) {
+        if (part === "" || part === ".") {
+            continue;
+        }
+        if (part === "..") {
+            // segments[0] is the empty string before the leading "/", so stopping
+            // at length 1 is what keeps a long "../" chain from climbing past root.
+            if (segments.length > 1) {
+                segments.pop();
+            }
+            continue;
+        }
+        segments.push(part);
+    }
+    return segments.join("/") || "/";
+}
+
 export function parseVolumeEntry(entry: unknown): VolumeRow {
     if (typeof entry === "string") {
         const parts = entry.split(":");

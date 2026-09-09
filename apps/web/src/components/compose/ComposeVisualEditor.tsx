@@ -12,6 +12,8 @@ import {
     getServiceField,
     listServiceNames,
     looksLikeHostPath,
+    relativizeToStack,
+    resolveAgainstStack,
     parseCompose,
     parseDeviceEntry,
     parseEnvironment,
@@ -473,6 +475,12 @@ const EMPTY_VOLUME_ROW: VolumeRow = { kind: "short", source: "", target: "", rea
  * existing file, or reaching somewhere else on the host entirely) for the
  * escape-hatch case. Defaults to Simple: most mounts are either something
  * already there or a fresh folder beside the compose file.
+ *
+ * Whichever tab produced it, a path inside the stack's own folder is written out
+ * as `./data` rather than the absolute path the picker browsed — see
+ * {@link relativizeToStack}. Everything in here therefore deals in two forms of
+ * the same value: `value` as the compose file stores it, and `absoluteValue` for
+ * anything that has to browse or compare against a real host path.
  */
 function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
     serverId: string;
@@ -481,6 +489,11 @@ function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
     onChange: (path: string) => void;
 }) {
     const stackFolder = stackDir.replace(/\/$/, "");
+    /** What `value` points at on the host — the picker and the selected-row
+     *  highlight both work in absolute paths, the document doesn't. */
+    const absoluteValue = looksLikeHostPath(value) ? resolveAgainstStack(value, stackFolder) : "";
+    /** Store a chosen host path in the form the compose file should carry. */
+    const choose = (hostPath: string) => onChange(relativizeToStack(hostPath, stackFolder));
     const [mode, setMode] = useState<"simple" | "custom">("simple");
     const [entries, setEntries] = useState<DirEntry[] | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -506,7 +519,7 @@ function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
         const created = `${stackFolder}/${name}`;
         try {
             await api("files", "createDir", { serverId, path: created });
-            onChange(created);
+            choose(created);
             load();
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
@@ -520,8 +533,14 @@ function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
                 <button className={cx(shared["sub-tab"], mode === "custom" && shared.active)} onClick={() => setMode("custom")}>Custom</button>
             </nav>
 
+            <div className={shared.dim} style={{ fontSize: 11, marginBottom: 8 }}>
+                Anything inside the stack's own folder is stored relative to the compose file
+                (<code>./name</code>), so the stack keeps working if you move it. Paths elsewhere
+                on the host are stored as-is.
+            </div>
+
             {mode === "custom" ? (
-                <DirectoryPicker serverId={serverId} value={looksLikeHostPath(value) ? value : stackFolder} onChange={onChange} selectFiles />
+                <DirectoryPicker serverId={serverId} value={absoluteValue || stackFolder} onChange={choose} selectFiles />
             ) : (
                 <>
                     <div className={cx(shared.mono, shared.dim)} style={{ fontSize: 12, marginBottom: 6 }}>{stackFolder}</div>
@@ -538,8 +557,8 @@ function VolumeSourcePicker({ serverId, stackDir, value, onChange }: {
                                     <div
                                         key={e.name}
                                         className={cx(shared["file-name"], fileTypeClass[e.type], shared["row-clickable"])}
-                                        style={{ padding: "5px 8px", background: value === entryPath ? "var(--accent-soft)" : undefined }}
-                                        onClick={() => onChange(entryPath)}
+                                        style={{ padding: "5px 8px", background: absoluteValue === entryPath ? "var(--accent-soft)" : undefined }}
+                                        onClick={() => choose(entryPath)}
                                     >
                                         {e.name}{e.type === "symlink" && " →"}
                                     </div>
@@ -573,7 +592,9 @@ function VolumesField({ doc, service, hostId, stackDir, commit, suggestedTargets
         const folderName = containerPath.split("/").filter(Boolean).pop() || "data";
         const hostDir = `${stackDir.replace(/\/$/, "")}/${folderName}`;
         await api("files", "createDir", { serverId: hostId, path: hostDir });
-        commit((d) => addSeqItem(d, path, serializeVolumeRow({ kind: "short", source: hostDir, target: containerPath, readOnly: false })));
+        // Beside the compose file by construction, so it always relativizes.
+        const source = relativizeToStack(hostDir, stackDir);
+        commit((d) => addSeqItem(d, path, serializeVolumeRow({ kind: "short", source, target: containerPath, readOnly: false })));
     }
 
     function update(i: number, patch: Partial<VolumeRow>) {

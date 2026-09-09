@@ -14,6 +14,21 @@ feature may run longer; most don't earn it.
 
 ### Added
 
+- **Agent config panel in the Agents view.** A "Config" button per online agent shows how it was
+  actually launched: endpoints, cert and install/data paths, supervision, and the endpoint that
+  last worked. Read from the agent, and never carries its token.
+- The embedded agent answers it too, by describing the control plane it runs inside — data dir,
+  supervision and unit — since that is what its configuration actually is.
+- **Journal shortcuts for Server Central's own units.** "View logs" in Settings → Control plane
+  reads `sc-central`; the agent config panel reads that host's `sc-agent`. Hidden when there's
+  no unit to read (manual install, dev run).
+- **Volume sources inside a stack's folder are now stored relative** (`./data`, not
+  `/opt/sc-apps/blog/data`), from every picker path — Simple, Custom and "Create" on a suggested
+  volume. Compose resolves them against the compose file, so the stack survives being moved.
+- **Per-host default stack directory**, set from "Default directory…" in the host's Compose
+  stacks section. The new- and import-stack dialogs start there instead of a hardcoded
+  `/opt/sc-apps`, which stays the fallback. Existing stacks keep their own directory.
+
 - **Permission nodes replace unenforced roles.** Every API operation declares what it requires
   (`panel.docker.write`, `panel.terminal`, …) and the dispatcher enforces it — previously any
   authenticated user could do anything. [doc/idea_proxy_auth_gateway.md](doc/idea_proxy_auth_gateway.md) §1

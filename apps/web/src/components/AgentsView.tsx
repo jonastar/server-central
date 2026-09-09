@@ -5,6 +5,7 @@ import { runTaskAndWait } from "../taskRun";
 import { cx, fmtDateTime, fmtUptime, isAgentOutdated } from "../utils";
 import { StatusDot, EmptyState, ErrorBanner } from "./ui";
 import { SetupWizard } from "./SetupWizard";
+import { AgentConfigModal } from "./AgentConfigModal";
 import shared from "../styles/shared.module.css";
 
 function modeBadge(mode: string | undefined) {
@@ -22,6 +23,7 @@ export function AgentsView({ servers, onOpenServer }: {
     const [busyId, setBusyId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [installEntry, setInstallEntry] = useState<ServerEntry | null>(null);
+    const [configEntry, setConfigEntry] = useState<ServerEntry | null>(null);
 
     async function update(serverId: string, force: boolean) {
         const prompt = force
@@ -125,6 +127,18 @@ export function AgentsView({ servers, onOpenServer }: {
                                                         Complete setup
                                                     </button>
                                                 )}
+                                                {/* The report is read from the agent, so it needs a live
+                                                    connection. The embedded agent has one by definition,
+                                                    and answers by describing the control plane. */}
+                                                {online && (
+                                                    <button
+                                                        className={shared.btn}
+                                                        onClick={() => setConfigEntry(entry)}
+                                                        title="How this agent is configured: endpoints, paths, and its journal"
+                                                    >
+                                                        Config
+                                                    </button>
+                                                )}
                                                 {online && status.mode === "installed" && (
                                                     <button
                                                         className={shared.btn}
@@ -173,6 +187,10 @@ export function AgentsView({ servers, onOpenServer }: {
 
             {installEntry && (
                 <SetupWizard entry={installEntry} onClose={() => setInstallEntry(null)} />
+            )}
+
+            {configEntry && (
+                <AgentConfigModal entry={configEntry} onClose={() => setConfigEntry(null)} />
             )}
         </div>
     );

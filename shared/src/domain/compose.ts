@@ -16,6 +16,14 @@ import type { DockerStack } from "./docker";
 // actions always target the same compose project regardless of what the compose
 // file's own `name:`/directory-basename prediction would produce.
 
+/**
+ * Where a new or imported stack's directory is proposed on a host that has no
+ * default of its own. Lives here rather than in the two modals that used to
+ * spell it out, so the fallback and a configured value are the same string
+ * everywhere — see `ComposeOperations.getDefaultDir`.
+ */
+export const FALLBACK_STACK_DIR = "/opt/sc-apps";
+
 export interface ComposeStack {
     id: string;
     name: string;
@@ -90,6 +98,16 @@ export interface ComposeStackDetection {
 /** SC-managed compose stacks — a directory + compose file on a host.
  *  See doc/idea_app_system.md. */
 export interface ComposeOperations {
+    // The base directory this host's new/import dialogs start from — the one
+    // configured for it, else FALLBACK_STACK_DIR. Per host because that's where
+    // the answer differs: a fleet-wide value is wrong on every box that doesn't
+    // keep its stacks where the first one does.
+    getDefaultDir: { data: { hostId: string }; response: { dir: string } };
+    // Set it, or clear it with null and fall back. Changes nothing that already
+    // exists: a stack records its own `dir` when it's created or imported, so
+    // this only decides where the *next* one is proposed. Responds with the
+    // stored value, which is normalized (trailing slash stripped).
+    setDefaultDir: { data: { hostId: string; dir: string | null }; response: { dir: string } };
     list: { data: void; response: ComposeStack[] };
     // One host's section: registered stacks (adopting observed ones as a side
     // effect) plus what's running. See HostComposeStacks.

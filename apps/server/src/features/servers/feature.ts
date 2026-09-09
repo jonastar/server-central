@@ -61,6 +61,17 @@ export function createServersFeature(fleet: Fleet, nodeServer: NodeServer | null
                 return fleet.get(data.serverId).probeInstallPath(data.path);
             },
 
+            /** Read-only, and the report carries no credential — see
+             *  AgentConfigReport. Offline agents can't answer, so say that rather
+             *  than letting the request die as a protocol timeout. */
+            async getAgentConfig(data) {
+                const agent = fleet.get(data.serverId);
+                if (agent.status().state !== "online") {
+                    throw new Error("Agent is not connected");
+                }
+                return agent.agentConfig();
+            },
+
             async installService(data) {
                 const server = requireNodeServer();
                 const agent = fleet.get(data.serverId);

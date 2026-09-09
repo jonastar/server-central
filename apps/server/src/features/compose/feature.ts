@@ -22,6 +22,14 @@ export const createComposeStacksFeature = (stacks: ComposeStackStore, fleet: Fle
         await stacks.init();
             },
     ops: {
+        async getDefaultDir(data) {
+            return { dir: stacks.defaultDir(data.hostId) };
+        },
+
+        async setDefaultDir(data) {
+            return { dir: await stacks.setDefaultDir(data.hostId, data.dir) };
+        },
+
         async list() {
             return stacks.list();
         },

@@ -1,9 +1,10 @@
 import * as os from "node:os";
-import type { MetricsSnapshot } from "@central/shared";
+import type { AgentConfigReport, MetricsSnapshot } from "@central/shared";
 import { AGENT_CAPABILITIES } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, resolveMachineId } from "./agent";
 import { probeHostCapabilities } from "./host-capabilities";
 import { HostAgent } from "../host-agent";
+import { controlPlaneInstallInfo } from "../server-install";
 
 /**
  * Build the control plane's own host as a {@link HostAgent}, backed by an
@@ -35,10 +36,37 @@ export async function createEmbeddedAgent(
     );
 
     const transport: AgentTransport = { send: (nodeMsg) => host.receive(nodeMsg) };
-    const agent = new Agent(transport, true);
+    const agent = new Agent(transport, true, undefined, undefined, describeEmbeddedConfig);
 
     host.setInfo(await collectSystemInfo());
     agent.startMetrics();
 
     return host;
+}
+
+/**
+ * The embedded agent's answer to `agentConfigRequest`. It has no launch config of
+ * its own — no endpoint to dial, no cert to pin, no token — so it reports the
+ * control plane's install instead, which is what "how is this agent configured"
+ * actually means for the host the control plane runs on.
+ *
+ * Read per request rather than captured at startup so a control plane installed
+ * *after* it first booted (the usual order: run it, like it, install it) starts
+ * reporting its unit without a restart.
+ */
+async function describeEmbeddedConfig(): Promise<AgentConfigReport> {
+    const info = await controlPlaneInstallInfo();
+    return {
+        configPath: null,
+        control: null,
+        altControl: null,
+        cert: null,
+        mode: "embedded",
+        installDir: info.installDir,
+        dataDir: info.dataDir,
+        mechanism: info.mechanism,
+        lastControl: null,
+        lastControlAt: null,
+        logUnit: info.logUnit,
+    };
 }

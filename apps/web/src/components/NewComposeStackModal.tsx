@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ServerEntry } from "@central/shared";
 import { api } from "../api";
 import { cx } from "../utils";
+import { useDefaultStackDir } from "../hooks/useDefaultStackDir";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { ErrorBanner, Modal } from "./ui";
 import shared from "../styles/shared.module.css";
@@ -30,7 +31,7 @@ export function NewComposeStackModal({ host, onClose, onCreated }: {
 }) {
     const [name, setName] = useState("");
     const hostId = host.id;
-    const [baseDir, setBaseDir] = useState("/opt/sc-apps");
+    const [baseDir, setBaseDir] = useDefaultStackDir(hostId);
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [source, setSource] = useState<"empty" | "yaml">("empty");

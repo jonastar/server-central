@@ -13,7 +13,9 @@ import {
     isInstalled,
     pointSymlink,
     pruneOldBinaries,
+    readManifest,
     resolveServicePaths,
+    unitPath,
     writeManifest,
 } from "./agent/self-install";
 
@@ -159,6 +161,44 @@ export interface ControlPlaneStatus {
     /** Latest available version, or null when the release source can't be reached. */
     latestVersion: string | null;
     updateAvailable: boolean;
+    /** systemd unit the control plane's own output goes to, so the UI can offer
+     *  its journal. Null when there is no unit to read — a manual install or a
+     *  dev run logs to whatever started it, and journalctl has nothing for it. */
+    logUnit: string | null;
+}
+
+/** The unit journald would have output for. The unit *file*, not the install
+ *  manifest: a manual install is "installed" too, and journald knows nothing
+ *  about it. Null means there is simply no journal to read. */
+async function serverLogUnit(): Promise<string | null> {
+    return await Bun.file(unitPath(SERVER_SPEC)).exists() ? `${SERVER_SPEC.name}.service` : null;
+}
+
+/**
+ * How the control plane's own install is laid out, for the embedded agent's
+ * config panel — the one agent whose "config" is the control plane's, since it
+ * runs in that process rather than dialing it.
+ *
+ * `dataDir` is {@link CONFIG_DIR}, the directory this process actually reads and
+ * writes, rather than the install default: `SC_DATA_DIR` can point anywhere, and
+ * the panel exists to show what's true of the running instance.
+ */
+export async function controlPlaneInstallInfo(): Promise<{
+    installDir: string | null;
+    dataDir: string;
+    mechanism: InstallMechanism | null;
+    logUnit: string | null;
+}> {
+    const paths = resolveServerPaths(null, CONFIG_DIR);
+    const manifest = await readManifest(paths);
+    return {
+        // Only meaningful once there's an install to describe; a `bun dev` run
+        // has a binary path, but not one anybody installed.
+        installDir: manifest ? paths.dir : null,
+        dataDir: CONFIG_DIR,
+        mechanism: manifest?.mechanism ?? null,
+        logUnit: await serverLogUnit(),
+    };
 }
 
 /** Current vs. latest version for the control plane, for the UI's update affordance.
@@ -177,6 +217,7 @@ export async function controlPlaneStatus(): Promise<ControlPlaneStatus> {
         installed,
         latestVersion,
         updateAvailable: installed && latestVersion !== null && latestVersion !== AGENT_VERSION,
+        logUnit: await serverLogUnit(),
     };
 }
 

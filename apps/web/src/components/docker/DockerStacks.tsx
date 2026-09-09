@@ -7,6 +7,7 @@ import { ActionMenu, DetailedList, DetailedRow, EmptyState, ErrorBanner, Experim
 import { NewComposeStackModal } from "../NewComposeStackModal";
 import { ImportComposeStackModal } from "../ImportComposeStackModal";
 import { DeleteComposeStackModal } from "../DeleteComposeStackModal";
+import { DefaultStackDirModal } from "../DefaultStackDirModal";
 import { observedStatus, stackTone, StatusBadge } from "./status";
 import styles from "./DockerStacks.module.css";
 import shared from "../../styles/shared.module.css";
@@ -65,6 +66,7 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
     const [creating, setCreating] = useState(false);
     const [importing, setImporting] = useState(false);
     const [deleting, setDeleting] = useState<ComposeStack | null>(null);
+    const [settingDir, setSettingDir] = useState(false);
 
     const host = servers.find((s) => s.id === serverId);
 
@@ -147,6 +149,14 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
         <section className={shared.panel}>
             <div className={shared["panel-head"]}>
                 <h3>Compose stacks ({rows.length})</h3>
+                <button
+                    className={cx(shared.btn, shared["btn-sm"])}
+                    disabled={!host}
+                    onClick={() => setSettingDir(true)}
+                    title="Where this host's new and imported stacks are proposed"
+                >
+                    Default directory…
+                </button>
                 <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => setImporting(true)}>Import existing…</button>
                 <button className={cx(shared.btn, shared["btn-sm"], shared["btn-primary"])} disabled={!host} onClick={() => setCreating(true)}>
                     New compose stack
@@ -279,6 +289,9 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
                     onClose={() => setImporting(false)}
                     onImported={(stackId) => { setImporting(false); onOpenStack(stackId); }}
                 />
+            )}
+            {settingDir && host && (
+                <DefaultStackDirModal host={host} onClose={() => setSettingDir(false)} />
             )}
             {deleting && (
                 <DeleteComposeStackModal

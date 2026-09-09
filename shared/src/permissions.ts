@@ -100,7 +100,7 @@ export const PANEL_PERMISSIONS = {
     "panel.servers.read": {
         label: "View hosts",
         description: "See the fleet, host metrics and live status.",
-        ops: ["servers/list", "servers/getMetricsHistory", "servers/redetectCapabilities"],
+        ops: ["servers/list", "servers/getMetricsHistory", "servers/redetectCapabilities", "servers/getAgentConfig"],
         events: ["init", "serversUpdate", "statusUpdate", "metrics"],
     },
     "panel.servers.admin": {
@@ -163,12 +163,12 @@ export const PANEL_PERMISSIONS = {
     "panel.compose.read": {
         label: "View compose stacks",
         description: "See registered stacks, their services, status and logs.",
-        ops: ["compose/list", "compose/listForHost", "compose/readForHost", "compose/getStatus", "compose/getLogs", "compose/validateContent", "compose/detect"],
+        ops: ["compose/list", "compose/listForHost", "compose/readForHost", "compose/getStatus", "compose/getLogs", "compose/validateContent", "compose/detect", "compose/getDefaultDir"],
     },
     "panel.compose.write": {
         label: "Manage compose stacks",
         description: "Create, import and delete stacks, and edit their compose files.",
-        ops: ["compose/create", "compose/import", "compose/delete"],
+        ops: ["compose/create", "compose/import", "compose/delete", "compose/setDefaultDir"],
         escalation: "A compose file is a container definition: mounting / into a container, or granting it the docker socket, makes it root on the host. This is the permission that writes them.",
     },
 

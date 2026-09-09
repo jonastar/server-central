@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { ComposeStack, ComposeStackDetection, DockerStack } from "@central/shared";
+import { FALLBACK_STACK_DIR, type ComposeStack, type ComposeStackDetection, type DockerStack } from "@central/shared";
 import type { Fleet } from "../../fleet";
-import { readComposeStackState, writeComposeStackState } from "../../config";
+import { readComposeStackDirs, readComposeStackState, writeComposeStackDirs, writeComposeStackState } from "../../config";
 import { composeConfig } from "../docker/docker";
 
 const COMPOSE_CANDIDATES = ["compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"];
@@ -58,6 +58,11 @@ function manifestJson(stack: ComposeStack): string {
  */
 export class ComposeStackStore {
     private stacks = new Map<string, ComposeStack>();
+    /** hostId → the base directory that host's new/import dialogs start from.
+     *  Per host because that's where the answer differs: one box keeps stacks on
+     *  a ZFS dataset, another under /opt, and a fleet-wide value is wrong on all
+     *  but one of them. */
+    private defaultDirs = new Map<string, string>();
 
     constructor(private readonly fleet: Fleet) { }
 
@@ -66,6 +71,46 @@ export class ComposeStackStore {
         for (const stack of Object.values(stored)) {
             this.stacks.set(stack.id, stack);
         }
+        for (const [hostId, dir] of Object.entries(await readComposeStackDirs())) {
+            this.defaultDirs.set(hostId, dir);
+        }
+    }
+
+    /** Where this host's dialogs should start. Falls back to the built-in path,
+     *  so callers never have to decide what "unset" looks like. */
+    defaultDir(hostId: string): string {
+        return this.defaultDirs.get(hostId) ?? FALLBACK_STACK_DIR;
+    }
+
+    /**
+     * Set (or clear, with null) a host's default. Validated here rather than at
+     * the operation, so the stored value is always something the dialogs can
+     * join a stack name onto.
+     *
+     * Deliberately affects nothing that already exists: each stack records its
+     * own `dir` at create/import time, and moving a directory out from under a
+     * running compose project is not something a preference should do.
+     */
+    async setDefaultDir(hostId: string, dir: string | null): Promise<string> {
+        const trimmed = dir?.trim() ?? "";
+        if (!trimmed) {
+            this.defaultDirs.delete(hostId);
+            await this.persistDefaultDirs();
+            return FALLBACK_STACK_DIR;
+        }
+        if (!trimmed.startsWith("/")) {
+            throw new Error(`The default stack directory must be an absolute path, e.g. ${FALLBACK_STACK_DIR}`);
+        }
+        // A trailing slash would show up doubled in the dialogs' "dir/name"
+        // preview; the root itself is the one path that keeps its slash.
+        const normalized = trimmed.length > 1 ? trimmed.replace(/\/+$/, "") : trimmed;
+        this.defaultDirs.set(hostId, normalized);
+        await this.persistDefaultDirs();
+        return normalized;
+    }
+
+    private async persistDefaultDirs(): Promise<void> {
+        await writeComposeStackDirs(Object.fromEntries(this.defaultDirs));
     }
 
     list(): ComposeStack[] {

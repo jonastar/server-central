@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ComposeStackDetection, ServerEntry } from "@central/shared";
 import { api } from "../api";
 import { cx } from "../utils";
+import { useDefaultStackDir } from "../hooks/useDefaultStackDir";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { ErrorBanner, Modal } from "./ui";
 import shared from "../styles/shared.module.css";
@@ -53,7 +54,7 @@ export function ImportComposeStackModal({ host, initialDir, onClose, onImported 
 }) {
     const [step, setStep] = useState<Step>("location");
     const hostId = host.id;
-    const [dir, setDir] = useState(initialDir ?? "/opt/sc-apps");
+    const [dir, setDir] = useDefaultStackDir(hostId, initialDir);
     const [detection, setDetection] = useState<ComposeStackDetection | null>(null);
     const [name, setName] = useState("");
     const [error, setError] = useState<string | null>(null);

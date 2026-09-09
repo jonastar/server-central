@@ -1,4 +1,4 @@
-import type { AgentMode, BinaryPart, ControlMessage, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ResolvedPath, ServerStatus, SystemInfo } from "@central/shared";
+import type { AgentConfigReport, AgentMode, BinaryPart, ControlMessage, DirEntry, FileContent, HostCapabilityReport, InstallMechanism, InstallProbeResult, MetricsSnapshot, NodeHttpResult, NodeMessage, ResolvedPath, ServerStatus, SystemInfo } from "@central/shared";
 import { METRICS_HISTORY_MAX, UPLOAD_CHUNK_BYTES } from "@central/shared";
 import { shellCommandFor, shQuote } from "./shell-quote";
 
@@ -660,6 +660,22 @@ export class HostAgent {
         this.hostCapabilities = resp.report;
         this.hostCapabilitiesAt = Date.now();
         return resp.report;
+    }
+
+    /**
+     * How this agent was launched, read from the agent itself — the Agents view's
+     * config panel. Carries no credential (see AgentConfigReport); the embedded
+     * agent refuses, having no launch config of its own.
+     */
+    async agentConfig(): Promise<AgentConfigReport> {
+        if (!this.capabilities.has("agentConfig")) {
+            const version = this.info?.agentVersion ?? "unknown version";
+            throw new Error(`The agent on ${this.name} (${version}) can't report its config — update the agent, then retry`);
+        }
+        const resp = await this.request<Extract<NodeMessage, { type: "agentConfigResponse" }>>({
+            type: "agentConfigRequest", requestId: crypto.randomUUID(),
+        });
+        return resp.config;
     }
 
     /**

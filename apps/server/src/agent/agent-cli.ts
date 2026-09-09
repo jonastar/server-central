@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import type { AgentMode, HostCapabilityReport, InstallMechanism, NodeMessage, SystemInfo } from "@central/shared";
+import type { AgentConfigReport, AgentMode, HostCapabilityReport, InstallMechanism, NodeMessage, SystemInfo } from "@central/shared";
 import { AGENT_CAPABILITIES, AGENT_VERSION } from "@central/shared";
 import { Agent, type AgentTransport, collectSystemInfo, DEFAULT_DATA_DIR, DEFAULT_INSTALL_DIR, resolveMachineId } from "./agent";
 import { probeHostCapabilities } from "./host-capabilities";
@@ -13,8 +13,10 @@ import {
     isInstalled,
     pointSymlink,
     pruneOldBinaries,
+    readManifest,
     resolveServicePaths,
     run,
+    unitPath,
     writeManifest,
 } from "./self-install";
 import { readRuntimeState, runtimeStateDir, writeRuntimeState } from "./state";
@@ -37,6 +39,9 @@ interface Args {
     /** Set for an installed agent (from its config file); null for the live agent. */
     installDir: string | null;
     dataDir: string | null;
+    /** The `--config` file these came from, for the config panel to name. Null
+     *  when everything came from CLI flags. */
+    configPath: string | null;
 }
 
 /** Persisted launch config for an installed agent (`--config <path>`). */
@@ -99,6 +104,7 @@ async function parseArgs(args: string[]): Promise<Args> {
             mode: cfg.mode,
             installDir: cfg.installDir,
             dataDir: cfg.dataDir,
+            configPath,
         };
     }
 
@@ -108,7 +114,7 @@ async function parseArgs(args: string[]): Promise<Args> {
         process.exit(1);
     }
 
-    return { control, altControl, token, cert, mode, installDir: null, dataDir: null };
+    return { control, altControl, token, cert, mode, installDir: null, dataDir: null, configPath: null };
 }
 
 // ---- WebSocket transport -----------------------------------------------------
@@ -164,6 +170,8 @@ interface Identity {
 interface Handlers {
     onInstallService: (agentToken: string, installDir: string | null, dataDir: string | null, mechanism: InstallMechanism, force?: boolean) => Promise<{ startCommand: string | null }>;
     onUpdateService: (version: string, force?: boolean) => Promise<void>;
+    /** Answers `agentConfigRequest` — see AgentConfigReport. */
+    onDescribeConfig: () => Promise<AgentConfigReport>;
     /** Called with the URL that just reached the control plane and was acknowledged. */
     onConnected: (url: string) => void;
 }
@@ -457,7 +465,7 @@ async function connect(url: string, id: Identity): Promise<WebSocket> {
 async function runWithUrl(url: string, id: Identity, handlers: Handlers): Promise<void> {
     const ws = await connect(url, id);
     handlers.onConnected(url);
-    const agent = new Agent(new WsTransport(ws), false, handlers.onInstallService, handlers.onUpdateService);
+    const agent = new Agent(new WsTransport(ws), false, handlers.onInstallService, handlers.onUpdateService, handlers.onDescribeConfig);
     agent.startMetrics();
 
     return new Promise((resolve) => {
@@ -522,7 +530,7 @@ function orderUrls(urls: string[], preferred: string | null): string[] {
 
 /** Run as a host agent (`server --agent …`), connecting to a control plane. */
 export async function runAgentCli(argv: string[]): Promise<void> {
-    const { control, altControl, token, cert, mode, installDir, dataDir } = await parseArgs(argv);
+    const { control, altControl, token, cert, mode, installDir, dataDir, configPath } = await parseArgs(argv);
     const certPem = await Bun.file(cert).text();
     const info = await collectSystemInfo();
     const machineId = await resolveMachineId();
@@ -548,7 +556,41 @@ export async function runAgentCli(argv: string[]): Promise<void> {
         preferred = url;
         void writeRuntimeState(dataDir, { lastControl: url, lastControlAt: Date.now() });
     };
-    const handlers: Handlers = { onInstallService, onUpdateService, onConnected };
+    /**
+     * What the Agents view's config panel shows. Assembled per request rather
+     * than captured once, so the manifest and the last-good endpoint are read
+     * fresh — both change while the agent runs (a self-install rewrites the
+     * manifest; `onConnected` rewrites the state file on failover).
+     *
+     * The token is in scope here and deliberately left out: this report crosses
+     * the wire to a browser.
+     */
+    const onDescribeConfig = async (): Promise<AgentConfigReport> => {
+        // Only for an installed agent: a live one has no install of its own, and
+        // resolving the default paths would report the manifest of whatever
+        // installed agent happens to share the host.
+        const manifest = mode === "installed" && installDir && dataDir
+            ? await readManifest(resolveInstallPaths(installDir, dataDir))
+            : null;
+        const state = await readRuntimeState(dataDir);
+        return {
+            configPath,
+            control,
+            altControl,
+            cert,
+            mode,
+            installDir,
+            dataDir,
+            mechanism: manifest?.mechanism ?? null,
+            lastControl: state.lastControl ?? null,
+            lastControlAt: state.lastControlAt ?? null,
+            // The unit file, not the manifest: a manual install is "installed"
+            // too, and journald has nothing for it.
+            logUnit: await Bun.file(unitPath(AGENT_SPEC)).exists() ? `${AGENT_SPEC.name}.service` : null,
+        };
+    };
+
+    const handlers: Handlers = { onInstallService, onUpdateService, onConnected, onDescribeConfig };
 
     // Clear debris from a previous run killed mid-write: a partial self-update
     // download or symlink swap under the install dir, an interrupted state write

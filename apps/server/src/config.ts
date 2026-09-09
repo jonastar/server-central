@@ -37,6 +37,10 @@ const STACK_STATE_FILE = path.join(CONFIG_DIR, "compose-stacks.json");
 // (It was never plain "apps.json" — that name belongs to the OIDC client store,
 // apps/server/src/features/oidc/store.ts.)
 const LEGACY_STACK_STATE_FILE = path.join(CONFIG_DIR, "app-registry.json");
+// Per-host base directory the new/import stack dialogs start from (hostId → dir).
+// Its own file rather than a field on each stack record: it's a preference about
+// stacks that don't exist yet, so there is nothing to hang it off.
+const STACK_DEFAULT_DIR_FILE = path.join(CONFIG_DIR, "compose-stack-dirs.json");
 
 export interface Config {
     /**
@@ -296,4 +300,20 @@ export async function readComposeStackState(): Promise<Record<string, ComposeSta
 export async function writeComposeStackState(stacks: Record<string, ComposeStack>): Promise<void> {
     await ensureDir();
     await writeFileAtomic(STACK_STATE_FILE, JSON.stringify(stacks, null, 2));
+}
+
+/** Per-host default stack directory (hostId → absolute path). Missing or
+ *  unreadable is simply "no host has one" — this is a convenience default, and
+ *  losing it costs a retyped path, so it must never block startup. */
+export async function readComposeStackDirs(): Promise<Record<string, string>> {
+    try {
+        return JSON.parse(await fs.readFile(STACK_DEFAULT_DIR_FILE, "utf8")) as Record<string, string>;
+    } catch {
+        return {};
+    }
+}
+
+export async function writeComposeStackDirs(dirs: Record<string, string>): Promise<void> {
+    await ensureDir();
+    await writeFileAtomic(STACK_DEFAULT_DIR_FILE, JSON.stringify(dirs, null, 2));
 }

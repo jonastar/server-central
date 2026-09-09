@@ -40,7 +40,7 @@ export const AGENT_VERSION: string = pkg.version;
  * it would silently do the wrong thing about, rather than merely less of it
  * ("shellAsUser": an agent that drops `openShell.asUser` opens a root shell).
  */
-export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream", "shellAsUser", "execArgv", "resolvePaths", "uploadChunk"];
+export const AGENT_CAPABILITIES: readonly string[] = ["httpRequest", "stun", "heartbeat", "hostCapabilities", "execStream", "shellAsUser", "execArgv", "resolvePaths", "uploadChunk", "agentConfig"];
 
 /**
  * Common Name (and a baseline SAN entry) of the control-plane leaf cert. Agents
@@ -139,6 +139,57 @@ export interface AgentInstallInfo {
     defaultsUsable: boolean;
 }
 
+/**
+ * An agent's launch configuration, as the agent itself sees it — what the Agents
+ * view shows when you ask "how is this thing actually running?".
+ *
+ * Reported by the agent rather than assembled from what the control plane
+ * remembers about the install, because the two can disagree: the config file is
+ * editable on the host, an agent may have been installed by an older SC, and a
+ * live agent has no file at all. The point of the panel is to see what's true on
+ * the machine.
+ *
+ * **Carries no secret.** The durable agent token lives in the same config file
+ * and is deliberately not a field here — it's the credential that lets a machine
+ * act as this node, and nothing in a read-only inspector needs it.
+ */
+export interface AgentConfigReport {
+    /** Launch config file the agent was started from; null for a live agent,
+     *  which gets everything from CLI flags, and for the embedded agent. */
+    configPath: string | null;
+    /** Primary control-plane endpoint the agent dials (`wss://host:4142/node`).
+     *  Null for the embedded agent, which is *in* the control plane and dials
+     *  nothing — the same reason its cert and endpoint history are null. */
+    control: string | null;
+    /** Second endpoint tried when the primary doesn't answer (the WAN/domain one
+     *  for an agent enrolled off-LAN). Null when only one was configured. */
+    altControl: string | null;
+    /** Path to the pinned control-plane cert PEM this agent verifies against.
+     *  Null for the embedded agent, which has no link to authenticate. */
+    cert: string | null;
+    mode: AgentMode;
+    /** Where the binary and the cert/config/state live. Null for a live agent,
+     *  which installs nothing. For the embedded agent these are the *control
+     *  plane's* — it has no install of its own, and that's the install anyone
+     *  opening this panel is actually asking about. */
+    installDir: string | null;
+    dataDir: string | null;
+    /** How the install is supervised, read from the install manifest. Null when
+     *  there is no manifest — a live agent, or an install predating it. */
+    mechanism: InstallMechanism | null;
+    /** Endpoint that last reached the control plane, and when, from the agent's
+     *  runtime state file. Null when it has never recorded one. This is the field
+     *  that answers "is it actually using the alt URL?". */
+    lastControl: string | null;
+    lastControlAt: number | null;
+    /** systemd unit the agent's own output goes to, so the config panel can offer
+     *  its journal. Null when there's no unit to read (a live agent, or a manual
+     *  install) — same reasoning as the control plane's own `logUnit`. Reported
+     *  by the agent rather than spelled out in the web app so the unit name has
+     *  one definition, next to the install that creates it. */
+    logUnit: string | null;
+}
+
 /** Result of probing a candidate install/data directory on an agent's host. */
 export interface InstallProbeResult {
     /** The directory already exists. */
@@ -221,6 +272,12 @@ export interface ServersOperations {
 
     /** Probe a candidate install/data directory on an agent's host (writable + exec). */
     probeInstallPath: { data: { serverId: string; path: string }; response: InstallProbeResult };
+
+    // How a connected agent is configured, read from the agent itself. Fails with
+    // a real error for an agent too old to answer. The embedded agent answers by
+    // describing the control plane it lives in, since that is its configuration.
+    // Carries no credential — see AgentConfigReport.
+    getAgentConfig: { data: { serverId: string }; response: AgentConfigReport };
 
     // Updating an installed agent to the control plane's current AGENT_VERSION is
     // the task system's `update_agent` kind via `runTask`, for run history + logs.
