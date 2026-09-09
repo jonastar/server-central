@@ -27,6 +27,29 @@ export interface OidcClient {
     groupPrefix: string | null;
 }
 
+/**
+ * One live refresh-token chain: an app that can keep signing in as this user
+ * without them present.
+ *
+ * Listed separately from `UserSession` because it is a different thing that the
+ * sessions list can no longer stand in for. A refresh token deliberately
+ * outlives the login session that authorized it (a TV cannot re-run a browser
+ * flow), so "sign out everywhere" and "this account's active sessions" stopped
+ * describing the same set the moment refresh tokens existed.
+ */
+export interface AppGrant {
+    /** Identifies the rotation chain — the unit of revocation, since rotation
+     *  means the current token's value is a moving target. */
+    familyId: string;
+    clientId: string;
+    /** Resolved for display; "(deleted client)" when the registration is gone. */
+    clientName: string;
+    scope: string;
+    issuedAt: number;
+    /** When the chain lapses if it is never refreshed again. */
+    expiresAt: number;
+}
+
 /** Query params an authorization request carries, whether read from the RP's
  *  redirect (`GET /oidc/authorize`) or forwarded by the SPA's confirm screen. */
 export interface OidcAuthorizeParams {
@@ -55,6 +78,10 @@ export interface OidcOperations {
      *  Without this, a lost secret means delete + re-register, which mints a new
      *  id and so means reconfiguring the app rather than pasting one value. */
     regenerateSecret: { data: { clientId: string }; response: { clientSecret: string } };
+    /** Apps holding a live grant for one account, for the Users screen. */
+    listGrants: { data: { userId: string }; response: AppGrant[] };
+    /** Revoke one chain — the app must run a full authorization to come back. */
+    revokeGrant: { data: { familyId: string }; response: void };
     getAuthorizeRequest: { data: OidcAuthorizeParams; response: { appName: string; redirectUri: string } };
     completeAuthorize: { data: OidcAuthorizeParams; response: { redirectUrl: string } };
 }

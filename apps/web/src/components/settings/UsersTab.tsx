@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import type { Permission, RoleDef, SystemUserHostStatus, UserDetail, UserInfo } from "@central/shared";
+import type { App, AppGrant, Permission, RoleDef, SystemUserHostStatus, UserDetail, UserInfo } from "@central/shared";
 import { PANEL_PERMISSION_IDS, permissionDef } from "@central/shared";
 import { api } from "../../api";
 import { cx } from "../../utils";
@@ -166,6 +166,91 @@ function ChangePasswordForm({ userId, onDone }: { userId: string; onDone: () => 
     );
 }
 
+/**
+ * Apps that can keep signing in as this account without the person present.
+ *
+ * Separate from the sessions table above, and not merely for tidiness: a refresh
+ * token outlives the login session that authorized it, so once they exist the
+ * sessions list stops being the full answer to "what still has access". Revoking
+ * here forces the app back through a full authorization.
+ */
+function AppGrants({ userId }: { userId: string }) {
+    const [grants, setGrants] = useState<AppGrant[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [busy, setBusy] = useState<string | null>(null);
+
+    function refresh() {
+        api("oidc", "listGrants", { userId })
+            .then(setGrants)
+            .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    }
+
+    useEffect(refresh, [userId]);
+
+    async function revoke(grant: AppGrant) {
+        if (!confirm(`Revoke ${grant.clientName}'s access? It will have to sign in again, which for a device with no browser means pairing it again.`)) {
+            return;
+        }
+        setBusy(grant.familyId);
+        setError(null);
+        try {
+            await api("oidc", "revokeGrant", { familyId: grant.familyId });
+            refresh();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusy(null);
+        }
+    }
+
+    if (error) {
+        return <span className={shared.dim} style={{ fontSize: 12, color: "var(--err)" }}>{error}</span>;
+    }
+    if (grants === null) {
+        return <span className={shared.dim} style={{ fontSize: 12 }}>Loading…</span>;
+    }
+    if (grants.length === 0) {
+        return (
+            <span className={shared.dim} style={{ fontSize: 12 }}>
+                None. An app appears here once it signs this account in and asks to stay signed in.
+            </span>
+        );
+    }
+
+    return (
+        <table className={shared["data-table"]}>
+            <thead>
+                <tr>
+                    <th>App</th>
+                    <th>Scope</th>
+                    <th>Granted</th>
+                    <th>Expires</th>
+                    <th />
+                </tr>
+            </thead>
+            <tbody>
+                {grants.map((g) => (
+                    <tr key={g.familyId}>
+                        <td className={shared["file-name"]}>{g.clientName}</td>
+                        <td className={cx(shared.mono, shared.dim)}>{g.scope}</td>
+                        <td className={shared.dim}>{new Date(g.issuedAt).toLocaleString()}</td>
+                        <td className={shared.dim}>{new Date(g.expiresAt).toLocaleDateString()}</td>
+                        <td className={shared["row-actions-always"]}>
+                            <button
+                                className={cx(shared.btn, shared["btn-sm"])}
+                                disabled={busy === g.familyId}
+                                onClick={() => void revoke(g)}
+                            >
+                                Revoke
+                            </button>
+                        </td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    );
+}
+
 function EmailForm({ user, onSaved }: { user: UserInfo; onSaved: () => void }) {
     const [value, setValue] = useState(user.email ?? "");
     const [busy, setBusy] = useState(false);
@@ -300,9 +385,10 @@ function MappedHostsSummary({ user }: { user: UserInfo }) {
     );
 }
 
-function UserDetailBody({ user, roles, busy, onRolesChange, onChanged }: {
+function UserDetailBody({ user, roles, apps, busy, onRolesChange, onChanged }: {
     user: UserInfo;
     roles: RoleDef[];
+    apps: App[];
     busy: boolean;
     onRolesChange: (roleIds: string[]) => void;
     onChanged: () => void;
@@ -382,6 +468,11 @@ function UserDetailBody({ user, roles, busy, onRolesChange, onChanged }: {
                     )}
 
                     <div style={{ marginTop: 12 }}>
+                        <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>Connected apps</div>
+                        <AppGrants userId={user.id} />
+                    </div>
+
+                    <div style={{ marginTop: 12 }}>
                         <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>Email</div>
                         <EmailForm user={user} onSaved={onChanged} />
                     </div>
@@ -401,7 +492,7 @@ function UserDetailBody({ user, roles, busy, onRolesChange, onChanged }: {
 
                     <div style={{ marginTop: 12 }}>
                         <div className={uiStyles["detail-label"]} style={{ marginBottom: 4 }}>Extra permissions</div>
-                        <PermissionsForm user={user} detail={detail} onSaved={onChanged} />
+                        <PermissionsForm user={user} detail={detail} apps={apps} onSaved={onChanged} />
                     </div>
 
                     <div style={{ marginTop: 12 }}>
@@ -414,17 +505,29 @@ function UserDetailBody({ user, roles, busy, onRolesChange, onChanged }: {
     );
 }
 
+/** Every `app.<slug>.<role>` node the registered apps declare — the closed
+ *  half of an otherwise open namespace, and what the checklist offers. */
+function declaredAppNodes(apps: App[]): Set<string> {
+    return new Set(apps.flatMap((a) => a.roles.map((r) => `app.${a.slug}.${r}`)));
+}
+
 /**
  * Ad-hoc permission grants on top of the role bundle.
  *
- * Free text rather than a checkbox tree, because only half the namespace has a
- * registry: `app.*` role names are the app's business and can't be enumerated
- * here. What the registry does give is an explanation of every `panel.*` node,
- * shown as a reference list beside the field — so "panel.zfs.admin" isn't a
- * string someone pastes hopefully.
+ * Two halves, because the namespace has two halves. Roles that a registered App
+ * declares are checkboxes — that is the whole reason apps declare them, and it
+ * removes the last free-text path into a namespace nothing validates. Everything
+ * else stays a text field: `panel.*` nodes, wildcards, and app roles belonging
+ * to apps that are not registered or have declared nothing, all of which remain
+ * legitimate. The registry's explanation of every `panel.*` node sits beside it
+ * as a reference, so "panel.zfs.admin" isn't a string someone pastes hopefully.
  */
-function PermissionsForm({ user, detail, onSaved }: { user: UserInfo; detail: UserDetail; onSaved: () => void }) {
-    const [value, setValue] = useState(detail.extraPermissions.join("\n"));
+function PermissionsForm({ user, detail, apps, onSaved }: { user: UserInfo; detail: UserDetail; apps: App[]; onSaved: () => void }) {
+    const declared = declaredAppNodes(apps);
+    // The checkboxes own the declared nodes; the textarea owns the rest. Split
+    // on load so a node can never be edited in two places at once.
+    const [checked, setChecked] = useState<string[]>(detail.extraPermissions.filter((p) => declared.has(p)));
+    const [value, setValue] = useState(detail.extraPermissions.filter((p) => !declared.has(p)).join("\n"));
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [saved, setSaved] = useState(false);
@@ -437,7 +540,10 @@ function PermissionsForm({ user, detail, onSaved }: { user: UserInfo; detail: Us
         setBusy(true);
         setError(null);
         try {
-            const permissions = value.split("\n").map((l) => l.trim()).filter(Boolean);
+            const typed = value.split("\n").map((l) => l.trim()).filter(Boolean);
+            // Union, and the textarea's copy of a declared node loses: the
+            // checkbox is the authority for anything an app declares.
+            const permissions = [...new Set([...checked, ...typed.filter((p) => !declared.has(p))])];
             await api("auth", "setUserPermissions", { userId: user.id, permissions });
             setSaved(true);
             onSaved();
@@ -452,12 +558,53 @@ function PermissionsForm({ user, detail, onSaved }: { user: UserInfo; detail: Us
         return <div className={shared.dim}>The owner holds every permission and can't be restricted.</div>;
     }
 
+    function toggle(node: string, on: boolean) {
+        setChecked((prev) => (on ? [...prev, node] : prev.filter((p) => p !== node)));
+        setSaved(false);
+    }
+
+    const withRoles = apps.filter((a) => a.roles.length > 0);
+
     return (
         <div>
             {error && <ErrorBanner>{error}</ErrorBanner>}
+
+            {withRoles.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                    <div className={shared.dim} style={{ fontSize: 12, marginBottom: 6 }}>App access</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {withRoles.map((app) => (
+                            <div key={app.id} style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                                <span style={{ minWidth: 110 }}>
+                                    {app.name}
+                                    {app.requireRole && (
+                                        <span className={shared.dim} style={{ fontSize: 11 }}> · role required</span>
+                                    )}
+                                </span>
+                                {app.roles.map((role) => {
+                                    const node = `app.${app.slug}.${role}`;
+                                    return (
+                                        <label key={role} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13 }}>
+                                            <input
+                                                type="checkbox"
+                                                checked={checked.includes(node)}
+                                                onChange={(e) => toggle(node, e.target.checked)}
+                                                style={{ width: "auto", margin: 0 }}
+                                            />
+                                            <span className={shared.mono}>{role}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             <div className={shared.dim} style={{ fontSize: 12, marginBottom: 6 }}>
-                One node per line, on top of the {fromRoles} granted by this account's roles.
-                Use <span className={shared.mono}>app.immich.user</span> for app access, or
+                {withRoles.length > 0 ? "Other nodes, one per line" : "One node per line"}, on top of
+                the {fromRoles} granted by this account's roles.
+                Use <span className={shared.mono}>app.immich.user</span> for an app that isn't registered, or
                 a <span className={shared.mono}>prefix.*</span> wildcard.
             </div>
             <textarea
@@ -535,6 +682,9 @@ function PermissionReference({ held }: { held: readonly string[] }) {
 export function UsersTab() {
     const [users, setUsers] = useState<UserInfo[] | null>(null);
     const [roles, setRoles] = useState<RoleDef[]>([]);
+    // Declared app roles drive the access checklist. An empty list just means
+    // the grants stay free text, so a failure here needs no error banner.
+    const [apps, setApps] = useState<App[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
@@ -549,6 +699,7 @@ export function UsersTab() {
     }
 
     useEffect(refresh, []);
+    useEffect(() => { api("apps", "list", undefined).then(setApps).catch(() => setApps([])); }, []);
 
     async function handleRolesChange(userId: string, roleIds: string[]) {
         setBusyId(userId);
@@ -648,6 +799,7 @@ export function UsersTab() {
                                                         <UserDetailBody
                                                             user={u}
                                                             roles={roles}
+                                                            apps={apps}
                                                             busy={busyId === u.id}
                                                             onRolesChange={(ids) => void handleRolesChange(u.id, ids)}
                                                             onChanged={refresh}

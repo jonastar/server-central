@@ -333,12 +333,12 @@ export const PANEL_PERMISSIONS = {
     "panel.users.read": {
         label: "View accounts",
         description: "See control-panel accounts, their roles and their active sessions.",
-        ops: ["auth/listUsers", "auth/getUserDetail"],
+        ops: ["auth/listUsers", "auth/getUserDetail", "oidc/listGrants"],
     },
     "panel.users.admin": {
         label: "Manage accounts",
         description: "Create and delete accounts, set passwords, assign roles and grant permissions — including granting permissions to oneself.",
-        ops: ["auth/createUser", "auth/deleteUser", "auth/setUserRoles", "auth/revokeUserSession", "auth/adminSetPassword", "auth/setUserSystemUser", "auth/setUserPermissions", "auth/setUserEmail"],
+        ops: ["auth/createUser", "auth/deleteUser", "auth/setUserRoles", "auth/revokeUserSession", "auth/adminSetPassword", "auth/setUserSystemUser", "auth/setUserPermissions", "auth/setUserEmail", "oidc/revokeGrant"],
         escalation: "Granting oneself any permission is one edit away, and every root-equivalent permission is reachable from there.",
         sensitive: true,
     },

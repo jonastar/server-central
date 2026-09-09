@@ -210,6 +210,24 @@ describe("OIDC provider", () => {
         expect(groupsForClient(auth.getUserById(bob.id)!, "immich", known)).toEqual(["app.immich.user"]);
     });
 
+    test("declared roles replace the guessed .admin leaf for the owner", async () => {
+        const { user } = await auth.setupOwner("alice", "supersecret");
+        const owner = auth.getUserById(user.id)!;
+
+        // With nothing declared, the owner gets the naming convention — a guess,
+        // and wrong for an app whose admin role is called something else.
+        expect(groupsForClient(owner, "plex", [], [])).toEqual(["app.plex.admin"]);
+
+        // Declaring them makes it a fact, and covers every role rather than just
+        // the one the convention happens to name.
+        expect(groupsForClient(owner, "plex", [], ["viewer", "owner"]))
+            .toEqual(["app.plex.owner", "app.plex.viewer"]);
+
+        // Non-owners are unaffected either way — declaring a role does not grant it.
+        const bob = await auth.addUser("bob", "supersecret", []);
+        expect(groupsForClient(auth.getUserById(bob.id)!, "plex", [], ["viewer", "owner"])).toEqual([]);
+    });
+
     test("claims are gated on the requested scope", () => {
         const user = { ...withGrants(), email: "alice@example.com" };
         // `openid` alone earns nothing but the subject. Previously `groups` was

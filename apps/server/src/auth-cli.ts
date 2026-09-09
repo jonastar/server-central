@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { AuthStore } from "./auth";
 import { RoleStore } from "./roles";
+import { RefreshTokenStore } from "./features/oidc/refresh";
 import { CONFIG_DIR } from "./config";
 import { DEFAULT_SERVER_DATA_DIR } from "./server-install";
 
@@ -154,6 +155,12 @@ export async function runAuthCli(argv: string[]): Promise<void> {
     const roles = new RoleStore(dataDir);
     await roles.init();
     const auth = new AuthStore(roles, dataDir);
+    // Same fan-out the server installs: a password reset here must revoke app
+    // access too, or an OIDC client keeps signing in as the account whose
+    // password was just changed out from under it.
+    const refresh = new RefreshTokenStore(dataDir);
+    await refresh.init();
+    auth.onUserCredentialsRevoked((userId) => refresh.revokeForUser(userId));
     await auth.init();
 
     const wanted = username.trim().toLowerCase();

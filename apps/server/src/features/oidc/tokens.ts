@@ -73,17 +73,21 @@ function hasScope(scope: string, wanted: string): boolean {
  *   - `knownAppNodes`, every `app.*` node this installation actually uses
  *     (see AuthStore.knownAppPermissions),
  *   - any app nodes listed on the account itself, and
- *   - `app.<prefix>.admin` when the client declares a prefix — the `.admin`
- *     leaf is this codebase's naming convention, and without it a freshly
- *     registered app that nobody holds grants for yet would still hand the
- *     owner an empty list.
+ *   - every role the App **declares** (`declaredRoles`), which is the whole
+ *     reason apps declare them: a freshly registered app that nobody holds
+ *     grants for yet would otherwise hand the owner an empty list.
  *
- * That last one is a convention, not knowledge: an app whose admin role is
- * named something else needs the node granted explicitly. A per-client list of
- * declared role names would replace this guess with a fact — see
- * doc/idea_sign_in_methods.md.
+ * Where an App declares nothing, the `.admin` leaf is assumed instead — this
+ * codebase's naming convention, and a guess rather than knowledge. Declaring
+ * roles on the App replaces the guess with a fact, so an app whose admin role
+ * is named something else stops needing the node granted by hand.
  */
-export function groupsForClient(user: UserInfo, groupPrefix: string | null, knownAppNodes: readonly Permission[] = []): Permission[] {
+export function groupsForClient(
+    user: UserInfo,
+    groupPrefix: string | null,
+    knownAppNodes: readonly Permission[] = [],
+    declaredRoles: readonly string[] = [],
+): Permission[] {
     const node = groupPrefix ? `app.${groupPrefix}` : null;
     const inScope = (p: Permission): boolean =>
         node === null ? p.startsWith("app.") : p === node || p.startsWith(`${node}.`);
@@ -93,7 +97,12 @@ export function groupsForClient(user: UserInfo, groupPrefix: string | null, know
     }
     const owned = new Set<Permission>([...knownAppNodes, ...user.permissions].filter(inScope));
     if (node) {
-        owned.add(`${node}.admin`);
+        const expanded = declaredRoles.length > 0
+            ? declaredRoles.map((role) => `${node}.${role}`)
+            : [`${node}.admin`];
+        for (const role of expanded) {
+            owned.add(role);
+        }
     }
     return [...owned].sort();
 }
@@ -108,7 +117,13 @@ export function groupsForClient(user: UserInfo, groupPrefix: string | null, know
  * so the address was either asserted by an administrator or accepted from an
  * upstream provider that verified it. See doc/idea_sign_in_methods.md §2.
  */
-export function scopedClaims(user: UserInfo, scope: string, groupPrefix: string | null, knownAppNodes: readonly Permission[] = []): Record<string, unknown> {
+export function scopedClaims(
+    user: UserInfo,
+    scope: string,
+    groupPrefix: string | null,
+    knownAppNodes: readonly Permission[] = [],
+    declaredRoles: readonly string[] = [],
+): Record<string, unknown> {
     const claims: Record<string, unknown> = { sub: user.id };
     if (hasScope(scope, "profile")) {
         claims.preferred_username = user.username;
@@ -119,19 +134,28 @@ export function scopedClaims(user: UserInfo, scope: string, groupPrefix: string 
     }
     if (hasScope(scope, "groups")) {
         // Custom claim (not OIDC-standard) — how grants are exposed for SSO.
-        claims.groups = groupsForClient(user, groupPrefix, knownAppNodes);
+        claims.groups = groupsForClient(user, groupPrefix, knownAppNodes, declaredRoles);
     }
     return claims;
 }
 
 export function buildIdToken(
     user: UserInfo,
-    opts: { issuer: string; clientId: string; nonce: string | null; authTime: number; scope: string; groupPrefix: string | null; knownAppNodes?: readonly Permission[] },
+    opts: {
+        issuer: string;
+        clientId: string;
+        nonce: string | null;
+        authTime: number;
+        scope: string;
+        groupPrefix: string | null;
+        knownAppNodes?: readonly Permission[];
+        declaredRoles?: readonly string[];
+    },
     key: SigningKey,
 ): string {
     const now = Math.floor(Date.now() / 1000);
     const payload: Record<string, unknown> = {
-        ...scopedClaims(user, opts.scope, opts.groupPrefix, opts.knownAppNodes ?? []),
+        ...scopedClaims(user, opts.scope, opts.groupPrefix, opts.knownAppNodes ?? [], opts.declaredRoles ?? []),
         iss: opts.issuer,
         aud: opts.clientId,
         exp: now + ID_TOKEN_TTL_S,

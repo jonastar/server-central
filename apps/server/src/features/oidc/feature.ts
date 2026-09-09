@@ -1,9 +1,10 @@
-import type { OidcAuthorizeParams, OidcClient } from "@central/shared";
+import type { OidcAuthorizeParams, OidcClient, UserInfo } from "@central/shared";
 import type { AuthStore, AuthContext } from "../../auth";
 import { readConfig } from "../../config";
 import type { HttpRoute } from "../../feature";
 import { defineFeature } from "../../feature";
 import type { AppStore } from "../apps/store";
+import type { RefreshTokenStore } from "./refresh";
 import type { OidcStore } from "./store";
 import { discoveryDocument } from "./discovery";
 import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, groupsForClient, jwks, scopedClaims, verifyJwt, verifyPkce } from "./tokens";
@@ -12,7 +13,7 @@ import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, groupsForClient, jw
 // Central's built-in OIDC provider — unrelated to the App entity (compose stacks
 // on a host) the apps feature owns.
 
-export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppStore) => defineFeature({
+export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppStore, refresh: RefreshTokenStore) => defineFeature({
     id: "oidc",
     name: "OIDC provider",
     description: "Central's built-in OpenID Connect provider and its client registrations.",
@@ -21,7 +22,8 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
     
     async init() {
         await oidc.init();
-            },
+        await refresh.init();
+    },
     ops: {
         // ---- Client registrations (owner-only admin) ---------------------------
 
@@ -39,10 +41,31 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
 
         async deleteClient(data, ctx?: AuthContext) {
             await oidc.deleteClient(data.clientId);
+            // Grants already handed out under a registration outlive it
+            // otherwise: the client can no longer authenticate at the token
+            // endpoint, but leaving live rows behind would keep them listed as
+            // connected apps forever.
+            await refresh.revokeForClient(data.clientId);
         },
 
         async regenerateSecret(data) {
             return { clientSecret: await oidc.regenerateSecret(data.clientId) };
+        },
+
+        // ---- Grants held on a user's behalf (Users screen) ---------------------
+
+        async listGrants(data) {
+            const clients = oidc.listClients();
+            return refresh.listForUser(data.userId).map((grant) => ({
+                ...grant,
+                // A registration can be deleted while its grants are still
+                // listed; showing the raw id would be useless to a reader.
+                clientName: clients.find((c) => c.id === grant.clientId)?.name ?? "(deleted client)",
+            }));
+        },
+
+        async revokeGrant(data) {
+            await refresh.revokeFamily(data.familyId);
         },
 
         // ---- Front-channel (authenticated user) --------------------------------
@@ -80,7 +103,7 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
                 // owner passes on its expanded roles rather than on a special
                 // case, and a user passes exactly when the app would have been
                 // told about at least one of their roles.
-                if (groupsForClient(ctx.user, linked.slug, auth.knownAppPermissions()).length === 0) {
+                if (groupsForClient(ctx.user, linked.slug, auth.knownAppPermissions(), linked.roles).length === 0) {
                     throw new Error(`Your account has no access to ${linked.name}. Ask an administrator to grant you a role.`);
                 }
             }
@@ -98,7 +121,7 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
             return { redirectUrl: url.toString() };
         },
     },
-    httpRoutes: () => oidcHttpRoutes(oidc, auth, apps),
+    httpRoutes: () => oidcHttpRoutes(oidc, auth, apps, refresh),
 });
 
 // ---- Raw HTTP endpoints ---------------------------------------------------------
@@ -143,7 +166,14 @@ export function effectiveGroupPrefix(client: OidcClient, apps: AppStore): string
     return apps.slugFor(client.appId) ?? client.groupPrefix ?? null;
 }
 
-export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore): HttpRoute[] {
+/** The role names the linked App declares, which is what the owner's `*`
+ *  expands to instead of the guessed `.admin` leaf. Empty for an unlinked
+ *  client, or one whose App declares none. */
+export function declaredRolesFor(client: OidcClient, apps: AppStore): string[] {
+    return (client.appId ? apps.get(client.appId)?.roles : null) ?? [];
+}
+
+export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore, refresh: RefreshTokenStore): HttpRoute[] {
     async function discovery(_req: Request, cors: Record<string, string>, which: "config" | "jwks"): Promise<Response> {
         const config = await readConfig();
         if (!config.primaryUrl) {
@@ -151,6 +181,67 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore)
         }
         const body = which === "jwks" ? jwks(oidc.key) : discoveryDocument(config.primaryUrl);
         return Response.json(body, { headers: cors });
+    }
+
+    /** Scope values that earn a refresh token (OIDC Core 1.0 §11). */
+    function hasOfflineAccess(scope: string): boolean {
+        return scope.split(/\s+/).filter(Boolean).includes("offline_access");
+    }
+
+    /** The half of a token response that both grants produce identically. */
+    function tokenResponse(user: UserInfo, client: OidcClient, scope: string, issuer: string) {
+        return {
+            access_token: buildAccessToken(user, { issuer, clientId: client.id, scope }, oidc.key),
+            token_type: "Bearer",
+            expires_in: ACCESS_TOKEN_TTL_S,
+            scope,
+        };
+    }
+
+    /**
+     * `grant_type=refresh_token`. Deliberately does **not** mint a new ID token:
+     * the client already established who the user is, and re-asserting identity
+     * without a fresh authentication would misreport `auth_time`.
+     */
+    async function refreshGrant(body: URLSearchParams, req: Request, cors: Record<string, string>): Promise<Response> {
+        const presented = body.get("refresh_token");
+        const creds = clientCredentials(req, body);
+        if (!presented || !creds) {
+            return Response.json({ error: "invalid_request" }, { status: 400, headers: cors });
+        }
+        const client = await oidc.verifyClientSecret(creds.clientId, creds.clientSecret);
+        if (!client) {
+            return Response.json({ error: "invalid_client" }, { status: 401, headers: cors });
+        }
+        const result = await refresh.rotate(presented);
+        if (result === null) {
+            return Response.json({ error: "invalid_grant" }, { status: 400, headers: cors });
+        }
+        if ("reused" in result) {
+            return Response.json({
+                error: "invalid_grant",
+                error_description: "Refresh token was already used; all tokens in this chain have been revoked.",
+            }, { status: 400, headers: cors });
+        }
+        // A token minted for one client must not be redeemable by another, even
+        // though both authenticated successfully as themselves.
+        if (result.grant.clientId !== client.id) {
+            await refresh.revokeFamily(result.grant.familyId);
+            return Response.json({ error: "invalid_grant" }, { status: 400, headers: cors });
+        }
+        const user = auth.getUserById(result.grant.userId);
+        if (!user) {
+            await refresh.revokeFamily(result.grant.familyId);
+            return Response.json({ error: "invalid_grant", error_description: "User no longer exists" }, { status: 400, headers: cors });
+        }
+        const config = await readConfig();
+        if (!config.primaryUrl) {
+            return Response.json({ error: "server_error", error_description: "Primary URL is not configured" }, { status: 500, headers: cors });
+        }
+        return Response.json({
+            ...tokenResponse(user, client, result.grant.scope, config.primaryUrl),
+            refresh_token: result.next,
+        }, { headers: cors });
     }
 
     return [
@@ -167,7 +258,11 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore)
             method: "POST",
             async handle(req, cors) {
                 const body = new URLSearchParams(await req.text());
-                if (body.get("grant_type") !== "authorization_code") {
+                const grantType = body.get("grant_type");
+                if (grantType === "refresh_token") {
+                    return refreshGrant(body, req, cors);
+                }
+                if (grantType !== "authorization_code") {
                     return Response.json({ error: "unsupported_grant_type" }, { status: 400, headers: cors });
                 }
                 const code = body.get("code");
@@ -198,16 +293,44 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore)
                     return Response.json({ error: "server_error", error_description: "Primary URL is not configured" }, { status: 500, headers: cors });
                 }
 
-                const key = oidc.key;
-                const idToken = buildIdToken(user, { issuer: config.primaryUrl, clientId: client.id, nonce: grant.nonce, authTime: Math.floor(grant.issuedAt / 1000), scope: grant.scope, groupPrefix: effectiveGroupPrefix(client, apps), knownAppNodes: auth.knownAppPermissions() }, key);
-                const accessToken = buildAccessToken(user, { issuer: config.primaryUrl, clientId: client.id, scope: grant.scope }, key);
-                return Response.json({
-                    access_token: accessToken,
-                    id_token: idToken,
-                    token_type: "Bearer",
-                    expires_in: ACCESS_TOKEN_TTL_S,
+                const idToken = buildIdToken(user, {
+                    issuer: config.primaryUrl,
+                    clientId: client.id,
+                    nonce: grant.nonce,
+                    authTime: Math.floor(grant.issuedAt / 1000),
                     scope: grant.scope,
+                    groupPrefix: effectiveGroupPrefix(client, apps),
+                    knownAppNodes: auth.knownAppPermissions(),
+                    declaredRoles: declaredRolesFor(client, apps),
+                }, oidc.key);
+                return Response.json({
+                    ...tokenResponse(user, client, grant.scope, config.primaryUrl),
+                    id_token: idToken,
+                    // Only the initial exchange can start a chain; a refresh
+                    // rotates an existing one instead.
+                    ...(hasOfflineAccess(grant.scope)
+                        ? { refresh_token: await refresh.issue({ userId: user.id, clientId: client.id, scope: grant.scope }) }
+                        : {}),
                 }, { headers: cors });
+            },
+        },
+        {
+            path: "/oidc/revoke",
+            method: "POST",
+            // RFC 7009. Answers 200 whether or not the token existed: telling an
+            // unauthenticated caller "that was a real token" is an oracle, and
+            // the spec asks for 200 on unknown tokens for exactly that reason.
+            async handle(req, cors) {
+                const body = new URLSearchParams(await req.text());
+                const token = body.get("token");
+                const creds = clientCredentials(req, body);
+                if (!creds || !await oidc.verifyClientSecret(creds.clientId, creds.clientSecret)) {
+                    return Response.json({ error: "invalid_client" }, { status: 401, headers: cors });
+                }
+                if (token) {
+                    await refresh.revoke(token);
+                }
+                return new Response(null, { status: 200, headers: cors });
             },
         },
         {
@@ -227,7 +350,7 @@ export function oidcHttpRoutes(oidc: OidcStore, auth: AuthStore, apps: AppStore)
                     return Response.json({ error: "invalid_token" }, { status: 401, headers: cors });
                 }
                 const scope = typeof payload?.scope === "string" ? payload.scope : "";
-                return Response.json(scopedClaims(user, scope, effectiveGroupPrefix(client, apps), auth.knownAppPermissions()), { headers: cors });
+                return Response.json(scopedClaims(user, scope, effectiveGroupPrefix(client, apps), auth.knownAppPermissions(), declaredRolesFor(client, apps)), { headers: cors });
             },
         },
     ];

@@ -19,6 +19,7 @@ import { createNetworkFeature } from "./features/network/feature";
 import { AppStore } from "./features/apps/store";
 import { createAppsFeature } from "./features/apps/feature";
 import { OidcStore } from "./features/oidc/store";
+import { RefreshTokenStore } from "./features/oidc/refresh";
 import { createOidcFeature } from "./features/oidc/feature";
 import { createProcessesFeature } from "./features/processes/feature";
 import { ProxyManager } from "./features/proxy/manager";
@@ -151,6 +152,11 @@ applyTrustedProxies(startupConfig.trustedProxies ?? []);
 
 const oidcStore = new OidcStore();
 const appStore = new AppStore();
+const refreshStore = new RefreshTokenStore();
+// Deleting an account or resetting its password must take its app access with
+// it; without this the browser session goes and an app holding a refresh token
+// keeps minting access tokens for it.
+auth.onUserCredentialsRevoked((userId) => refreshStore.revokeForUser(userId));
 const dashboardStore = new DashboardStore();
 const proxyStore = new ProxyStore();
 const proxyManager = new ProxyManager(fleet, proxyStore);
@@ -180,7 +186,7 @@ const baseFeatures = defineFeatures(
     createDebugFeature(),
     createAuthFeature(auth, roleStore),
     createAppsFeature(appStore, oidcStore),
-    createOidcFeature(oidcStore, auth, appStore),
+    createOidcFeature(oidcStore, auth, appStore, refreshStore),
     createDashboardFeature(dashboardStore),
     createProxyFeature(proxyManager, proxyStore),
     createServersFeature(fleet, nodeServer),

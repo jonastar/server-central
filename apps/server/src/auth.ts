@@ -91,10 +91,21 @@ export class AuthStore {
     private loginFailures = new Map<string, { count: number; blockedUntil: number }>();
     private readonly usersFile: string;
     private readonly sessionsFile: string;
+    /** Notified whenever a user's credentials are invalidated wholesale, so
+     *  credentials this store knows nothing about can be revoked with them —
+     *  OIDC refresh tokens, today. A hook rather than a constructor dependency
+     *  because AuthStore is also built standalone by the recovery CLI, and
+     *  "reset the password" has to mean the same thing there. */
+    private onCredentialsRevoked: ((userId: string) => Promise<void>) | null = null;
 
     constructor(private readonly roles: RoleStore, dataDir: string = CONFIG_DIR) {
         this.usersFile = path.join(dataDir, "users.json");
         this.sessionsFile = path.join(dataDir, "sessions.json");
+    }
+
+    /** Register the fan-out for {@link onCredentialsRevoked}. */
+    onUserCredentialsRevoked(handler: (userId: string) => Promise<void>): void {
+        this.onCredentialsRevoked = handler;
     }
 
     async init(): Promise<void> {
@@ -434,6 +445,9 @@ export class AuthStore {
         await this.deleteSessionsForUser(userId);
     }
 
+    /** Every session, plus anything else holding this account's credentials.
+     *  Called on delete and on an admin password reset — both mean "nothing
+     *  issued before now should still work". */
     private async deleteSessionsForUser(userId: string): Promise<void> {
         let changed = false;
         for (const [token, session] of Object.entries(this.sessions)) {
@@ -445,6 +459,7 @@ export class AuthStore {
         if (changed) {
             await this.persistSessions();
         }
+        await this.onCredentialsRevoked?.(userId);
     }
 
     /** Resolve a bearer token to its user, refreshing the session's last-seen. */
