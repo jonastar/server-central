@@ -53,6 +53,12 @@ export type ComposeStackRunStatus = "running" | "partial" | "stopped" | "down";
 export interface ComposeStackStatus {
     status: ComposeStackRunStatus;
     services: ComposeServiceStatus[];
+    /** Set when `docker compose config` failed, the same distinction
+     *  `ComposeStackDetection.composeError` draws: `services` then holds only
+     *  what's actually running (possibly nothing), which is not the same claim
+     *  as "this file declares no services". A stack whose compose file needs a
+     *  sibling `.env` that isn't there lands here. */
+    error?: string;
 }
 
 /**

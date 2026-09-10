@@ -143,7 +143,7 @@ export function ImportComposeStackModal({ host, initialDir, onClose, onImported 
                             <div style={{ border: "1px solid color-mix(in srgb, var(--warn) 40%, var(--border))", background: "color-mix(in srgb, var(--warn) 8%, var(--panel))", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
                                 <b style={{ color: "var(--warn)" }}>Couldn't read services from the compose file</b>
                                 <span className={shared.dim}>{detection.composeError}</span>
-                                <span className={shared.dim}>The service count above may show 0 even though the file declares some — you can still import, and the correct count will show once the stack is registered.</span>
+                                <span className={shared.dim}>The service count above may show 0 even though the file declares some — you can still import, and the stack view will report the same error until whatever compose is complaining about is fixed (a missing <code>.env</code>, most often).</span>
                             </div>
                         )}
 

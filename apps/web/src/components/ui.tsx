@@ -27,6 +27,18 @@ export function ExperimentalBanner({ children }: { children: ReactNode }) {
     );
 }
 
+/** Warning banner with a heading and stacked detail lines — for something that
+ *  went wrong but left the surface usable, where the detail is worth reading
+ *  (unlike {@link ErrorBanner}, which states one thing and stops). */
+export function WarnBanner({ title, children }: { title: string; children: ReactNode }) {
+    return (
+        <div className={cx(styles["warn-banner"], styles["warn-banner-stack"])}>
+            <strong>{title}</strong>
+            {children}
+        </div>
+    );
+}
+
 export function Modal({ title, onClose, children, width, large, tone }: {
     title: string;
     onClose: () => void;

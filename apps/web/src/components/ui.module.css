@@ -151,6 +151,13 @@
     flex-shrink: 0;
 }
 
+/* Same banner, stacked — for a warning that needs a heading plus a couple of
+   lines of detail (a command's error text, say) rather than one inline phrase. */
+.warn-banner-stack {
+    flex-direction: column;
+    gap: 4px;
+}
+
 .detail-row {
     display: grid;
     grid-template-columns: 120px 1fr;

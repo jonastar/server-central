@@ -71,6 +71,12 @@ feature may run longer; most don't earn it.
 
 ### Fixed
 
+- **A stack whose compose file won't parse no longer claims "No services declared yet."** The
+  Overview now shows why `docker compose config` failed — usually a published compose file
+  whose `.env` isn't there yet, as Immich's is.
+- **Compose's per-variable "variable is not set" warnings no longer crowd out the real error**
+  in a failed command's message, which they did often enough to truncate the cause away.
+
 - **A failed upload no longer truncates the file it was replacing.** The agent writes to a temp
   sibling and renames it into place, so a dropped transfer leaves the original intact.
 

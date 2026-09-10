@@ -14,7 +14,7 @@ import { DeleteComposeStackModal } from "./DeleteComposeStackModal";
 import { FilesView } from "./FilesView";
 import { useHistoryState } from "../hooks/useHistoryState";
 import { LogViewer } from "./LogViewer";
-import { ActionMenu, EmptyState, ErrorBanner, TaskProgress } from "./ui";
+import { ActionMenu, EmptyState, ErrorBanner, TaskProgress, WarnBanner } from "./ui";
 import shared from "../styles/shared.module.css";
 
 const REFRESH_MS = 10_000;
@@ -281,8 +281,27 @@ function OverviewTab({ stack, host, status, tasks, busy, taskId, run, onOpenCont
                             Open in Containers ↗
                         </button>
                     </div>
+                    {status?.error && (
+                        // "No services declared yet" is a claim about the compose
+                        // file, and it isn't one we can make when compose refused
+                        // to read the file at all. The usual cause is a compose
+                        // file that interpolates variables from a sibling `.env`
+                        // that isn't there yet (Immich's published file is the
+                        // stock example) — the error text says which.
+                        <WarnBanner title="Couldn't read services from the compose file">
+                            <span className={cx(shared.dim, shared.mono)} style={{ fontSize: 12 }}>{status.error}</span>
+                            <span className={shared.dim}>
+                                Any services below are the containers actually running, not what the
+                                file declares. If it interpolates variables, check that the{" "}
+                                <code>.env</code> it reads them from exists in the stack directory —
+                                the Files tab can create it.
+                            </span>
+                        </WarnBanner>
+                    )}
                     {!status || status.services.length === 0 ? (
-                        <EmptyState>No services declared yet.</EmptyState>
+                        status?.error
+                            ? <EmptyState>No containers running for this stack.</EmptyState>
+                            : <EmptyState>No services declared yet.</EmptyState>
                     ) : (
                         <table className={shared["data-table"]}>
                             <thead>

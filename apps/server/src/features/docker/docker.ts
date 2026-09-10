@@ -77,14 +77,25 @@ function parseLabel(labels: string | undefined, key: string): string | undefined
     return undefined;
 }
 
+/** Compose's own logrus lines for a warning it recovered from — `time="…"
+ *  level=warning msg="The "FOO" variable is not set…"`. Never the reason a
+ *  command failed (compose reports those at a higher level, or as plain text),
+ *  but a compose file interpolating a dozen variables emits one per variable,
+ *  which is enough to push the actual error past `errorText`'s length cap. */
+const COMPOSE_WARNING_LINE_RE = /^time="[^"]*"\s+level=warning\b/;
+
 /**
  * The full (bounded) error output of a failed docker command. Docker often
  * prints the useful daemon error first and a generic summary last ("Error:
  * failed to start containers: <id>"), so returning any single line hides the
- * cause — return everything, newlines collapsed for one-banner display.
+ * cause — return everything, newlines collapsed for one-banner display, minus
+ * compose's recovered-warning chatter (which is only ever dropped when
+ * something else survives to explain the failure).
  */
 function errorText(res: { stdout: string; stderr: string }): string {
-    const text = [res.stdout, res.stderr].join("\n").trim().split("\n").map((l) => l.trim()).filter(Boolean).join(" — ");
+    const lines = [res.stdout, res.stderr].join("\n").trim().split("\n").map((l) => l.trim()).filter(Boolean);
+    const meaningful = lines.filter((l) => !COMPOSE_WARNING_LINE_RE.test(l));
+    const text = (meaningful.length > 0 ? meaningful : lines).join(" — ");
     return text.length > 600 ? `${text.slice(0, 600)}…` : text;
 }
 
@@ -533,7 +544,7 @@ export async function getComposeStackStatus(
     composeFile: string,
     project: string,
 ): Promise<ComposeStackStatus> {
-    const { config } = await composeConfig(server, dir, composeFile, project);
+    const { config, error } = await composeConfig(server, dir, composeFile, project);
     const declared = config ? Object.keys(config.services ?? {}) : [];
 
     const psRes = await server.run(composeArgv(composeFile, project, "ps", "--format", "json", "--all"), { cwd: dir });
@@ -580,7 +591,7 @@ export async function getComposeStackStatus(
                 : upCount === services.length ? "running"
                     : "partial";
 
-    return { status, services };
+    return { status, services, error };
 }
 
 /** `docker compose logs`, optionally scoped to one service — one-shot, not

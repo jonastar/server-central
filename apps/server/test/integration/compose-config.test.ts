@@ -170,3 +170,66 @@ test("containers running for services the compose file doesn't declare still sho
     expect(status.services.map((s) => s.name)).toEqual(["web", "worker"]);
     expect(status.status).toBe("running");
 });
+
+// ---- status when the compose file can't be read at all -----------------------
+//
+// "No services declared yet" is a claim about the compose file, and the stack
+// view can only make it when compose actually read the file. A published
+// compose file that interpolates variables from a sibling `.env` — Immich's is
+// the one people hit — fails `config` outright until that file exists, and
+// reporting the empty result as "nothing declared" contradicts a file that
+// plainly declares four services.
+
+/** What `docker compose config` prints for Immich's compose file with no `.env`
+ *  beside it: one warning per uninterpolated variable, then the real failure. */
+const IMMICH_NO_ENV_STDERR = [
+    'time="2026-09-10T21:46:37+02:00" level=warning msg="The \\"DB_DATA_LOCATION\\" variable is not set. Defaulting to a blank string."',
+    'time="2026-09-10T21:46:37+02:00" level=warning msg="The \\"DB_PASSWORD\\" variable is not set. Defaulting to a blank string."',
+    'time="2026-09-10T21:46:37+02:00" level=warning msg="The \\"DB_USERNAME\\" variable is not set. Defaulting to a blank string."',
+    'time="2026-09-10T21:46:37+02:00" level=warning msg="The \\"DB_DATABASE_NAME\\" variable is not set. Defaulting to a blank string."',
+    'time="2026-09-10T21:46:37+02:00" level=warning msg="The \\"UPLOAD_LOCATION\\" variable is not set. Defaulting to a blank string."',
+    "invalid spec: :/data: empty section between colons",
+].join("\n");
+
+test("a compose file that won't parse reports why, instead of looking empty", async () => {
+    const agent = fakeAgent((command) => command.includes("config --format json")
+        ? { stdout: "", stderr: IMMICH_NO_ENV_STDERR, code: 1 }
+        : { stdout: "" });
+
+    const status = await getComposeStackStatus(agent, "/opt/sc-apps/immich", "compose.yaml", "immich");
+
+    expect(status.services).toEqual([]);
+    expect(status.status).toBe("down");
+    // Compose's per-variable warnings are recovered-from chatter, and there are
+    // enough of them to push the real failure past the length cap — the caller
+    // renders this string, so the cause has to survive to the front of it.
+    expect(status.error).toBe("invalid spec: :/data: empty section between colons");
+});
+
+test("a readable compose file reports no error", async () => {
+    const status = await getComposeStackStatus(
+        fakeAgent((command) => command.includes("config --format json") ? { stdout: JSON_OUTPUT } : { stdout: "" }),
+        "/opt/bl", "compose.yaml", "bl",
+    );
+
+    expect(status.error).toBeUndefined();
+    expect(status.services.map((s) => s.name)).toEqual(["db"]);
+});
+
+test("containers still running are reported even when the compose file won't parse", async () => {
+    const agent = fakeAgent((command) => {
+        if (command.includes("config --format json")) {
+            return { stdout: "", stderr: IMMICH_NO_ENV_STDERR, code: 1 };
+        }
+        if (command.includes(" ps --format json")) {
+            return { stdout: JSON.stringify({ ID: "ccc", Service: "immich-server", Image: "immich-server:release", State: "running" }) };
+        }
+        return { stdout: "" };
+    });
+
+    const status = await getComposeStackStatus(agent, "/opt/sc-apps/immich", "compose.yaml", "immich");
+
+    expect(status.services.map((s) => s.name)).toEqual(["immich-server"]);
+    expect(status.status).toBe("running");
+    expect(status.error).toBeTruthy();
+});
