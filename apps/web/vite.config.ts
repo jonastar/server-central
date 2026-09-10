@@ -44,6 +44,12 @@ const config: UserConfig = {
             // SPA itself renders, so it must stay with the dev server.
             "/oidc/token": { target: API_TARGET, changeOrigin: true },
             "/oidc/userinfo": { target: API_TARGET, changeOrigin: true },
+            "/oidc/revoke": { target: API_TARGET, changeOrigin: true },
+            // Called by the device itself, not the browser — but it still has to
+            // resolve on whatever origin the issuer names, and in dev that is
+            // this server. Absent, it fell through to the SPA shell and a device
+            // got 200 text/html back instead of its codes.
+            "/oidc/device_authorization": { target: API_TARGET, changeOrigin: true },
             "/.well-known": { target: API_TARGET, changeOrigin: true },
         },
     },
