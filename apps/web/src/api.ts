@@ -18,24 +18,18 @@ import { API_PREFIX, MULTIPART_META_FIELD, isBinaryPart } from "@central/shared"
 const API_BASE = API_PREFIX;
 
 /**
- * Port to send websockets to in dev, or null in a release build (where they go to
- * the page's own origin, like everything else).
+ * Port to send websockets to when the page did *not* come from the control plane.
  *
- * HTTP goes through the Vite dev server's `/api` proxy, but websockets can't: Vite
- * 5 proxies through `http-proxy`, whose upgrade handling doesn't work under Bun.
- * The upgrade reaches the control plane and it answers 101, but the response never
- * makes it back to the browser — writes to the socket Node's `upgrade` event hands
- * over report success and deliver nothing — so the socket sits in CONNECTING and
- * the UI reads "connecting" forever. Handling the upgrade in a custom plugin hits
- * the same wall, so in dev the sockets skip the dev server and go straight to the
- * control plane. `VITE_API_PORT` points that at the e2e lab's control plane, the
- * same as it does for the proxy target.
+ * Normally it did, even in dev — the control plane serves the UI and forwards to
+ * Vite for anything it doesn't own — so sockets are same-origin and this is null.
+ * The exception is `bun run lab web`, where the dev server is the origin and the
+ * control plane is the lab's, on another port. Vite can't proxy the upgrade
+ * (see vite.config.ts), so the socket goes straight to the control plane.
  *
- * Only dev is affected. A release build is served by the control plane itself, so
- * there's one origin and nothing to bypass.
+ * `VITE_API_PORT` is defined only in that mode, which is exactly the condition.
  */
-const DEV_WS_PORT: string | null = import.meta.env.DEV
-    ? String(import.meta.env.VITE_API_PORT ?? 4141)
+const DEV_WS_PORT: string | null = import.meta.env.DEV && import.meta.env.VITE_API_PORT
+    ? String(import.meta.env.VITE_API_PORT)
     : null;
 
 /** `ws:`/`wss:` matching the page — a proxied (https) UI needs a secure socket. */

@@ -70,6 +70,19 @@ it a platform rather than a dashboard — real RBAC, backups, the overlay networ
 
 # Development
 
+`bun run dev` starts both halves and you open **http://localhost:4141** — the same
+single origin a release build serves. The control plane owns `/api`, the OIDC
+endpoints and the websockets; everything else is the UI, which an installed binary
+answers from the SPA embedded in it and a source checkout forwards to the Vite dev
+server on 5151. You should never need to open 5151 directly (`bun run lab web` is
+the one exception, and its README says why).
+
+That symmetry is deliberate. Dev used to invert it — Vite was the origin, and it
+forwarded a hand-written list of paths back to the control plane — which meant a
+new server route silently rendered the SPA shell instead of answering. Two OIDC
+endpoints were lost that way. The rule now needs no list: the control plane serves
+what it owns, and everything else is the UI.
+
 Tests run under `bun test`. Beyond the unit/integration suites there's **the lab**
 ([apps/server/test/e2e](apps/server/test/e2e)): a throwaway fleet of container "hosts", each
 with systemd as PID 1 and its own dockerd, enrolled into an in-process control plane by the

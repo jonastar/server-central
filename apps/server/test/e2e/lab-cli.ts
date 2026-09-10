@@ -241,7 +241,10 @@ async function passthrough(args: string[], env?: Record<string, string>): Promis
  * server and leaves the lab itself up — the hosts outlive any one dev session.
  */
 async function web(): Promise<never> {
-    console.log(`\nserving the UI against the lab — Ctrl-C stops it, the lab keeps running\n`);
+    // The lab is the exception to the single-origin rule: its control plane is a
+    // release binary in a container, so unlike `bun run dev` it cannot forward to
+    // a dev server here. Open the dev server itself.
+    console.log(`\nserving the UI against the lab on http://localhost:${WEB_PORT} — Ctrl-C stops it, the lab keeps running\n`);
     return passthrough(["bun", "run", "dev:web"], {
         VITE_API_PORT: String(PORT),
         SC_WEB_PORT: String(WEB_PORT),

@@ -64,6 +64,30 @@ export const CONTROL_PLANE_TLS_SERVERNAME = "control-plane";
 export const API_PREFIX = "/api";
 
 /**
+ * Every path prefix the control plane owns, rather than the SPA.
+ *
+ * Only one consumer needs this: the Vite dev server, in the single case where it
+ * is the origin the browser opens and the control plane is somewhere it cannot
+ * forward from (the e2e lab's containerized release binary). Ordinary dev has
+ * the control plane serve the UI itself, so nothing consults this.
+ *
+ * It lives in shared because it must be *checked*, not just written. There is no
+ * rule on the dev server's side that separates these from SPA routes —
+ * `/oidc/authorize` is a page the app renders while `/oidc/token` is a server
+ * endpoint — so the split can only be enumerated, and an enumeration nobody
+ * verifies goes stale. `dev-proxy-coverage.test.ts` asserts this covers every
+ * raw HTTP route the features actually register.
+ */
+export const DEV_SERVER_API_PREFIXES = [
+    API_PREFIX,
+    "/.well-known",
+    "/oidc/token",
+    "/oidc/userinfo",
+    "/oidc/revoke",
+    "/oidc/device_authorization",
+] as const;
+
+/**
  * How many metrics snapshots to keep in memory per host (agent-side history and the
  * control plane's `HostAgent.history` both trim to this). At the 5s metrics interval,
  * 720 samples is an hour.

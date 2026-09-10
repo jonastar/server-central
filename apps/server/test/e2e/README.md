@@ -79,12 +79,30 @@ Nodes 2 and 3 enroll with tokens minted through the real
 
 Everything about a lab session sits beside your own rather than on top of it: the
 API is published on **4241** (not 4141) and its dev server runs on **5251** (not
-5151), so `bun run dev` and a lab can be up at the same time. `lab up` and `lab
-web` set `VITE_API_PORT` and `SC_WEB_PORT`. `SC_WEB_PORT` is the dev server's own
-port; `VITE_API_PORT` is the lab control plane, read in two places — vite.config.ts
-forwards `/api` there, and [api.ts](../../../web/src/api.ts) sends websockets there
-directly, since Vite can't proxy an upgrade under Bun (the comment on `DEV_WS_PORT`
-has the details). The app's own URLs are same-origin and relative either way.
+5151), so `bun run dev` and a lab can be up at the same time.
+
+**This is the one flow where you open the dev server's port rather than the
+control plane's.** Ordinary `bun run dev` has the control plane serve the UI and
+forward to Vite for anything it doesn't own, so there is a single origin in dev
+exactly as in a release build — you open **4141** and never 5151. A lab's control
+plane can't do that: it is a release binary inside a container, serving its own
+embedded UI, with no way to reach a dev server on your laptop. So for `lab web`
+the dev server is the origin, and it needs the API forwarded to it.
+
+`lab up` and `lab web` set `VITE_API_PORT` and `SC_WEB_PORT`. `SC_WEB_PORT` is the
+dev server's own port; `VITE_API_PORT` is the lab control plane, and it is read in
+two places — vite.config.ts forwards the control plane's paths there, and
+[api.ts](../../../web/src/api.ts) sends websockets there directly, since Vite can't
+proxy an upgrade under Bun (the comment on `DEV_WS_PORT` has the details). Its
+presence is also what *selects* this mode: unset, there is no proxy at all.
+
+Which paths get forwarded is `DEV_SERVER_API_PREFIXES` in `@central/shared`, not a
+list in the Vite config. There is no rule that derives it — `/oidc/authorize` is a
+page the SPA renders while `/oidc/token` is a server endpoint — so it can only be
+enumerated, and `dev-proxy-coverage.test.ts` fails if it ever stops covering every
+raw route the features register. It had silently lost two.
+
+The app's own URLs are same-origin and relative in every mode.
 
 Log in as `lab` / `labpassword`. Override with `SC_LAB_USER` / `SC_LAB_PASS`,
 `SC_LAB_PORT` for the API, and `SC_LAB_WEB_PORT` for the dev server.

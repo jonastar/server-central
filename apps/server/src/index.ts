@@ -42,7 +42,7 @@ import { discoverWanIp } from "./stun";
 import { startNodeServer } from "./node-server";
 import { runAgentCli } from "./agent/agent-cli";
 import { runAuthCli } from "./auth-cli";
-import { serveStatic } from "./static";
+import { serveDevUi, serveStatic, usingDevUi } from "./static";
 import { handleRpc, isRpcPath } from "./http/rpc";
 import { EventHub, type WsData } from "./http/ws";
 import { offerInteractiveInstall, runServerInstallCli } from "./server-install";
@@ -359,9 +359,20 @@ const server = Bun.serve<WsData>({
             });
         }
 
-        // Serve the embedded SPA for browser GETs. Returns null in dev (UI comes from
-        // Vite), so we fall through to the 404 below.
+        // Anything the control plane doesn't own is the UI. That rule is the same
+        // in both builds, which is the point: a release build answers it from the
+        // SPA embedded above, dev forwards it to the Vite dev server. Neither
+        // needs a list of paths kept in sync by hand — everything up to here was
+        // ours, everything past it is not.
         if (req.method === "GET" || req.method === "HEAD") {
+            // An explicit SC_DEV_UI_ORIGIN wins even over an embedded SPA, so a
+            // release binary can be pointed at a dev server — which is what the
+            // e2e lab's containerized control plane would otherwise have no way
+            // to do. Absent that, embedded assets serve themselves and a source
+            // checkout forwards to Vite.
+            if (usingDevUi()) {
+                return serveDevUi(req);
+            }
             const asset = serveStatic(url.pathname);
             if (asset) {
                 return asset;

@@ -1,22 +1,41 @@
 import { defineConfig, mergeConfig, type ProxyOptions, type UserConfig } from "vite";
+import { DEV_SERVER_API_PREFIXES } from "@central/shared";
 import react from "@vitejs/plugin-react";
 
-/**
- * Control plane the dev server proxies to. `VITE_API_PORT` points it at a control
- * plane on another port, so you can develop against the e2e lab (which publishes
- * one on 4241) without stopping your own.
- *
- * The app itself only ever uses same-origin relative paths — see apps/web/src/api.ts
- * — so this proxy is what stands in, during dev, for the single origin a released
- * build gets by being served by the control plane itself.
- */
-const API_PORT = Number(process.env.VITE_API_PORT ?? 4141);
-const API_TARGET = `http://127.0.0.1:${API_PORT}`;
+/** Set only by `bun run lab web`; absent for ordinary `bun run dev`. */
+const LAB_API_PORT = process.env.VITE_API_PORT ? Number(process.env.VITE_API_PORT) : null;
 
-/** See the `/api` entry below — same-origin in a build, so same-origin in dev. */
 const stripOrigin: NonNullable<ProxyOptions["configure"]> = (proxy) => {
     proxy.on("proxyReq", (proxyReq) => proxyReq.removeHeader("origin"));
 };
+
+/**
+ * Forward the control plane's own paths to it, leaving everything else with Vite.
+ *
+ * The list comes from `@central/shared` rather than being written here, and a
+ * server-side test asserts it covers every raw HTTP route the features register.
+ * That guard exists because this list silently lost `/oidc/revoke` and
+ * `/oidc/device_authorization`: an unlisted path is not a 404 here, it falls
+ * through to the SPA shell, so a device asking for codes got 200 text/html back.
+ */
+function labProxy(port: number): Record<string, ProxyOptions> {
+    const target = `http://127.0.0.1:${port}`;
+    return Object.fromEntries(DEV_SERVER_API_PREFIXES.map((prefix) => [
+        prefix,
+        // `origin` is dropped along with the Host rewrite: the control plane
+        // refuses a state-changing request whose Origin isn't the host it
+        // arrived on (see cors.ts), and this proxy stands in for the single
+        // origin a released build is served from. Leaving the dev server's own
+        // origin on would make every call look foreign.
+        //
+        // Deliberately no `ws: true`: Vite 5 proxies through `http-proxy`, whose
+        // websocket upgrade handling doesn't work under Bun — the upgrade
+        // reaches the control plane and it answers 101, but nothing written back
+        // is delivered, so the browser hangs in CONNECTING. api.ts sends sockets
+        // straight to the control plane in this mode instead.
+        { target, changeOrigin: true, configure: stripOrigin } satisfies ProxyOptions,
+    ]));
+}
 
 const config: UserConfig = {
     plugins: [react()],
@@ -24,34 +43,18 @@ const config: UserConfig = {
         // SC_WEB_PORT lets a second dev server run alongside the usual one — the
         // e2e lab starts one on 5251 so it doesn't fight `bun run dev:web`.
         port: Number(process.env.SC_WEB_PORT) || 5151,
-        proxy: {
-            // HTTP only — deliberately no `ws: true` on any of these. Vite 5 proxies
-            // through `http-proxy`, whose websocket upgrade handling doesn't work
-            // under Bun: the upgrade reaches the control plane and it answers 101,
-            // but nothing written back to the client socket is ever delivered, so the
-            // browser hangs in CONNECTING. Setting `ws: true` doesn't fail loudly —
-            // it just makes /api/events and /api/terminal hang, which surfaces as a
-            // UI stuck on "connecting". The app sends its sockets straight to the
-            // control plane in dev instead; see DEV_WS_PORT in src/api.ts.
-            // `origin` is dropped along with the Host rewrite: the control plane
-            // refuses a state-changing request whose Origin isn't the host it
-            // arrived on (see cors.ts), and this proxy exists precisely to stand
-            // in for the single origin a released build is served from. Leaving
-            // the dev server's own origin on would make every call look foreign.
-            "/api": { target: API_TARGET, changeOrigin: true, configure: stripOrigin },
-            // OIDC lives outside /api (fixed by spec relative to the issuer root).
-            // /oidc/authorize is deliberately absent: it's a browser navigation the
-            // SPA itself renders, so it must stay with the dev server.
-            "/oidc/token": { target: API_TARGET, changeOrigin: true },
-            "/oidc/userinfo": { target: API_TARGET, changeOrigin: true },
-            "/oidc/revoke": { target: API_TARGET, changeOrigin: true },
-            // Called by the device itself, not the browser — but it still has to
-            // resolve on whatever origin the issuer names, and in dev that is
-            // this server. Absent, it fell through to the SPA shell and a device
-            // got 200 text/html back instead of its codes.
-            "/oidc/device_authorization": { target: API_TARGET, changeOrigin: true },
-            "/.well-known": { target: API_TARGET, changeOrigin: true },
-        },
+        // Normally you do NOT open this port. The control plane serves the UI in
+        // dev too, forwarding here for anything it doesn't own (see the server's
+        // static.ts `serveDevUi`), so dev has one origin exactly like a release
+        // build does. HMR still needs to reach this server directly, and the page
+        // is on another port, so the injected client is told where to look.
+        hmr: { clientPort: Number(process.env.SC_WEB_PORT) || 5151 },
+        // The exception, and the only reason a proxy still exists here: the e2e
+        // lab's control plane is a release binary inside a container. It serves
+        // its own embedded UI and cannot forward to a dev server on your laptop,
+        // so for that one flow the dev server is the origin you open and it needs
+        // the API. `bun run lab web` is what sets VITE_API_PORT.
+        ...(LAB_API_PORT ? { proxy: labProxy(LAB_API_PORT) } : {}),
     },
 };
 
