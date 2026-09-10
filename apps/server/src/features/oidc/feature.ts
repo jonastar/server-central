@@ -41,6 +41,10 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
             return oidc.createClient(data.name, data.redirectUris, data.appId ?? null);
         },
 
+        async updateClient(data) {
+            await oidc.updateClient(data.client);
+        },
+
         async deleteClient(data, ctx?: AuthContext) {
             await oidc.deleteClient(data.clientId);
             // Grants already handed out under a registration outlive it

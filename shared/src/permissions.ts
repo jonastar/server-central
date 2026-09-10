@@ -314,7 +314,7 @@ export const PANEL_PERMISSIONS = {
     "panel.oidc.admin": {
         label: "Manage SSO clients",
         description: "Register and remove relying parties, and issue their client secrets.",
-        ops: ["oidc/createClient", "oidc/deleteClient", "oidc/regenerateSecret"],
+        ops: ["oidc/createClient", "oidc/updateClient", "oidc/deleteClient", "oidc/regenerateSecret"],
     },
 
     "panel.roles.read": {

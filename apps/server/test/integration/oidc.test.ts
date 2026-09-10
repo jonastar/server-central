@@ -66,6 +66,64 @@ describe("OIDC provider", () => {
         expect(await oidc.verifyClientSecret("unknown-client", clientSecret)).toBeNull();
     });
 
+    test("updateClient fixes a redirect URI without invalidating the credential", async () => {
+        // The case this exists for: registered against a placeholder, then
+        // corrected once the app is actually deployed.
+        const { client, clientSecret } = await oidc.createClient("Jellyfin", ["https://example.com"]);
+
+        await oidc.updateClient({ ...client, redirectUris: ["https://jelly.example.com/sso/OID/redirect/sc"] });
+
+        const after = oidc.getClient(client.id);
+        expect(after?.redirectUris).toEqual(["https://jelly.example.com/sso/OID/redirect/sc"]);
+        // The point of editing rather than re-registering: the app does not have
+        // to be reconfigured to correct a typo.
+        expect(after?.id).toBe(client.id);
+        expect(after?.createdAt).toBe(client.createdAt);
+        expect(await oidc.verifyClientSecret(client.id, clientSecret)).not.toBeNull();
+    });
+
+    test("updateClient can relink and unlink the App that scopes the groups claim", async () => {
+        const { client } = await oidc.createClient("Jellyfin", ["https://jelly.example.com/cb"], "app-1");
+        expect(oidc.getClient(client.id)?.appId).toBe("app-1");
+
+        await oidc.updateClient({ ...client, appId: "app-2" });
+        expect(oidc.getClient(client.id)?.appId).toBe("app-2");
+
+        // Clearing it has to be expressible, or a client linked to the wrong App
+        // could only be unlinked by deleting it.
+        await oidc.updateClient({ ...client, appId: null });
+        expect(oidc.getClient(client.id)?.appId).toBeNull();
+    });
+
+    test("updateClient validates the same way createClient does", async () => {
+        const { client } = await oidc.createClient("My App", ["https://app.example.com/callback"]);
+        await expect(oidc.updateClient({ ...client, name: "  " })).rejects.toThrow(/name/i);
+        await expect(oidc.updateClient({ ...client, redirectUris: [] })).rejects.toThrow(/redirect uri/i);
+        await expect(oidc.updateClient({ ...client, redirectUris: ["not a url"] })).rejects.toThrow(/invalid redirect uri/i);
+        // A rejected edit leaves the record alone.
+        expect(oidc.getClient(client.id)?.redirectUris).toEqual(["https://app.example.com/callback"]);
+    });
+
+    test("updateClient refuses an unknown client rather than creating one", async () => {
+        await expect(oidc.updateClient({
+            id: "nope", name: "X", redirectUris: ["https://x.example.com"],
+            createdAt: 0, appId: null, groupPrefix: null,
+        })).rejects.toThrow(/unknown client/i);
+        expect(oidc.listClients()).toHaveLength(0);
+    });
+
+    test("an edited redirect URI is what the authorize request is matched against", async () => {
+        const { client } = await oidc.createClient("Jellyfin", ["https://example.com"]);
+        await oidc.updateClient({ ...client, redirectUris: ["https://jelly.example.com/cb"] });
+
+        const params = {
+            clientId: client.id, scope: "openid", state: "s",
+            codeChallenge: "c", codeChallengeMethod: "S256" as const,
+        };
+        expect(() => oidc.validateRequest({ ...params, redirectUri: "https://example.com" })).toThrow(/redirect_uri/);
+        expect(oidc.validateRequest({ ...params, redirectUri: "https://jelly.example.com/cb" }).id).toBe(client.id);
+    });
+
     test("createClient rejects missing name/redirect URIs", async () => {
         await expect(oidc.createClient("", ["https://app.example.com"])).rejects.toThrow(/name/i);
         await expect(oidc.createClient("My App", [])).rejects.toThrow(/redirect uri/i);

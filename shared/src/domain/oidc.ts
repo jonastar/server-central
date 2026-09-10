@@ -95,6 +95,11 @@ export interface OidcOperations {
     listClients: { data: void; response: OidcClient[] };
     /** clientSecret is returned once, at creation, and never again. */
     createClient: { data: { name: string; redirectUris: string[]; appId?: string | null }; response: { client: OidcClient; clientSecret: string } };
+    /** Edit a registration in place, keeping its id and secret. A redirect URI
+     *  is routinely a placeholder until the app is actually deployed, and
+     *  delete-and-re-register to correct one means reconfiguring the app to fix
+     *  a typo. `appId: null` clears the App link. */
+    updateClient: { data: { client: OidcClient }; response: void };
     deleteClient: { data: { clientId: string }; response: void };
     /** Issue a fresh secret for an existing registration, keeping its client id.
      *  Without this, a lost secret means delete + re-register, which mints a new

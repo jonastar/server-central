@@ -42,6 +42,58 @@ function SecretModal({ title, clientId, clientSecret, onClose }: { title: string
     );
 }
 
+/**
+ * The three editable fields, shared by the add and edit modals.
+ *
+ * One definition rather than two, so the App-scoping explanation — the part that
+ * actually tells an admin what linking does to the `groups` claim — cannot drift
+ * between creating a client and correcting one.
+ */
+function ClientFields({ name, setName, redirectUris, setRedirectUris, appId, setAppId, apps }: {
+    name: string;
+    setName(v: string): void;
+    redirectUris: string;
+    setRedirectUris(v: string): void;
+    appId: string;
+    setAppId(v: string): void;
+    apps: App[];
+}) {
+    return (
+        <>
+            <label className={shared["login-field"]}>
+                <span>Name</span>
+                <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+            <label className={shared["login-field"]}>
+                <span>Redirect URIs (one per line)</span>
+                <textarea
+                    rows={3}
+                    value={redirectUris}
+                    onChange={(e) => setRedirectUris(e.target.value)}
+                    placeholder="https://app.example.com/callback"
+                />
+                <span className={shared.dim} style={{ fontSize: 12 }}>
+                    Matched against the authorization request exactly — scheme, host, path and
+                    all. The app decides this value, so it is usually something like
+                    <code> /sso/callback</code> on the app&apos;s own hostname.
+                </span>
+            </label>
+            <label className={shared["login-field"]}>
+                <span>App (optional)</span>
+                <select value={appId} onChange={(e) => setAppId(e.target.value)}>
+                    <option value="">Not linked — sends every app role</option>
+                    {apps.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                <span className={shared.dim} style={{ fontSize: 12 }}>
+                    {appId
+                        ? <>Limits the <code>groups</code> claim to <code>app.{apps.find((a) => a.id === appId)?.slug}.*</code>, so this client is not told which roles the user holds in your other apps.</>
+                        : <>Unlinked clients receive every <code>app.*</code> role the user holds, including roles belonging to your other apps. Register the app under Settings → Apps to scope it.</>}
+                </span>
+            </label>
+        </>
+    );
+}
+
 function AddClientModal({ apps, onClose, onCreated }: { apps: App[]; onClose: () => void; onCreated: (client: OidcClient) => void }) {
     const [name, setName] = useState("");
     const [redirectUris, setRedirectUris] = useState("");
@@ -74,35 +126,86 @@ function AddClientModal({ apps, onClose, onCreated }: { apps: App[]; onClose: ()
         <Modal title="Add OIDC client" onClose={onClose} width={480}>
             <form onSubmit={handleSubmit}>
                 {error && <ErrorBanner>{error}</ErrorBanner>}
-                <label className={shared["login-field"]}>
-                    <span>Name</span>
-                    <input autoFocus value={name} onChange={(e) => setName(e.target.value)} />
-                </label>
-                <label className={shared["login-field"]}>
-                    <span>Redirect URIs (one per line)</span>
-                    <textarea
-                        rows={3}
-                        value={redirectUris}
-                        onChange={(e) => setRedirectUris(e.target.value)}
-                        placeholder="https://app.example.com/callback"
-                    />
-                </label>
-                <label className={shared["login-field"]}>
-                    <span>App (optional)</span>
-                    <select value={appId} onChange={(e) => setAppId(e.target.value)}>
-                        <option value="">Not linked — sends every app role</option>
-                        {apps.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
-                    <span className={shared.dim} style={{ fontSize: 12 }}>
-                        {appId
-                            ? <>Limits the <code>groups</code> claim to <code>app.{apps.find((a) => a.id === appId)?.slug}.*</code>, so this client is not told which roles the user holds in your other apps.</>
-                            : <>Unlinked clients receive every <code>app.*</code> role the user holds, including roles belonging to your other apps. Register the app under Settings → Apps to scope it.</>}
-                    </span>
-                </label>
+                <ClientFields
+                    name={name} setName={setName}
+                    redirectUris={redirectUris} setRedirectUris={setRedirectUris}
+                    appId={appId} setAppId={setAppId}
+                    apps={apps}
+                />
                 <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
                     <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
                     <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy}>
                         {busy ? "Creating…" : "Create"}
+                    </button>
+                </div>
+            </form>
+        </Modal>
+    );
+}
+
+/**
+ * Correct an existing registration without reissuing its credential.
+ *
+ * The redirect URI is the field this exists for: it belongs to the app being
+ * registered, not to Central, so it is routinely a placeholder until that app is
+ * actually deployed. Deleting and re-registering to fix one would mint a new
+ * client id and a new secret, which means reconfiguring the app to correct a
+ * value that was only ever a typo.
+ */
+function EditClientModal({ client, apps, onClose, onSaved }: {
+    client: OidcClient;
+    apps: App[];
+    onClose: () => void;
+    onSaved: () => void;
+}) {
+    const [name, setName] = useState(client.name);
+    const [redirectUris, setRedirectUris] = useState(client.redirectUris.join("\n"));
+    const [appId, setAppId] = useState(client.appId ?? "");
+    const [error, setError] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+
+    async function handleSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        setError(null);
+        setBusy(true);
+        try {
+            await api("oidc", "updateClient", {
+                client: {
+                    ...client,
+                    name,
+                    redirectUris: redirectUris.split("\n").map((s) => s.trim()).filter(Boolean),
+                    appId: appId || null,
+                },
+            });
+            onSaved();
+            onClose();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <Modal title={`Edit ${client.name}`} onClose={onClose} width={480}>
+            <form onSubmit={handleSubmit}>
+                {error && <ErrorBanner>{error}</ErrorBanner>}
+                <label className={shared["login-field"]}>
+                    <span>Client ID</span>
+                    {/* Shown but not editable: the app is configured with it, and
+                        the credential surviving the edit is the point. */}
+                    <input readOnly value={client.id} />
+                </label>
+                <ClientFields
+                    name={name} setName={setName}
+                    redirectUris={redirectUris} setRedirectUris={setRedirectUris}
+                    appId={appId} setAppId={setAppId}
+                    apps={apps}
+                />
+                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
+                    <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
+                    <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy}>
+                        {busy ? "Saving…" : "Save"}
                     </button>
                 </div>
             </form>
@@ -129,6 +232,7 @@ export function OidcClientsTab() {
     const [error, setError] = useState<string | null>(null);
     const [busyId, setBusyId] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
+    const [editing, setEditing] = useState<OidcClient | null>(null);
     const [rotated, setRotated] = useState<{ clientId: string; clientSecret: string } | null>(null);
 
     function refresh() {
@@ -208,6 +312,9 @@ export function OidcClientsTab() {
                                     </td>
                                     <td className={shared.dim}>{new Date(c.createdAt).toLocaleString()}</td>
                                     <td className={shared["row-actions-always"]}>
+                                        <button className={shared.btn} disabled={busyId === c.id} onClick={() => setEditing(c)}>
+                                            Edit
+                                        </button>
                                         <button className={shared.btn} disabled={busyId === c.id} onClick={() => void handleRegenerate(c)}>
                                             New secret
                                         </button>
@@ -228,6 +335,15 @@ export function OidcClientsTab() {
                     clientId={rotated.clientId}
                     clientSecret={rotated.clientSecret}
                     onClose={() => setRotated(null)}
+                />
+            )}
+
+            {editing && (
+                <EditClientModal
+                    client={editing}
+                    apps={apps}
+                    onClose={() => setEditing(null)}
+                    onSaved={refresh}
                 />
             )}
 

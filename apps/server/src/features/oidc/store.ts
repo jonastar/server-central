@@ -107,26 +107,11 @@ export class OidcStore {
     }
 
     async createClient(name: string, redirectUris: string[], appId: string | null = null): Promise<{ client: OidcClient; clientSecret: string }> {
-        const trimmedName = name.trim();
-        if (!trimmedName) {
-            throw new Error("Client name is required");
-        }
-        const uris = redirectUris.map((u) => u.trim()).filter(Boolean);
-        if (uris.length === 0) {
-            throw new Error("At least one redirect URI is required");
-        }
-        for (const uri of uris) {
-            try {
-                new URL(uri);
-            } catch {
-                throw new Error(`Invalid redirect URI: ${uri}`);
-            }
-        }
         const clientSecret = randomBytes(32).toString("base64url");
         const rec: OidcClientRecord = {
             id: randomUUID(),
-            name: trimmedName,
-            redirectUris: uris,
+            name: assertName(name),
+            redirectUris: assertRedirectUris(redirectUris),
             secretHash: await Bun.password.hash(clientSecret),
             createdAt: Date.now(),
             ...(appId ? { appId } : {}),
@@ -134,6 +119,35 @@ export class OidcStore {
         this.apps[rec.id] = rec;
         await this.persistApps();
         return { client: toPublic(rec), clientSecret };
+    }
+
+    /**
+     * Edit a registration in place, keeping its id and secret.
+     *
+     * Exists because a redirect URI is the one field that is routinely wrong on
+     * the first try — it is fixed by the app's own deployment (Jellyfin serves
+     * its callback at `/sso/OID/redirect/<provider>`), so it is usually a
+     * placeholder until the app is actually configured. Without this the only
+     * fix was delete and re-register, which mints a new client id *and* a new
+     * secret, and so means reconfiguring the app to correct a value that was
+     * only ever a typo.
+     */
+    async updateClient(next: OidcClient): Promise<void> {
+        const existing = this.apps[next.id];
+        if (!existing) {
+            throw new Error("Unknown client");
+        }
+        // id, createdAt and secretHash are the record's own, never the caller's:
+        // the whole point is that the credential survives the edit.
+        this.apps[next.id] = {
+            ...existing,
+            name: assertName(next.name),
+            redirectUris: assertRedirectUris(next.redirectUris),
+            // Written unconditionally rather than spread-preserved, so clearing
+            // the App link is expressible; JSON.stringify drops the undefined.
+            appId: next.appId ?? undefined,
+        };
+        await this.persistApps();
     }
 
     /** Replace a client's secret and return the new one. Shown once, like the
@@ -204,6 +218,32 @@ export class OidcStore {
     private async persistApps(): Promise<void> {
         await writeJson(this.appsFile, this.apps);
     }
+}
+
+function assertName(name: string): string {
+    const trimmed = name.trim();
+    if (!trimmed) {
+        throw new Error("Client name is required");
+    }
+    return trimmed;
+}
+
+/** Redirect URIs are matched against the authorization request exactly, so a
+ *  value that isn't a URL at all can only ever fail that comparison — better to
+ *  refuse it while someone is looking at the form. */
+function assertRedirectUris(redirectUris: string[]): string[] {
+    const uris = redirectUris.map((u) => u.trim()).filter(Boolean);
+    if (uris.length === 0) {
+        throw new Error("At least one redirect URI is required");
+    }
+    for (const uri of uris) {
+        try {
+            new URL(uri);
+        } catch {
+            throw new Error(`Invalid redirect URI: ${uri}`);
+        }
+    }
+    return uris;
 }
 
 async function readJson<T>(file: string, fallback: T): Promise<T> {
