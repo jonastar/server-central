@@ -5,8 +5,6 @@ re-document finished work here, and delete an item from this file once it lands.
 
 ## Smaller items
 
-- base64-encoding the blob to send it manually in the body is not ideal — can we support
-  multipart somehow?
 - Better process list? Or is it better to just jump into `htop` in the terminal at that point?
 - Host user authorized keys mangement
   - Option to sync authorized keys across all mapped users?
@@ -39,8 +37,9 @@ Two ways to close it, roughly in order of preference:
 
 ### RBAC follow-ups
 
-Control-plane authorization landed (permission nodes on every operation, roles as bundles of
-them, `none` as the floor). What's left:
+Control-plane authorization landed (permission nodes on every operation, editable roles as
+bundles of them, per-user grants on top, no-roles as the floor, and per-task-kind gating).
+What's left:
 
 - **Per-host scoping.** A node grants an operation on every host; "operator on A, nothing on B"
   can't be expressed. Same shape as the host-user mapping below —
@@ -76,7 +75,9 @@ Follow-ups to the 2026-07-04 slice (manual mapping + per-host Users tab):
 
 ### Reverse proxy
 
-- Add a route path prefix, maybe with a checkbox to enable stripping the prefix.
+- Strip the route's path prefix before proxying (a checkbox on the route). The prefix itself
+  matches and routes correctly now; Caddy renders it as `path` matchers, so stripping means
+  switching those routes to `handle_path` — see `features/proxy/caddy.ts`.
 - Test routes: show a mark for whether they're valid (i.e. whether anything is actually behind
   them), and add this to the list of recurring things.
 - More introspection into Let's Encrypt: which certificates were fetched, which were attempted
@@ -97,38 +98,40 @@ proxy, or in the app? Should there be a new port descriptor to help this? How sh
 
 ## Task system
 
-> Design spec: [docs/task-system.md](docs/task-system.md). Seven kinds implemented:
-> `find_wan_ip` (control-plane + per-node), `cmd`, `service_action`, `docker_stack_action`,
-> `docker_container_action`, `docker_image_pull`, `update_agent`. Run history, the logs UI, and
-> the corner widget + live task modal are implemented; schedules/cancel/resume are designed but
-> still deferred there.
+> Design spec: [docs/task-system.md](docs/task-system.md). Twenty-three kinds implemented —
+> `find_wan_ip` (control-plane + per-node), `cmd`, `exec`, `service_action`, the four docker
+> ones (`docker_stack_action`, `docker_container_action`, `docker_image_pull`,
+> `docker_compose_action`), `update_agent`, `debug_fake`, and thirteen `zfs_*` (pool, vdev,
+> dataset, snapshot and scrub operations). Run history, task-scoped logs and their UI, run
+> timings, and the corner widget + live task modal are implemented. `TaskSchedule` is modelled
+> but has no operations behind it; schedules, cancel and resume all remain deferred.
 
-Remaining candidate task kinds, surveyed against `handler.ts` 2026-07-22 (test from the design
-doc: would you want history of it, a last-result for it, or to schedule it? if not, it stays
-plain RPC):
+Remaining candidate task kinds (test from the design doc: would you want history of it, a
+last-result for it, or to schedule it? if not, it stays plain RPC). Op names are the
+post-refactor ones under `apps/server/src/features/`:
 
-- Agent install (`handleInstallNodeService`) — multi-step (write binary+cert, install unit,
+- Agent install (`servers/installService`) — multi-step (write binary+cert, install unit,
   hand off); a task would give visible progress + a durable "did it actually finish" record
   instead of just a `startCommand`.
-- Control-plane self-update (`handleUpdateControlPlane`) — same shape as the agent update (kills
-  its own process mid-run), on the control-plane side instead. This is the case that actually
-  needs §8.5 resume-across-reconnect: `update_agent` didn't, because only the remote agent's
-  connection drops there, never the control plane's own process.
-- Proxy apply (`handleApplyProxyConfig` / `handleDeployProxy`) — already returns a
-  `ProxyApplyResult`; wrapping it as a task gives apply _history_ instead of only ever seeing
-  the latest result.
+- Control-plane self-update (`settings/updateControlPlane`) — same shape as the agent update
+  (kills its own process mid-run), on the control-plane side instead. This is the case that
+  actually needs §8.5 resume-across-reconnect: `update_agent` didn't, because only the remote
+  agent's connection drops there, never the control plane's own process.
+- Proxy apply (`proxy/applyConfig` / `proxy/deploy`) — already returns a `ProxyApplyResult`;
+  wrapping it as a task gives apply _history_ instead of only ever seeing the latest result.
 - Backups of various kinds — not implemented at all yet (no code exists); would be a new task
   kind built from scratch.
 
-Considered and set aside: user/system-user management (`createUser`, `setUserSystemUser`,
-`revokeUserSession`, …) wants an _audit log_, not run-history-with-last-result — different
-shape, likely a separate feature. `handleProbeInstallPath`, `handleSystemUserHostStatus`,
-`handleGetControlPlaneStatus`, `handleDockerVolumeRemove` are reads/probes or
-instantaneous+unambiguous — the doc explicitly excludes plain reads ("you don't schedule a
-directory listing").
+Considered and set aside: user/system-user management (`auth/createUser`,
+`auth/setUserSystemUser`, `auth/revokeUserSession`, …) wants an _audit log_, not
+run-history-with-last-result — different shape, likely a separate feature.
+`servers/probeInstallPath`, `system-users/hostStatus`, `settings/getControlPlaneStatus` and
+`docker/volumeRemove` are reads/probes or instantaneous+unambiguous — the doc explicitly
+excludes plain reads ("you don't schedule a directory listing").
 
-Wanted beyond that: task-scoped logs, time tracking, status updates. Further down the road (not
-for v1), long-running tasks that need progress tracking for resuming.
+Wanted beyond that: in-run status updates (a kind reporting "3 of 7" rather than only emitting
+log lines). Further down the road (not for v1), long-running tasks that need progress tracking
+for resuming.
 
 **Scheduled tasks** — a sub-feature that runs tasks on an interval. Unsure about the naming; the
 goal is: on the interval/trigger/whatever, create a task instance. Maybe this becomes a flows
@@ -154,7 +157,8 @@ future), so find a new word for it as well (plugin?).
 > from "endgame" to second, because routes then target overlay addresses and the proxy code
 > doesn't change; tunneling app traffic through SC stays rejected except as a last-resort
 > fallback. After those: DOCKER-USER source restriction for gated cross-node routes (largely
-> moot once the overlay lands), forward_auth role gating (needs the Role-set redesign),
+> moot once the overlay lands), forward_auth role gating (no longer blocked — RBAC v2 shipped
+> the Role-set redesign it was waiting on),
 > per-route reachability probes (the `httpRequest` agent primitive for them exists),
 > DNS-01/wildcard certs.
 > Not runtime-verified against a real dockerd yet: the deploy/apply path was exercised end to end
@@ -166,11 +170,9 @@ future), so find a new word for it as well (plugin?).
 folded into the host's Docker tab (see changelog). `App` is now free for the layer above, which
 is designed here but not built.**
 
-Still missing on the compose-stack side, unchanged by the rename: the streaming-exec primitive
-(`up`/`pull` run over the plain 30s `exec()`, the same limitation `docker_image_pull` lives
-with), and the running/disk/reconcile status merge from `doc/idea_stack_registry.md` §2. The
-fleet-wide "every stack on every host" list was deliberately given up — a stack is host-scoped,
-and that view belongs to Apps.
+Still missing on the compose-stack side, unchanged by the rename: the running/disk/reconcile
+status merge from `doc/idea_stack_registry.md` §2. The fleet-wide "every stack on every host"
+list was deliberately given up — a stack is host-scoped, and that view belongs to Apps.
 
 Design settled in discussion 2026-08-21. An **App** is fleet-scoped and has no runtime of its
 own; compose stacks are host-scoped and are what actually runs. An App owns/links: one or more
@@ -216,10 +218,11 @@ Decisions worth not relitigating:
   browsable registry. A template is arbitrary compose on a host — closer to `curl | sh` than
   to installing a package.
 
-Sequencing note: templates deliver value without the Role-set redesign, so the App layer isn't
-blocked on it. The redesign is still the keystone for app-provided roles, proxy `forward_auth`
-gating, and the RBAC gap above — and that gap matters most, because the UI currently offers
-admin/operator/viewer while the server enforces almost none of it.
+Sequencing note: the Role-set redesign this section was sequenced around has shipped as RBAC v2
+— editable roles as permission bundles, `app.*` grants per user, enforced on every operation.
+App-provided roles and proxy `forward_auth` gating are no longer waiting on anything
+structural; what they still want is the `app.*` discovery gap in the RBAC list above, so a
+template can declare its role names instead of an operator typing them as free text.
 
 ### Terminal session persistence / tmux session manager
 
