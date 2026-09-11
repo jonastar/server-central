@@ -3,6 +3,7 @@
     "version": "0.12.0-dev",
     "type": "module",
     "scripts": {
+        "predev": "bun run ../../scripts/write-generated-stubs.ts",
         "dev": "bun --watch --env-file ../../.env src/index.ts",
         "start": "bun --env-file ../../.env src/index.ts",
         "test": "bun test test/integration",

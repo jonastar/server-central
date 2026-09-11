@@ -125,3 +125,80 @@
     margin: 0 4px;
     background: var(--border);
 }
+
+/* A directory row that is itself a mounted filesystem. The name gets the
+   filesystem type; the size column — empty for a directory — gets what's left
+   on it, so `/mnt` reads as a shelf of disks rather than a list of folders. */
+.mount-badge {
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.mount-free {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.mount-meter {
+    width: 40px;
+    height: 5px;
+    flex: none;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--muted) 22%, transparent);
+    overflow: hidden;
+}
+
+.mount-meter-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+}
+
+.mount-meter-full {
+    background: var(--warn);
+}
+
+/* Quick filter over the loaded listing. */
+.files-search {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.search-input {
+    /* Room for the clear button to sit inside the field. */
+    padding-right: 22px;
+}
+
+.search-clear {
+    position: absolute;
+    right: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--muted);
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.search-clear:hover {
+    background: var(--panel-2);
+    color: var(--text);
+}
+
+.match {
+    padding: 0 1px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+    color: inherit;
+}

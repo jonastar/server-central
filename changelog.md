@@ -69,7 +69,25 @@ feature may run longer; most don't earn it.
 - **`exec` task kind** runs a program from an argv, with `cwd`/`env` — the form for a command the
   control plane builds. `cmd` stays for a typed command line; both need `panel.exec`.
 
+- **Disk picker in the file browser** — a dropdown of the host's real mounts with what's free on
+  each, so a machine whose storage is a row of folders under `/mnt` can be navigated by disk.
+- **Directory rows that are mountpoints say so**, with the filesystem type and free space in the
+  size column, in both the file listing and every directory picker.
+- **Quick filter in the file browser**, narrowing the current folder as you type, with the
+  matched run of each name marked. Selection follows what's on screen, so a toolbar action
+  never touches a row the filter is hiding.
+- **Move is a dialog now**, browsing to the destination instead of typing it into a `prompt()`.
+  It reads the target folder first: names already there are flagged as replacements, a folder
+  that can't be read blocks the move, and a destination on another disk is called out.
+
 ### Fixed
+
+- **Moving files between disks works.** `rename(2)` can't cross a filesystem, so any move
+  between two mounts failed with "invalid cross-device link"; the agent now falls back to a
+  copy and removes the source once it lands.
+- **`bun run dev` can no longer be broken by a leftover release artifact.** A populated
+  `web-assets.generated.ts` made dev serve a stale SPA instead of Vite, and stopped the
+  control plane booting at all once the build's hashes moved; dev now resets it on start.
 
 - **A stack whose compose file won't parse no longer claims "No services declared yet."** The
   Overview now shows why `docker compose config` failed — usually a published compose file

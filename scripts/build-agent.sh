@@ -42,8 +42,10 @@ fi
 echo "Embedding web assets…"
 # Restore the empty (dev-mode) generated web-assets file on exit — its content is already
 # compiled into the binaries by then, and it's gitignored so dev/typecheck need it to exist
-# in its empty form.
-trap 'bun run scripts/write-generated-stubs.ts >/dev/null 2>&1 || true' EXIT
+# in its empty form. Signals are trapped alongside EXIT because a Ctrl-C'd build is exactly
+# when this gets left behind; `bun run dev` resets it too (apps/server's `predev`), so a
+# build killed outright still can't poison the next dev run.
+trap 'bun run scripts/write-generated-stubs.ts >/dev/null 2>&1 || true' EXIT INT TERM HUP
 bun run scripts/gen-web-assets.ts
 
 # Output names carry the architecture (sc-agent-<os>-<arch>) so per-OS arches can be

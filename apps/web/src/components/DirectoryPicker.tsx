@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DirEntry, InstallProbeResult } from "@central/shared";
 import { api } from "../api";
 import { cx } from "../utils";
+import { byMountpoint, mountUsage, useHostMounts } from "../hooks/useHostMounts";
+import { MountPicker } from "./MountPicker";
 import shared from "../styles/shared.module.css";
 import uiStyles from "./ui.module.css";
 
@@ -41,8 +43,13 @@ export const fileTypeClass: Partial<Record<DirEntry["type"], string>> = {
  * probed live for writable + exec-capable so unusable appliance paths are
  * flagged before install. Supports creating a new folder inside the current
  * selection.
+ *
+ * Mountpoints are labelled with their filesystem and free space, and the disk
+ * dropdown jumps straight to one — on a host whose storage is a row of
+ * identical-looking directories under `/mnt`, "which of these is the 8 TB
+ * array" is otherwise unanswerable from a tree of names.
  */
-export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
+export function DirectoryPicker({ serverId, value, onChange, selectFiles, probe: wantProbe = true }: {
     serverId: string;
     /** Currently selected directory (or file, with `selectFiles`). */
     value: string;
@@ -51,11 +58,19 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
      *  default, since most callers (install/base/import dir pickers) only ever
      *  want a directory. */
     selectFiles?: boolean;
+    /** Run the install probe and show its verdict. On by default, because the
+     *  pickers that came first all choose somewhere to install into. Turn it off
+     *  where the answer would be misleading — a move destination doesn't care
+     *  whether the filesystem is `noexec`, and the probe needs a permission
+     *  (`panel.servers.admin`) that picking a folder shouldn't imply. */
+    probe?: boolean;
 }) {
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [children, setChildren] = useState<Map<string, DirEntry[] | "error">>(new Map());
     const [probe, setProbe] = useState<InstallProbeResult | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const hostMounts = useHostMounts(serverId);
+    const mounts = useMemo(() => byMountpoint(hostMounts), [hostMounts]);
     // Paths already fetched or in flight — a plain ref (not state) so looping
     // over an ancestor chain synchronously dedupes without a setState-inside-
     // updater side effect, which could double-fire under React 18 and would
@@ -94,10 +109,13 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
             ensureLoaded(path);
         }
         setError(null);
+        if (!wantProbe) {
+            return;
+        }
         api("servers", "probeInstallPath", { serverId, path: value })
             .then(setProbe)
             .catch(() => setProbe(null));
-    }, [value, serverId, ensureLoaded]);
+    }, [value, serverId, ensureLoaded, wantProbe]);
 
     function toggleExpand(path: string) {
         setExpanded((prev) => {
@@ -149,6 +167,10 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
         const fileCount = rawKids?.filter((e) => e.type === "file").length ?? 0;
         const isSelected = path === value;
         const label = path === "/" ? "/" : (path.split("/").pop() ?? path);
+        // A row that is itself a mounted filesystem says so, with what's left on
+        // it — this is the row someone is looking for when they open the picker
+        // to park a stack's data "on the big disk".
+        const mount = mounts.get(path);
         const hasChildren = expandable && (browsableKids ? browsableKids.length > 0 : kids === undefined);
 
         return (
@@ -173,7 +195,17 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
                     >
                         {label}
                     </span>
-                    {!selectFiles && fileCount > 0 && (
+                    {mount && (
+                        <span
+                            className={shared.dim}
+                            style={{ fontSize: 11, whiteSpace: "nowrap" }}
+                            title={`${mount.device} — ${mount.fstype}, ${mountUsage(mount).free} free of ${mountUsage(mount).total}`}
+                        >
+                            <span className={cx(shared.badge, shared["badge-muted"])} style={{ marginRight: 4 }}>{mount.fstype}</span>
+                            {mount.sizeBytes > 0 && `${mountUsage(mount).free} free`}
+                        </span>
+                    )}
+                    {!selectFiles && !mount && fileCount > 0 && (
                         <span className={shared.dim} style={{ fontSize: 11 }}>{fileCount} file{fileCount === 1 ? "" : "s"}</span>
                     )}
                 </div>
@@ -197,8 +229,10 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles }: {
 
     return (
         <div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
-                <button className={shared.btn} onClick={() => void mkdir()}>New folder in selection</button>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 4 }}>
+                <MountPicker serverId={serverId} currentPath={value} onPick={select} compact />
+                <span style={{ flex: 1 }} />
+                <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => void mkdir()}>New folder in selection</button>
             </div>
 
             <div style={{ maxHeight: 260, overflow: "auto", border: "1px solid var(--border, #333)", borderRadius: 4 }}>

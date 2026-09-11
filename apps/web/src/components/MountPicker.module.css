@@ -1,0 +1,165 @@
+.wrap {
+    position: relative;
+    display: inline-flex;
+    /* Lets the trigger shrink below its content in a tight row (the directory
+       picker's header) instead of pushing the row wider than its container. */
+    min-width: 0;
+}
+
+/* Wide enough to state the whole answer — name, device, filesystem, free space —
+   without opening it. It's the widest thing in the toolbar, so it gives ground
+   first: the device path truncates, and only after that does the trigger shrink
+   below the size where the free-space figure still fits. */
+.trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    max-width: 460px;
+}
+
+.trigger-device {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    color: var(--muted);
+}
+
+.trigger-fs {
+    flex: none;
+}
+
+.trigger-meter {
+    width: 44px;
+}
+
+.trigger-free {
+    flex: none;
+    font-size: 11.5px;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.glyph {
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1;
+}
+
+/* The disk's name is the one part that never truncates — it's what identifies
+   the row you're on. */
+.trigger-label {
+    flex: none;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.caret {
+    font-size: 9px;
+    color: var(--muted);
+}
+
+/* Anchored to the trigger rather than fixed-positioned: this one lives in a
+   toolbar that doesn't scroll under it, so it doesn't need the ActionMenu's
+   reposition-on-scroll machinery. */
+.menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 40;
+    min-width: 300px;
+    max-width: 380px;
+    padding: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(20, 30, 60, 0.18);
+}
+
+.filter {
+    width: 100%;
+    margin-bottom: 4px;
+}
+
+.list {
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    font: inherit;
+    color: inherit;
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.item:hover {
+    background: var(--panel-2);
+}
+
+.item.current {
+    background: var(--accent-soft);
+}
+
+.item-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.item-path {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.item-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+    font-size: 11.5px;
+}
+
+.meter {
+    width: 60px;
+    height: 5px;
+    flex: none;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--muted) 22%, transparent);
+    overflow: hidden;
+}
+
+.meter-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--accent);
+}
+
+/* A nearly-full disk is the one fact in this list that changes a decision. */
+.meter-fill.meter-full {
+    background: var(--warn);
+}
+
+.item-device {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.empty {
+    padding: 8px;
+    font-size: 12px;
+}

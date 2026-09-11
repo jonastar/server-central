@@ -851,8 +851,34 @@ export class Agent {
         await fs.rm(target, { recursive: true });
     }
 
+    /**
+     * Move a path, including across filesystems.
+     *
+     * `rename(2)` can't cross a mount boundary — it fails with `EXDEV` — and on
+     * a host whose storage is several disks under `/mnt`, that is most of the
+     * moves anyone actually wants. So the same fallback `mv` uses: copy the tree
+     * over, then remove the original, and only after the copy returned without
+     * throwing. A failed copy leaves the source untouched (and, unavoidably, a
+     * partial copy at the destination for the operator to clear).
+     *
+     * `force` matches what plain rename already does within a filesystem: it
+     * replaces what's in the way. The one divergence is a non-empty destination
+     * directory, which rename refuses (`ENOTEMPTY`) and `cp` merges into.
+     * `verbatimSymlinks` keeps a symlink a symlink, pointing where it pointed,
+     * rather than copying whatever it resolved to at the time.
+     */
     private async runRenamePath(from: string, to: string): Promise<void> {
-        await fs.rename(normalizePath(from), normalizePath(to));
+        const src = normalizePath(from);
+        const dest = normalizePath(to);
+        try {
+            await fs.rename(src, dest);
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== "EXDEV") {
+                throw e;
+            }
+            await fs.cp(src, dest, { recursive: true, force: true, verbatimSymlinks: true });
+            await fs.rm(src, { recursive: true });
+        }
     }
 
     /** The argv for a terminal session. Running as another user wraps the login

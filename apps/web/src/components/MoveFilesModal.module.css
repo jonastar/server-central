@@ -1,0 +1,56 @@
+.summary {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 12.5px;
+}
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    max-height: 76px;
+    overflow-y: auto;
+    font-size: 12px;
+}
+
+.chip {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-2);
+}
+
+.chip-dir {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.notes {
+    margin-top: 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+}
+
+.notes p {
+    margin: 0 0 4px;
+}
+
+.warn {
+    color: var(--warn);
+}
+
+.bad {
+    color: var(--err);
+}
+
+.failures {
+    margin: 4px 0 0;
+    padding-left: 18px;
+}

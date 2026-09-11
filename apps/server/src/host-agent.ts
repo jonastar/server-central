@@ -27,6 +27,17 @@ const UPLOAD_TIMEOUT_MS = 120_000;
  * slow pulls used to die at 30s regardless of progress.
  */
 const EXEC_STREAM_IDLE_TIMEOUT_MS = 120_000;
+/**
+ * Ceiling on a move. A rename within one filesystem is a metadata edit and
+ * returns instantly; one that crosses a mount boundary can't be, and the agent
+ * degrades it into copying the whole tree (see `runRenamePath`), which is bound
+ * by disk and by how much is being moved rather than by anything this end can
+ * predict. The flat 30s would fail every such move on the way to succeeding.
+ *
+ * Nothing is lost if this ceiling is still too low: the copy is already under
+ * way on the host and finishes there — only this side's report of it is gone.
+ */
+const RENAME_TIMEOUT_MS = 30 * 60_000;
 
 export interface ExecResult {
     stdout: string;
@@ -599,7 +610,7 @@ export class HostAgent {
     async renamePath(from: string, to: string): Promise<void> {
         await this.request<Extract<NodeMessage, { type: "renameResponse" }>>({
             type: "renamePathRequest", requestId: crypto.randomUUID(), from, to,
-        });
+        }, RENAME_TIMEOUT_MS);
     }
 
     /**
