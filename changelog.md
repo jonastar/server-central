@@ -73,6 +73,9 @@ feature may run longer; most don't earn it.
   each, so a machine whose storage is a row of folders under `/mnt` can be navigated by disk.
 - **Directory rows that are mountpoints say so**, with the filesystem type and free space in the
   size column, in both the file listing and every directory picker.
+- **Directory pickers open rooted on the disk the selection is already on**, and picking
+  another disk re-roots there — so choosing a folder on `/mnt/big` doesn't mean scrolling
+  past a root filesystem you aren't choosing from. Picking `/` goes back to the whole tree.
 - **Quick filter in the file browser**, narrowing the current folder as you type, with the
   matched run of each name marked. Selection follows what's on screen, so a toolbar action
   never touches a row the filter is hiding.

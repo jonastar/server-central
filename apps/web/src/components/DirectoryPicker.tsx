@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DirEntry, InstallProbeResult } from "@central/shared";
 import { api } from "../api";
 import { cx } from "../utils";
-import { byMountpoint, mountUsage, useHostMounts } from "../hooks/useHostMounts";
+import { byMountpoint, mountForPath, mountUsage, useHostMounts } from "../hooks/useHostMounts";
 import { MountPicker } from "./MountPicker";
 import shared from "../styles/shared.module.css";
 import uiStyles from "./ui.module.css";
@@ -11,16 +11,22 @@ function joinPath(dir: string, name: string): string {
     return dir === "/" ? `/${name}` : `${dir}/${name}`;
 }
 
-/** Every path from `/` down to (and including) `path`, e.g. "/a/b" ->
- *  ["/", "/a", "/a/b"] — used to pre-expand the tree down to the current value. */
-function ancestorChain(path: string): string[] {
-    if (path === "/") {
-        return ["/"];
+/** Whether `path` is `root` or sits underneath it. */
+function isUnder(path: string, root: string): boolean {
+    return path === root || path.startsWith(root === "/" ? "/" : `${root}/`);
+}
+
+/** Every path from `root` down to (and including) `path`, e.g. ("/a/b/c", "/a")
+ *  -> ["/a", "/a/b", "/a/b/c"] — used to pre-expand the tree down to the current
+ *  value. Returns just the root when `path` isn't under it. */
+function ancestorChain(path: string, root: string): string[] {
+    if (!isUnder(path, root)) {
+        return [root];
     }
-    const segments = path.split("/").filter(Boolean);
-    const chain = ["/"];
-    let cur = "";
-    for (const seg of segments) {
+    const rest = root === "/" ? path.slice(1) : path.slice(root.length + 1);
+    const chain = [root];
+    let cur = root === "/" ? "" : root;
+    for (const seg of rest.split("/").filter(Boolean)) {
         cur += `/${seg}`;
         chain.push(cur);
     }
@@ -71,18 +77,61 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles, probe:
     const [error, setError] = useState<string | null>(null);
     const hostMounts = useHostMounts(serverId);
     const mounts = useMemo(() => byMountpoint(hostMounts), [hostMounts]);
+    /**
+     * Where the tree starts. `/` until a disk is picked, and that disk after —
+     * browsing `/mnt/big` shouldn't mean scrolling past `/bin`, `/etc` and the
+     * rest of a root filesystem you aren't choosing from.
+     *
+     * It is a view, not part of the answer: `value` is still an absolute path,
+     * and every caller is unaffected by where the tree happens to be rooted.
+     *
+     * Seeded from the selection's own filesystem when the mount table is already
+     * known — usually it is, since the file browser that opened this dialog read
+     * it moments ago. The effect below covers the cold case, a render later.
+     */
+    const [root, setRoot] = useState(() => mountForPath(hostMounts, value)?.mountpoint ?? "/");
     // Paths already fetched or in flight — a plain ref (not state) so looping
     // over an ancestor chain synchronously dedupes without a setState-inside-
     // updater side effect, which could double-fire under React 18 and would
     // otherwise need a placeholder value that renders as a false "error" flash.
     const requested = useRef<Set<string>>(new Set());
+    /** Whether the one-shot "root where the value lives" has already run. */
+    const rootInitialised = useRef(false);
 
     // A different host invalidates every cached path.
     useEffect(() => {
         requested.current = new Set();
         setChildren(new Map());
         setExpanded(new Set());
+        setRoot("/");
+        rootInitialised.current = false;
     }, [serverId]);
+
+    // Open rooted where the selection already lives. The mount table arrives a
+    // beat after the first render, so this can't be an initial state value —
+    // until it lands there is nothing that knows `/mnt/speed/…` is on a disk of
+    // its own, and the tree would sit at `/` while the disk dropdown beside it
+    // already named the drive.
+    //
+    // Only the first answer counts. Picking `/` from that dropdown is a
+    // deliberate widening, and re-running this would undo it on the next render.
+    useEffect(() => {
+        if (rootInitialised.current || hostMounts.length === 0) {
+            return;
+        }
+        rootInitialised.current = true;
+        const holding = mountForPath(hostMounts, value)?.mountpoint;
+        if (holding) {
+            setRoot(holding);
+        }
+    }, [hostMounts, value]);
+
+    // A value that moves outside the current root — typed into the path field
+    // next to this tree, or handed down by the caller — re-roots onto whatever
+    // filesystem now holds it, rather than leaving the selection off-tree.
+    useEffect(() => {
+        setRoot((prev) => (isUnder(value, prev) ? prev : mountForPath(hostMounts, value)?.mountpoint ?? "/"));
+    }, [value, hostMounts]);
 
     // Unfiltered — keeps file entries around even when `selectFiles` is off, so
     // "does this dir have anything in it" and "how many files" can still be
@@ -103,7 +152,7 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles, probe:
     }, [serverId]);
 
     useEffect(() => {
-        const chain = ancestorChain(value);
+        const chain = ancestorChain(value, root);
         setExpanded((prev) => new Set([...prev, ...chain]));
         for (const path of chain) {
             ensureLoaded(path);
@@ -115,7 +164,7 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles, probe:
         api("servers", "probeInstallPath", { serverId, path: value })
             .then(setProbe)
             .catch(() => setProbe(null));
-    }, [value, serverId, ensureLoaded, wantProbe]);
+    }, [value, root, serverId, ensureLoaded, wantProbe]);
 
     function toggleExpand(path: string) {
         setExpanded((prev) => {
@@ -166,7 +215,9 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles, probe:
         const browsableKids = rawKids?.filter((e) => e.type === "dir" || e.type === "symlink" || (selectFiles && e.type === "file"));
         const fileCount = rawKids?.filter((e) => e.type === "file").length ?? 0;
         const isSelected = path === value;
-        const label = path === "/" ? "/" : (path.split("/").pop() ?? path);
+        // The top row spells out where the tree starts ("/mnt/big", not "big") —
+        // it's the only row whose parentage isn't visible above it.
+        const label = path === root ? path : (path.split("/").pop() ?? path);
         // A row that is itself a mounted filesystem says so, with what's left on
         // it — this is the row someone is looking for when they open the picker
         // to park a stack's data "on the big disk".
@@ -230,13 +281,18 @@ export function DirectoryPicker({ serverId, value, onChange, selectFiles, probe:
     return (
         <div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 4 }}>
-                <MountPicker serverId={serverId} currentPath={value} onPick={select} compact />
+                <MountPicker
+                    serverId={serverId}
+                    currentPath={value}
+                    onPick={(mountpoint) => { setRoot(mountpoint); select(mountpoint); }}
+                    compact
+                />
                 <span style={{ flex: 1 }} />
                 <button className={cx(shared.btn, shared["btn-sm"])} onClick={() => void mkdir()}>New folder in selection</button>
             </div>
 
             <div style={{ maxHeight: 260, overflow: "auto", border: "1px solid var(--border, #333)", borderRadius: 4 }}>
-                {renderNode("/", 0)}
+                {renderNode(root, 0)}
             </div>
 
             <div style={{ marginTop: 6, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>

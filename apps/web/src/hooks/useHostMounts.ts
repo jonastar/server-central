@@ -12,6 +12,11 @@ const TTL_MS = 30_000;
 interface Cached {
     at: number;
     promise: Promise<MountInfo[]>;
+    /** The resolved list, once it has arrived. Kept beside the promise so a
+     *  component mounting later can read it during its first render instead of
+     *  starting empty and correcting itself a frame afterwards — a picker that
+     *  decides where to root its tree from this can't wait for a microtask. */
+    value?: MountInfo[];
 }
 
 const cache = new Map<string, Cached>();
@@ -28,8 +33,17 @@ function fetchMounts(serverId: string): Promise<MountInfo[]> {
     const promise = api("files", "getMounts", { serverId })
         .then((state) => (state.available ? state.mounts : []))
         .catch(() => []);
-    cache.set(serverId, { at: Date.now(), promise });
+    const entry: Cached = { at: Date.now(), promise };
+    void promise.then((list) => { entry.value = list; });
+    cache.set(serverId, entry);
     return promise;
+}
+
+/** What's already known about a host's mounts, for a first render. Empty when
+ *  nothing has asked yet; a stale entry still beats showing none while the
+ *  refetch is in flight. */
+function cachedMounts(serverId: string): MountInfo[] {
+    return cache.get(serverId)?.value ?? [];
 }
 
 const listeners = new Set<() => void>();
@@ -57,7 +71,9 @@ export function useHostMounts(serverId: string): MountInfo[] {
     // The host is carried alongside the list so a re-render after switching
     // hosts shows nothing rather than the previous host's disks, without
     // blanking the list on a plain refresh of the same host.
-    const [state, setState] = useState<{ serverId: string; mounts: MountInfo[] }>({ serverId, mounts: [] });
+    const [state, setState] = useState<{ serverId: string; mounts: MountInfo[] }>(
+        () => ({ serverId, mounts: cachedMounts(serverId) }),
+    );
     // Bumped by `invalidateHostMounts`, which is the whole mechanism: every
     // mounted hook refetches, and the cache miss means exactly one request goes
     // out however many of them there are.
