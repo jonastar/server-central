@@ -6,6 +6,7 @@ import { byMountpoint, invalidateHostMounts, mountUsage, useHostMounts } from ".
 import { CodeEditor } from "./CodeEditor";
 import { MountPicker } from "./MountPicker";
 import { MoveFilesModal, type MovedPath } from "./MoveFilesModal";
+import { BatchRenameModal } from "./BatchRenameModal";
 import { ErrorBanner } from "./ui";
 import styles from "./FilesView.module.css";
 import shared from "../styles/shared.module.css";
@@ -88,6 +89,8 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
      *  of the selection, because a partial failure clears the selection while
      *  the dialog is still reporting which items didn't make it. */
     const [moving, setMoving] = useState<DirEntry[] | null>(null);
+    /** Rows the open batch-rename dialog is renaming — snapshotted for the same reason. */
+    const [renaming, setRenaming] = useState<DirEntry[] | null>(null);
     const hostMounts = useHostMounts(serverId);
     const mountsByPath = useMemo(() => byMountpoint(hostMounts), [hostMounts]);
 
@@ -356,6 +359,21 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
         }
     }
 
+    /** The batch dialog did the renaming; an open editor follows its file to
+     *  the new name, as the single rename does. */
+    function onRenamed(renamed: MovedPath[]) {
+        if (renamed.length === 0) {
+            return;
+        }
+        const hit = file && renamed.find((r) => r.from === file.path);
+        if (file && hit) {
+            setFile({ ...file, path: hit.to });
+            onNavigate({ file: hit.to });
+        }
+        clearSelection();
+        void load(path);
+    }
+
     /** The destination dialog did the moving; this is the aftermath — an open
      *  editor whose file is no longer at that path has to let go of it. */
     function onMoved(moved: MovedPath[]) {
@@ -457,11 +475,11 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
                 {selectedEntries.length > 0 && <span className={styles["selection-count"]}>{selectedEntries.length} selected</span>}
                 <button
                     className={shared.btn}
-                    onClick={() => void renameSelected()}
-                    disabled={busy || selected.size !== 1}
-                    title={selected.size > 1 ? "Select a single item to rename" : "Rename"}
+                    onClick={() => selectedEntries.length === 1 ? void renameSelected() : setRenaming(selectedEntries)}
+                    disabled={busy || selected.size === 0}
+                    title={selectedEntries.length > 1 ? "Rename the selection to a numbered pattern" : "Rename"}
                 >
-                    Rename
+                    {selectedEntries.length > 1 ? "Rename…" : "Rename"}
                 </button>
                 <button className={shared.btn} onClick={() => setMoving(selectedEntries)} disabled={busy || selected.size === 0}>Move…</button>
                 <button
@@ -624,6 +642,16 @@ export function FilesView({ serverId, path, openFile: openFilePath, onNavigate }
                 )}
             </div>
 
+            {renaming && (
+                <BatchRenameModal
+                    serverId={serverId}
+                    dir={path}
+                    entries={renaming}
+                    siblings={entries ?? []}
+                    onRenamed={onRenamed}
+                    onClose={() => setRenaming(null)}
+                />
+            )}
             {moving && (
                 <MoveFilesModal
                     serverId={serverId}

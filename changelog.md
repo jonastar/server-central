@@ -14,6 +14,11 @@ feature may run longer; most don't earn it.
 
 ### Added
 
+- **Batch rename in the Files view.** Select several rows and "Rename…" takes a pattern —
+  `Romance down E#` numbers them `E1`, `E2`, … (`##` pads, `*` keeps the original name, and a
+  separator splits it into `$1`, `$2`… pieces) with a full preview and conflict check before
+  anything is sent. Drag rows (or sort by name/modified)
+  to set the order the numbers run in.
 - **Agent config panel in the Agents view.** A "Config" button per online agent shows how it was
   actually launched: endpoints, cert and install/data paths, supervision, and the endpoint that
   last worked. Read from the agent, and never carries its token.
