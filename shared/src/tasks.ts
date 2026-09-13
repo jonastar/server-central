@@ -293,7 +293,7 @@ export interface TaskDockerContainerActionResult {
  *  `ok: false` is a normal (successful-run) result, same as the RPC it replaced. */
 export interface TaskDockerImagePullResult {
     kind: "docker_image_pull";
-    ok: boolean;
+    /** `docker pull`'s closing line, e.g. `Status: Downloaded newer image for …`. */
     message: string;
 }
 

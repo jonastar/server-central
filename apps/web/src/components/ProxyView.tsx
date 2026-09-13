@@ -4,6 +4,7 @@ import { api } from "../api";
 import { useConnection } from "../hooks/useConnection";
 import type { Route } from "../routes";
 import { EmptyState, ErrorBanner, ExperimentalBadge, ExperimentalBanner, Modal, StatusDot } from "./ui";
+import { ProxyRouteModal } from "./ProxyRouteModal";
 import { cx } from "../utils";
 import shared from "../styles/shared.module.css";
 import { colorVars } from "../styles/colorVars";
@@ -100,107 +101,6 @@ function ConfigModal({ servers, current, onClose, onSaved }: {
                     <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
                     <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy || !nodeId}>
                         {busy ? "Saving…" : "Save"}
-                    </button>
-                </div>
-            </form>
-        </Modal>
-    );
-}
-
-function RouteModal({ servers, existing, onClose, onSaved }: {
-    servers: ServerEntry[];
-    existing: ProxyRoute | null;
-    onClose: () => void;
-    onSaved: () => void;
-}) {
-    const [host, setHost] = useState(existing?.host ?? "");
-    const [pathPrefix, setPathPrefix] = useState(existing?.pathPrefix ?? "");
-    const [nodeId, setNodeId] = useState(existing?.target.nodeId ?? servers[0]?.id ?? "");
-    const [port, setPort] = useState(existing ? String(existing.target.port) : "");
-    const [scheme, setScheme] = useState<"http" | "https">(existing?.target.scheme ?? "http");
-    const [skipVerify, setSkipVerify] = useState(existing?.target.insecureSkipVerify ?? false);
-    const [enabled, setEnabled] = useState(existing?.enabled ?? true);
-    const [error, setError] = useState<string | null>(null);
-    const [busy, setBusy] = useState(false);
-
-    async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        setError(null);
-        setBusy(true);
-        try {
-            const prefix = pathPrefix.trim();
-            const route: Omit<ProxyRoute, "id"> = {
-                host: host.trim().toLowerCase(),
-                ...(prefix ? { pathPrefix: prefix } : {}),
-                target: {
-                    nodeId,
-                    port: Number(port),
-                    scheme,
-                    ...(scheme === "https" && skipVerify ? { insecureSkipVerify: true } : {}),
-                },
-                enabled,
-            };
-            if (existing) {
-                await api("proxy", "updateRoute", { route: { ...route, id: existing.id } });
-            } else {
-                await api("proxy", "createRoute", { route });
-            }
-            onSaved();
-            onClose();
-        } catch (err) {
-            setError(err instanceof Error ? err.message : String(err));
-        } finally {
-            setBusy(false);
-        }
-    }
-
-    return (
-        <Modal title={existing ? "Edit route" : "Add route"} onClose={onClose} width={480}>
-            <form onSubmit={handleSubmit}>
-                {error && <ErrorBanner>{error}</ErrorBanner>}
-                <label className={shared["login-field"]}>
-                    <span>Hostname</span>
-                    <input autoFocus value={host} onChange={(e) => setHost(e.target.value)} placeholder="jellyfin.example.com" />
-                </label>
-                <label className={shared["login-field"]}>
-                    <span>Path prefix (optional)</span>
-                    <input value={pathPrefix} onChange={(e) => setPathPrefix(e.target.value)} placeholder="/api" />
-                </label>
-                <label className={shared["login-field"]}>
-                    <span>Target node</span>
-                    <select value={nodeId} onChange={(e) => setNodeId(e.target.value)}>
-                        {servers.map((s) => (
-                            <option key={s.id} value={s.id}>{s.name}{s.status.state !== "online" ? " (offline)" : ""}</option>
-                        ))}
-                    </select>
-                </label>
-                <div style={{ display: "flex", gap: 8 }}>
-                    <label className={shared["login-field"]} style={{ flex: 1 }}>
-                        <span>Published host port</span>
-                        <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="8096" inputMode="numeric" />
-                    </label>
-                    <label className={shared["login-field"]} style={{ flex: 1 }}>
-                        <span>Upstream scheme</span>
-                        <select value={scheme} onChange={(e) => setScheme(e.target.value as "http" | "https")}>
-                            <option value="http">http</option>
-                            <option value="https">https</option>
-                        </select>
-                    </label>
-                </div>
-                {scheme === "https" && (
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 12 }}>
-                        <input type="checkbox" checked={skipVerify} onChange={(e) => setSkipVerify(e.target.checked)} />
-                        Skip upstream TLS verification (self-signed upstream cert)
-                    </label>
-                )}
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                    <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-                    Enabled
-                </label>
-                <div className={shared["modal-actions"]} style={{ marginTop: 16 }}>
-                    <button className={shared.btn} type="button" onClick={onClose}>Cancel</button>
-                    <button className={cx(shared.btn, shared["btn-primary"])} type="submit" disabled={busy}>
-                        {busy ? "Saving…" : existing ? "Save" : "Add"}
                     </button>
                 </div>
             </form>
@@ -379,7 +279,11 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                                             <td className={shared["file-name"]}>{r.host}</td>
                                             <td className={cx(shared.mono, shared.dim)}>{r.pathPrefix ?? "/"}</td>
                                             <td className={shared.dim}>
-                                                {r.target.scheme}://{nodeName(servers, r.target.nodeId)}:{r.target.port}
+                                                {r.target.scheme}://
+                                                {r.target.kind === "container"
+                                                    ? `${r.target.service} · ${nodeName(servers, r.target.nodeId)}`
+                                                    : nodeName(servers, r.target.nodeId)}
+                                                :{r.target.port}
                                                 {r.target.insecureSkipVerify ? " (no verify)" : ""}
                                             </td>
                                             <td className={shared.dim}>{r.enabled ? "Yes" : "No"}</td>
@@ -415,8 +319,9 @@ export function ProxyView({ onNavigate }: { onNavigate: (route: Route) => void }
                 />
             )}
             {routeModal && (
-                <RouteModal
+                <ProxyRouteModal
                     servers={servers}
+                    proxyNodeId={config?.nodeId ?? null}
                     existing={routeModal.existing}
                     onClose={() => setRouteModal(null)}
                     onSaved={refresh}

@@ -57,12 +57,9 @@ export function DockerImages({ serverId }: { serverId: string }) {
         setPullMsg(null);
         try {
             const run = await runTaskAndWait({ kind: "docker_image_pull", ref }, serverId, { feedback: "modal" });
-            const res = run.result?.kind === "docker_image_pull" ? run.result : null;
-            setPullMsg(res?.message ?? "—");
-            if (res?.ok) {
-                setPullRef("");
-                await load();
-            }
+            setPullMsg(run.result?.kind === "docker_image_pull" ? run.result.message : "—");
+            setPullRef("");
+            await load();
         } catch (err) {
             setPullMsg(err instanceof Error ? err.message : String(err));
         } finally {

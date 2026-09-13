@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ProxyConfig, ProxyRoute } from "@central/shared";
+import { PROXY_NETWORK } from "@central/shared";
 import { deployStatusFromLog, PROXY_DEPLOY_DONE, proxyDeployScript, renderCaddyConfig } from "../../src/features/proxy/caddy";
 
 // The renderer is the contract between SC's route model and Caddy: what it
@@ -22,7 +23,7 @@ function route(over: Partial<ProxyRoute> & { host: string }): ProxyRoute {
     return {
         id: crypto.randomUUID(),
         enabled: true,
-        target: { nodeId: "node-b", port: 8096, scheme: "http" },
+        target: { kind: "hostPort", nodeId: "node-b", port: 8096, scheme: "http" },
         ...over,
     };
 }
@@ -74,8 +75,8 @@ test("within a host, longer path prefixes match before the catch-all", () => {
 
 test("https upstreams get a TLS transport; insecureSkipVerify only when asked", () => {
     const out = renderCaddyConfig(config, [
-        route({ host: "a.example.com", target: { nodeId: "node-b", port: 8443, scheme: "https" } }),
-        route({ host: "b.example.com", target: { nodeId: "node-b", port: 9443, scheme: "https", insecureSkipVerify: true } }),
+        route({ host: "a.example.com", target: { kind: "hostPort", nodeId: "node-b", port: 8443, scheme: "https" } }),
+        route({ host: "b.example.com", target: { kind: "hostPort", nodeId: "node-b", port: 9443, scheme: "https", insecureSkipVerify: true } }),
     ], resolve) as Rendered;
 
     const [verified, skipped] = out.apps.http.servers.sc.routes.map((r) => r.handle[0]);
@@ -98,7 +99,36 @@ test("deploy command publishes on 80/443 by default, or the configured host port
 });
 
 test("resolving an unknown target node fails the render (not a silent bad dial)", () => {
-    expect(() => renderCaddyConfig(config, [route({ host: "a.example.com", target: { nodeId: "ghost", port: 80, scheme: "http" } })], resolve)).toThrow("unknown node");
+    expect(() => renderCaddyConfig(config, [route({ host: "a.example.com", target: { kind: "hostPort", nodeId: "ghost", port: 80, scheme: "http" } })], resolve)).toThrow("unknown node");
+});
+
+// Container targets: a service on the proxy's docker network, dialed by its
+// alias. No host port, no IP — nothing for the resolver to do — and only on
+// the proxy node until the cross-node tunnel exists.
+
+test("same-node container targets dial the network alias, not an IP", () => {
+    const out = renderCaddyConfig(config, [
+        route({ host: "jf.example.com", target: { kind: "container", nodeId: "node-a", stackId: "s1", service: "jellyfin", alias: "media-jellyfin", port: 8096, scheme: "http" } }),
+    ], () => { throw new Error("resolver must not be consulted for container targets"); }) as Rendered;
+    expect(out.apps.http.servers.sc.routes[0].handle[0]).toEqual({
+        handler: "reverse_proxy",
+        upstreams: [{ dial: "media-jellyfin:8096" }],
+    });
+});
+
+test("a container target on another node fails the render until the tunnel exists", () => {
+    const remote = route({ host: "jf.example.com", target: { kind: "container", nodeId: "node-b", stackId: "s1", service: "jellyfin", alias: "media-jellyfin", port: 8096, scheme: "http" } });
+    expect(() => renderCaddyConfig(config, [remote], resolve)).toThrow(/another node/);
+});
+
+test("deploy joins the proxy network, creating it once and never recreating it", () => {
+    const cmd = proxyDeployScript(config);
+    expect(cmd).toContain(`--network ${PROXY_NETWORK}`);
+    expect(cmd).toContain(`docker network inspect ${PROXY_NETWORK} >/dev/null 2>&1 || docker network create ${PROXY_NETWORK}`);
+    // Stacks reference the network as external, so it must exist before the
+    // container joins it and must not be torn down with the old container.
+    expect(cmd.indexOf("docker network create")).toBeLessThan(cmd.indexOf("docker rm -f"));
+    expect(cmd).not.toContain("network rm");
 });
 
 // A detached deploy leaves no container behind while it pulls, which used to

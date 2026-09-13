@@ -22,16 +22,69 @@ export interface ProxyConfig {
     httpsPort?: number;
 }
 
-export interface ProxyRouteTarget {
+/**
+ * Docker network the proxy container joins on its node. Same-node app services
+ * that opt in (see `proxyNetworkAlias`) are dialed by name over it, with no
+ * published host port at all — the port never touches the host, so there is
+ * nothing to bypass the proxy with. Named like the container and its volumes.
+ */
+export const PROXY_NETWORK = "sc-proxy";
+
+/**
+ * The DNS name Caddy dials for a compose service on the proxy network.
+ *
+ * Compose already aliases every service by its bare name on every network it
+ * joins — including external ones — so two stacks with a `web` service on the
+ * proxy network would round-robin under `web`. Hence an explicit per-stack
+ * alias, written into the service's `networks` block when it's attached and
+ * stored on the route verbatim: the route carries the exact name Caddy dials,
+ * not the inputs to recompute it, so a renamed project shows up as a route
+ * that can't connect rather than one that silently follows.
+ */
+export function proxyNetworkAlias(project: string, service: string): string {
+    return `${project}-${service}`;
+}
+
+/** A DNS label as Docker accepts for network aliases. */
+export const PROXY_ALIAS_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i;
+
+interface ProxyRouteTargetBase {
     nodeId: string;
-    /** Published host port on that node. */
-    port: number;
     /** Scheme Caddy dials the upstream with. */
     scheme: "http" | "https";
     /** Skip upstream TLS verification, for apps self-serving HTTPS with a
      *  self-signed cert. Only meaningful when scheme is "https". */
     insecureSkipVerify?: boolean;
 }
+
+/** A port the app publishes on its node's host; Caddy dials `<node LAN IP>:<port>`.
+ *  Works from any node, and is the only kind that reaches an app SC doesn't
+ *  manage as a compose stack. */
+export interface ProxyHostPortTarget extends ProxyRouteTargetBase {
+    kind: "hostPort";
+    /** Published host port on that node. */
+    port: number;
+}
+
+/**
+ * A compose service on the proxy docker network, dialed by alias with no host
+ * port involved. On the proxy node Caddy dials `<alias>:<port>` directly; on
+ * any other node the same target is reached through the control plane's
+ * tunnel over the agent channel (see the design doc — not implemented yet).
+ */
+export interface ProxyContainerTarget extends ProxyRouteTargetBase {
+    kind: "container";
+    /** The stack the service belongs to — provenance for the UI (linking,
+     *  drift checks); the renderer uses `alias` alone. */
+    stackId: string;
+    service: string;
+    /** Network alias on PROXY_NETWORK, from `proxyNetworkAlias`. */
+    alias: string;
+    /** Container-side port the service listens on. */
+    port: number;
+}
+
+export type ProxyRouteTarget = ProxyHostPortTarget | ProxyContainerTarget;
 
 export interface ProxyRoute {
     id: string;

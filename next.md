@@ -13,6 +13,9 @@ re-document finished work here, and delete an item from this file once it lands.
   they need their own `WidgetProps` and a separate registry sharing `useHostPoll` and the layout
   store shape. See [doc/idea_host_dashboard.md](doc/idea_host_dashboard.md) §4.
 - Temperature monitoring?
+- compose stack .env management
+  - A visual editor and more support in the UI for variables defined in a .env file, as well as attaching and detect the env file on the service
+- 1 task failed in the corner is annoying, maybe make it dissapear if you click on it?
 
 ### Container filesystem access
 

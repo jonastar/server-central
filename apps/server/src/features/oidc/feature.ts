@@ -6,7 +6,7 @@ import { defineFeature } from "../../feature";
 import type { AppStore } from "../apps/store";
 import type { RefreshTokenStore } from "./refresh";
 import type { OidcStore } from "./store";
-import { discoveryDocument } from "./discovery";
+import { discoveryDocument, providerInfo } from "./discovery";
 import type { DeviceCodeStore } from "./device";
 import { DEVICE_CODE_GRANT, DeviceCapError, POLL_INTERVAL_S, formatUserCode } from "./device";
 import { ACCESS_TOKEN_TTL_S, buildAccessToken, buildIdToken, groupsForClient, jwks, scopedClaims, verifyJwt, verifyPkce } from "./tokens";
@@ -31,6 +31,11 @@ export const createOidcFeature = (oidc: OidcStore, auth: AuthStore, apps: AppSto
 
         async listClients(_data, ctx?: AuthContext) {
             return oidc.listClients();
+        },
+
+        async getProviderInfo() {
+            const config = await readConfig();
+            return config.primaryUrl ? providerInfo(config.primaryUrl) : null;
         },
 
         async createClient(data, ctx?: AuthContext) {

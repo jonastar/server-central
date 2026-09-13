@@ -178,6 +178,12 @@ export class OidcStore {
         if (!rec) {
             throw new Error("Unknown client");
         }
+        // Two messages rather than one: an empty list is a registration that was
+        // saved before the app revealed its callback, and the fix — go add it —
+        // is different from "you typed it differently on the two sides".
+        if (rec.redirectUris.length === 0) {
+            throw new Error("This client has no redirect URIs registered yet — add the app's callback URL under Settings → SSO Clients");
+        }
         if (!rec.redirectUris.includes(params.redirectUri)) {
             throw new Error("redirect_uri does not match a registered URI for this client");
         }
@@ -230,12 +236,12 @@ function assertName(name: string): string {
 
 /** Redirect URIs are matched against the authorization request exactly, so a
  *  value that isn't a URL at all can only ever fail that comparison — better to
- *  refuse it while someone is looking at the form. */
+ *  refuse it while someone is looking at the form. An empty list is allowed:
+ *  the app usually only shows its callback URL once the provider side is
+ *  entered, so the registration (and its client id) has to come first. Until
+ *  a URI is added, `validateRequest` rejects every authorization. */
 function assertRedirectUris(redirectUris: string[]): string[] {
     const uris = redirectUris.map((u) => u.trim()).filter(Boolean);
-    if (uris.length === 0) {
-        throw new Error("At least one redirect URI is required");
-    }
     for (const uri of uris) {
         try {
             new URL(uri);

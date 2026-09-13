@@ -7,8 +7,7 @@ import { taskFeedbackManager, type TaskFeedback } from "./taskFeedback";
  * Run a task and wait until it reaches a terminal status — for call sites that
  * want the old synchronous-await ergonomics (resolve with the finished run,
  * throw on failure/cancellation) while still getting task history + logs for
- * free. Not for kinds where "not ok" is itself a normal result (e.g.
- * `docker_image_pull`) — those resolve either way; check `run.result` instead.
+ * free.
  *
  * The wait rides the events socket (`connectionManager.waitForTask`) rather than
  * polling `getTask`: the run's every status change is already being broadcast to

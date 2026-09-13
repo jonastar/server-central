@@ -90,8 +90,8 @@ export const createDockerFeature = (fleet: Fleet, stacks: ComposeStackStore) => 
         },
 
         async docker_image_pull(spec: TaskDockerImagePull, ctx: TaskCtx): Promise<TaskDockerImagePullResult> {
-            const { ok, message } = await dockerImagePull(requireAgent(ctx, "docker_image_pull"), spec.ref, ctx.log);
-            return { kind: "docker_image_pull", ok, message };
+            const message = await dockerImagePull(requireAgent(ctx, "docker_image_pull"), spec.ref, ctx.log);
+            return { kind: "docker_image_pull", message };
         },
 
         async docker_compose_action(spec: TaskDockerComposeAction, ctx: TaskCtx): Promise<TaskDockerComposeActionResult> {

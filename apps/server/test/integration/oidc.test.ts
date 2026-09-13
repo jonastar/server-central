@@ -15,7 +15,7 @@ async function makeRoles(dir: string): Promise<RoleStore> {
 }
 import { OidcStore } from "../../src/features/oidc/store";
 import { buildAccessToken, buildIdToken, groupsForClient, jwks, scopedClaims, verifyJwt, verifyPkce } from "../../src/features/oidc/tokens";
-import { discoveryDocument } from "../../src/features/oidc/discovery";
+import { discoveryDocument, providerInfo } from "../../src/features/oidc/discovery";
 
 const ISSUER = "https://central.example.com";
 
@@ -82,6 +82,28 @@ describe("OIDC provider", () => {
         expect(await oidc.verifyClientSecret(client.id, clientSecret)).not.toBeNull();
     });
 
+    test("a client can be registered before its callback URL is known", async () => {
+        // The other app often shows its callback only after the provider side —
+        // issuer, client id — is entered, so the registration has to come first.
+        const { client, clientSecret } = await oidc.createClient("Immich", []);
+        expect(oidc.getClient(client.id)?.redirectUris).toEqual([]);
+        expect(await oidc.verifyClientSecret(client.id, clientSecret)).not.toBeNull();
+
+        // Until a URI is added nothing can sign in, and the error says so rather
+        // than blaming a mismatch that was never typed.
+        const params = {
+            clientId: client.id, redirectUri: "https://immich.example.com/auth/login", scope: "openid",
+            state: "s", codeChallenge: "c", codeChallengeMethod: "S256" as const,
+        };
+        expect(() => oidc.validateRequest(params)).toThrow(/no redirect URIs registered/i);
+
+        await oidc.updateClient({ ...client, redirectUris: ["https://immich.example.com/auth/login"] });
+        expect(oidc.validateRequest(params).id).toBe(client.id);
+        // Clearing them again is expressible too, same as any other edit.
+        await oidc.updateClient({ ...client, redirectUris: [] });
+        expect(oidc.getClient(client.id)?.redirectUris).toEqual([]);
+    });
+
     test("updateClient can relink and unlink the App that scopes the groups claim", async () => {
         const { client } = await oidc.createClient("Jellyfin", ["https://jelly.example.com/cb"], "app-1");
         expect(oidc.getClient(client.id)?.appId).toBe("app-1");
@@ -98,7 +120,6 @@ describe("OIDC provider", () => {
     test("updateClient validates the same way createClient does", async () => {
         const { client } = await oidc.createClient("My App", ["https://app.example.com/callback"]);
         await expect(oidc.updateClient({ ...client, name: "  " })).rejects.toThrow(/name/i);
-        await expect(oidc.updateClient({ ...client, redirectUris: [] })).rejects.toThrow(/redirect uri/i);
         await expect(oidc.updateClient({ ...client, redirectUris: ["not a url"] })).rejects.toThrow(/invalid redirect uri/i);
         // A rejected edit leaves the record alone.
         expect(oidc.getClient(client.id)?.redirectUris).toEqual(["https://app.example.com/callback"]);
@@ -124,9 +145,8 @@ describe("OIDC provider", () => {
         expect(oidc.validateRequest({ ...params, redirectUri: "https://jelly.example.com/cb" }).id).toBe(client.id);
     });
 
-    test("createClient rejects missing name/redirect URIs", async () => {
+    test("createClient rejects a missing name or a malformed redirect URI", async () => {
         await expect(oidc.createClient("", ["https://app.example.com"])).rejects.toThrow(/name/i);
-        await expect(oidc.createClient("My App", [])).rejects.toThrow(/redirect uri/i);
         await expect(oidc.createClient("My App", ["not a url"])).rejects.toThrow(/invalid redirect uri/i);
     });
 
@@ -325,6 +345,13 @@ describe("OIDC provider", () => {
         expect(doc.jwks_uri).toBe(`${ISSUER}/.well-known/jwks.json`);
         expect(doc.response_types_supported).toEqual(["code"]);
         expect(doc.code_challenge_methods_supported).toEqual(["S256"]);
+    });
+
+    test("providerInfo is the served discovery document plus where to fetch it", () => {
+        const info = providerInfo(ISSUER);
+        expect(info.discoveryUrl).toBe(`${ISSUER}/.well-known/openid-configuration`);
+        expect(info.discovery).toEqual(discoveryDocument(ISSUER));
+        expect(info.discovery.claims_supported).toContain(info.groupsClaim);
     });
 
     test("signing key is generated once and persists across restarts", async () => {

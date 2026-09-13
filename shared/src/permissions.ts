@@ -309,7 +309,7 @@ export const PANEL_PERMISSIONS = {
     "panel.oidc.read": {
         label: "View SSO clients",
         description: "See registered OpenID Connect relying parties.",
-        ops: ["oidc/listClients"],
+        ops: ["oidc/listClients", "oidc/getProviderInfo"],
     },
     "panel.oidc.admin": {
         label: "Manage SSO clients",

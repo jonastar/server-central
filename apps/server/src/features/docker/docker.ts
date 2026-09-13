@@ -856,20 +856,26 @@ export async function dockerImageAction(server: HostAgent, imageId: string, acti
     }
 }
 
+/**
+ * `docker pull <ref>`, resolving to its last output line (`Status: Downloaded
+ * newer image for …`). A failed pull throws, like every other runner here —
+ * it used to come back as `{ ok: false }` instead, which let a "not found"
+ * tag finish as a green task with the daemon's error for a result message.
+ */
 export async function dockerImagePull(
     server: HostAgent,
     ref: string,
     onLog?: (text: string) => void,
-): Promise<{ ok: boolean; message: string }> {
+): Promise<string> {
     if (!SAFE_REF_RE.test(ref)) {
         throw new Error(`Invalid image reference: ${ref}`);
     }
     const res = await runStreamingLines(server, ["docker", "pull", ref], onLog);
-    const message = (res.stdout + res.stderr).trim();
+    const lastLine = (res.stdout + res.stderr).trim().split("\n").filter(Boolean).pop();
     if (res.code !== 0) {
-        return { ok: false, message: message.split("\n").filter(Boolean).pop() || "docker pull failed" };
+        throw new Error(lastLine || "docker pull failed");
     }
-    return { ok: true, message: message.split("\n").filter(Boolean).pop() || `Pulled ${ref}` };
+    return lastLine || `Pulled ${ref}`;
 }
 
 interface ImageConfigJson {

@@ -13,6 +13,11 @@
 export interface OidcClient {
     id: string;
     name: string;
+    /** Exact-match allow-list for `redirect_uri`. May be empty: the app being
+     *  registered usually decides this value and often only reveals it after
+     *  the provider details (issuer, client id) have been entered on its side,
+     *  so a registration has to be able to exist before its callback is known.
+     *  An empty list simply means no authorization request can succeed yet. */
     redirectUris: string[];
     createdAt: number;
     /** The App this client signs people into, if any. Supersedes `groupPrefix`:
@@ -48,6 +53,43 @@ export interface AppGrant {
     issuedAt: number;
     /** When the chain lapses if it is never refreshed again. */
     expiresAt: number;
+}
+
+/**
+ * The `/.well-known/openid-configuration` document, typed so the SSO screen
+ * renders exactly what relying parties are served rather than a hand-kept copy.
+ * Spec-named keys, since these are the names the other app's config asks for.
+ */
+export interface OidcDiscoveryDocument {
+    issuer: string;
+    authorization_endpoint: string;
+    token_endpoint: string;
+    userinfo_endpoint: string;
+    device_authorization_endpoint: string;
+    revocation_endpoint: string;
+    jwks_uri: string;
+    response_types_supported: string[];
+    subject_types_supported: string[];
+    id_token_signing_alg_values_supported: string[];
+    scopes_supported: string[];
+    token_endpoint_auth_methods_supported: string[];
+    code_challenge_methods_supported: string[];
+    claims_supported: string[];
+    grant_types_supported: string[];
+}
+
+/**
+ * Everything about this provider a relying party's config asks for, before
+ * (or independent of) any particular client registration. The per-client
+ * half — client id, secret, the `groups` values it will actually see — lives
+ * with the client.
+ */
+export interface OidcProviderInfo {
+    /** Where the discovery document is served; most apps take just this. */
+    discoveryUrl: string;
+    discovery: OidcDiscoveryDocument;
+    /** Name of the claim carrying `app.*` role nodes. */
+    groupsClaim: "groups";
 }
 
 /** Query params an authorization request carries, whether read from the RP's
@@ -93,7 +135,11 @@ export interface DeviceAuthorizationRequest {
  */
 export interface OidcOperations {
     listClients: { data: void; response: OidcClient[] };
-    /** clientSecret is returned once, at creation, and never again. */
+    /** Provider-side details for filling in another app's SSO config. Null
+     *  until a Primary URL is set, since every URL here hangs off the issuer. */
+    getProviderInfo: { data: void; response: OidcProviderInfo | null };
+    /** clientSecret is returned once, at creation, and never again. Redirect
+     *  URIs may be empty — see `OidcClient.redirectUris`. */
     createClient: { data: { name: string; redirectUris: string[]; appId?: string | null }; response: { client: OidcClient; clientSecret: string } };
     /** Edit a registration in place, keeping its id and secret. A redirect URI
      *  is routinely a placeholder until the app is actually deployed, and

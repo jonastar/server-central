@@ -1,4 +1,5 @@
-import type { ProxyConfig, ProxyContainerStatus, ProxyRoute } from "@central/shared";
+import type { ProxyConfig, ProxyContainerStatus, ProxyRoute, ProxyRouteTarget } from "@central/shared";
+import { PROXY_NETWORK } from "@central/shared";
 
 /** Pinned to the minor so a redeploy picks up patch releases only. */
 export const PROXY_IMAGE = "caddy:2.10";
@@ -14,10 +15,33 @@ export const PROXY_DEPLOY_LOG = "/tmp/sc-proxy-deploy.log";
 export const PROXY_DEPLOY_DONE = "sc-proxy-deploy-finished";
 
 /**
+ * What Caddy dials for a route target. Host-port targets go to the node's LAN
+ * address, wherever the node is. Container targets on the proxy node are a
+ * name on the shared docker network — no host port, nothing resolved, Docker's
+ * DNS follows the container across recreates. A container target on any other
+ * node needs the control-plane tunnel (design doc, "Cross-node container
+ * targets"); until that exists it fails the render, the same way an unknown
+ * node does — loudly, rather than as a dial to a name nobody answers.
+ */
+export function upstreamDial(
+    config: ProxyConfig,
+    target: ProxyRouteTarget,
+    resolveNodeIp: (nodeId: string) => string,
+): string {
+    if (target.kind === "hostPort") {
+        return `${resolveNodeIp(target.nodeId)}:${target.port}`;
+    }
+    if (target.nodeId !== config.nodeId) {
+        throw new Error(`Container target ${target.alias} is on another node than the proxy — cross-node container routes aren't supported yet`);
+    }
+    return `${target.alias}:${target.port}`;
+}
+
+/**
  * The full Caddy JSON config for the current route set, pushed atomically to
- * the admin API's /load. Routes store intent (node + port); `resolveNodeIp`
- * turns a node id into the LAN address Caddy dials — same-node and cross-node
- * targets resolve identically in v1 (published host ports, see the design doc).
+ * the admin API's /load. Routes store intent (a node + host port, or a service
+ * on the proxy network); `resolveNodeIp` turns a node id into the LAN address
+ * Caddy dials for the former — see `upstreamDial`.
  *
  * The admin listener must be re-declared here: a loaded config replaces the
  * CADDY_ADMIN default wholesale, and losing it would lock us out of /load.
@@ -47,7 +71,7 @@ export function renderCaddyConfig(
             }],
             handle: [{
                 handler: "reverse_proxy",
-                upstreams: [{ dial: `${resolveNodeIp(r.target.nodeId)}:${r.target.port}` }],
+                upstreams: [{ dial: upstreamDial(config, r.target, resolveNodeIp) }],
                 ...(upstreamTls ? { transport: { protocol: "http", ...upstreamTls } } : {}),
             }],
             terminal: true,
@@ -90,6 +114,10 @@ export function proxyDeployScript(config: ProxyConfig): string {
         `--name ${PROXY_CONTAINER}`,
         `--label ${PROXY_LABEL}=1`,
         "--restart unless-stopped",
+        // The shared app network: same-node services attach to it and Caddy
+        // dials them by alias. Publishing works from any network, so the
+        // container needs no other.
+        `--network ${PROXY_NETWORK}`,
         // Container-internal ports stay 80/443 (what Caddy binds and what ACME
         // expects); only the host side moves when 80/443 are taken on the node.
         `-p ${config.httpPort ?? 80}:80 -p ${config.httpsPort ?? 443}:443`,
@@ -119,7 +147,11 @@ export function proxyDeployScript(config: ProxyConfig): string {
     // The backgrounding and the redirect are the agent's job — see the `detach`
     // option on `HostAgent.run`. Nothing interpolated below is free text: the
     // ports are integer-validated by the store, the rest are constants.
-    return `echo "deploying ${PROXY_IMAGE}"; docker pull ${PROXY_IMAGE}; docker rm -f ${PROXY_CONTAINER}; ${run}; echo "${PROXY_DEPLOY_DONE} rc=$?"`;
+    // The network is created on first deploy and left alone after: stacks
+    // reference it as `external`, so removing it would break them, and
+    // `create` on an existing network is an error rather than a no-op.
+    const network = `docker network inspect ${PROXY_NETWORK} >/dev/null 2>&1 || docker network create ${PROXY_NETWORK}`;
+    return `echo "deploying ${PROXY_IMAGE}"; docker pull ${PROXY_IMAGE}; ${network}; docker rm -f ${PROXY_CONTAINER}; ${run}; echo "${PROXY_DEPLOY_DONE} rc=$?"`;
 }
 
 /**

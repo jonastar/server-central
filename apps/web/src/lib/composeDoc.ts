@@ -1,4 +1,5 @@
 import { Document, YAMLMap, YAMLSeq, isMap, isSeq, parseDocument } from "yaml";
+import { PROXY_NETWORK } from "@central/shared";
 
 /** CST-preserving parse — comments, key order, and formatting on untouched nodes
  *  survive a targeted `setIn`/seq mutation + re-stringify. */
@@ -168,6 +169,157 @@ export function serializePortRow(row: PortRow): unknown {
     }
     const proto = row.protocol === "udp" ? "/udp" : "";
     return row.published ? `${row.published}:${row.target}${proto}` : `${row.target}${proto}`;
+}
+
+// ---- reverse proxy network ----------------------------------------------------
+//
+// A service becomes a proxy route target by joining the shared PROXY_NETWORK
+// under a per-stack alias (doc/idea_reverse_proxy.md, v2 layer 3). These read
+// and write exactly that: the top-level external network declaration and the
+// service's `networks` block.
+
+/** A port the route picker can offer for a service: what the container listens
+ *  on, labelled by compose's `name` when the author gave it one. */
+export interface ProxyPortCandidate {
+    /** Container-side port. */
+    port: number;
+    name?: string;
+    /** Host port it's also published on, when it is. Irrelevant to a container
+     *  route — the proxy dials the container side — but worth showing. */
+    published?: string;
+    /** Where the port was declared: the compose file, or the image's own
+     *  `EXPOSE` (see `withImagePorts`). */
+    source: "ports" | "expose" | "image";
+}
+
+/**
+ * Ports a service declares, `ports:` first and then `expose:`, one entry per
+ * container port. `expose` matters here precisely because it *doesn't* publish:
+ * it's the honest way to mark a port as proxy-only, and a service on the
+ * proxy network needs no `ports:` entry at all to be reachable.
+ */
+export function serviceProxyPorts(doc: Document, service: string): ProxyPortCandidate[] {
+    const out: ProxyPortCandidate[] = [];
+    const seen = new Set<number>();
+    for (const entry of getSeqItems<unknown>(doc, ["services", service, "ports"])) {
+        const row = parsePortEntry(entry);
+        const port = Number(row.target);
+        if (row.kind === "raw" || row.protocol !== "tcp" || !Number.isInteger(port) || seen.has(port)) {
+            continue;
+        }
+        seen.add(port);
+        out.push({ port, source: "ports", ...(row.name ? { name: row.name } : {}), ...(row.published ? { published: row.published } : {}) });
+    }
+    for (const entry of getSeqItems<unknown>(doc, ["services", service, "expose"])) {
+        const m = /^(\d+)(?:\/tcp)?$/.exec(String(entry));
+        const port = m ? Number(m[1]) : NaN;
+        if (!Number.isInteger(port) || seen.has(port)) {
+            continue;
+        }
+        seen.add(port);
+        out.push({ port, source: "expose" });
+    }
+    return out;
+}
+
+/**
+ * The compose candidates plus what the image itself declares with `EXPOSE`
+ * (`docker.imageDefaults`), for services whose compose file says nothing about
+ * ports — on the proxy network there's no reason it would. Compose entries win
+ * on duplicates: they may carry a name.
+ */
+export function withImagePorts(
+    declared: ProxyPortCandidate[],
+    image: { port: number; protocol: "tcp" | "udp" }[],
+): ProxyPortCandidate[] {
+    const seen = new Set(declared.map((c) => c.port));
+    const extra = image
+        .filter((p) => p.protocol === "tcp" && !seen.has(p.port))
+        .map((p): ProxyPortCandidate => ({ port: p.port, source: "image" }));
+    return [...declared, ...extra];
+}
+
+/** The alias a service carries on the proxy network; `null` when it isn't on
+ *  it at all, `""` when it's attached without an alias (bare name only). */
+export function serviceProxyAlias(doc: Document, service: string): string | null {
+    const networks = getServiceField<unknown>(doc, service, "networks");
+    if (Array.isArray(networks)) {
+        return networks.includes(PROXY_NETWORK) ? "" : null;
+    }
+    if (networks && typeof networks === "object" && PROXY_NETWORK in networks) {
+        const entry = (networks as Record<string, { aliases?: unknown } | null>)[PROXY_NETWORK];
+        const aliases = entry?.aliases;
+        return Array.isArray(aliases) && typeof aliases[0] === "string" ? aliases[0] : "";
+    }
+    return null;
+}
+
+/**
+ * Puts `service` on the proxy network under `alias`, declaring the network as
+ * external at the top level.
+ *
+ * A service with no `networks:` of its own sits on the stack's implicit
+ * `default` network — and the moment it declares any, it *leaves* that network
+ * unless `default` is listed too, taking its links to sibling services with
+ * it. So a service that had none gets `default: {}` alongside the new entry.
+ * One that already lists networks is left exactly as the author had it, plus
+ * the proxy network; if it deliberately isn't on `default`, that stays true.
+ */
+export function attachToProxyNetwork(doc: Document, service: string, alias: string): void {
+    if (getServiceField(doc, service, "network_mode") !== undefined) {
+        throw new Error(`${service} uses network_mode and can't join a docker network — route to a published host port instead`);
+    }
+    const top = ensureMapPath(doc, ["networks"]);
+    if (!isMap(top.get(PROXY_NETWORK, true))) {
+        top.set(PROXY_NETWORK, doc.createNode({ external: true }));
+    }
+
+    const svc = ensureMapPath(doc, ["services", service]);
+    const current = svc.get("networks", true);
+    let networks: YAMLMap;
+    if (isMap(current)) {
+        networks = current;
+    } else {
+        // A list form (`- default`, `- backend`) becomes the map form, since
+        // an alias only fits there; each name keeps its meaning as an empty entry.
+        networks = new YAMLMap(doc.schema);
+        const names = isSeq(current) ? current.items.map((i) => String(toJs(i))) : ["default"];
+        for (const name of names) {
+            networks.set(name, doc.createNode({}));
+        }
+        svc.set("networks", networks);
+    }
+    networks.set(PROXY_NETWORK, doc.createNode({ aliases: [alias] }));
+}
+
+/** Undo of `attachToProxyNetwork`: drops the service's proxy-network entry
+ *  (and a `networks:` block that then says only `default`), and the top-level
+ *  declaration once no service refers to it any more. */
+export function detachFromProxyNetwork(doc: Document, service: string): void {
+    const svc = doc.getIn(["services", service], true);
+    if (isMap(svc)) {
+        const networks = svc.get("networks", true);
+        if (isMap(networks)) {
+            networks.delete(PROXY_NETWORK);
+            const rest = networks.items.map((i) => String(toJs(i.key)));
+            if (rest.length === 0 || (rest.length === 1 && rest[0] === "default")) {
+                svc.delete("networks");
+            }
+        } else if (isSeq(networks)) {
+            const idx = networks.items.findIndex((i) => toJs(i) === PROXY_NETWORK);
+            if (idx !== -1) {
+                networks.delete(idx);
+            }
+        }
+    }
+    const stillUsed = listServiceNames(doc).some((name) => serviceProxyAlias(doc, name) !== null);
+    if (!stillUsed) {
+        doc.deleteIn(["networks", PROXY_NETWORK]);
+        const top = doc.get("networks", true);
+        if (isMap(top) && top.items.length === 0) {
+            doc.delete("networks");
+        }
+    }
 }
 
 // ---- volumes ----------------------------------------------------------------------

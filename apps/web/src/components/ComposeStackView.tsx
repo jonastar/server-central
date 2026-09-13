@@ -4,6 +4,7 @@ import type { ComposeStackTab } from "../routes";
 import { api } from "../api";
 import { useTaskAction } from "../hooks/useTaskAction";
 import { useConnection } from "../hooks/useConnection";
+import { useCan } from "../hooks/usePermissions";
 import { fmtDateTime, fmtRelative, cx } from "../utils";
 import { fmtDuration, specSummary, statusTone } from "../taskFormat";
 import { CodeEditor } from "./CodeEditor";
@@ -14,6 +15,7 @@ import { DeleteComposeStackModal } from "./DeleteComposeStackModal";
 import { FilesView } from "./FilesView";
 import { useHistoryState } from "../hooks/useHistoryState";
 import { LogViewer } from "./LogViewer";
+import { ProxyRouteModal } from "./ProxyRouteModal";
 import { ActionMenu, EmptyState, ErrorBanner, TaskProgress, WarnBanner } from "./ui";
 import shared from "../styles/shared.module.css";
 
@@ -243,6 +245,22 @@ function OverviewTab({ stack, host, status, tasks, busy, taskId, run, onOpenCont
     onBrowseEntry: (entry: DirEntry) => void;
 }) {
     const [dirEntries, setDirEntries] = useState<DirEntry[] | null>(null);
+    const can = useCan();
+    // "Expose via reverse proxy" opens the route modal with this service
+    // pre-selected. Shown only when a proxy is configured and the operator may
+    // add routes — the proxy node decides how the modal reaches the service.
+    const canRoute = can("panel.proxy.admin");
+    const [proxyNodeId, setProxyNodeId] = useState<string | null>(null);
+    const [routeFor, setRouteFor] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!canRoute) {
+            return;
+        }
+        api("proxy", "getState", undefined)
+            .then((s) => setProxyNodeId(s.config?.nodeId ?? null))
+            .catch(() => setProxyNodeId(null));
+    }, [canRoute]);
 
     useEffect(() => {
         let alive = true;
@@ -346,6 +364,9 @@ function OverviewTab({ stack, host, status, tasks, busy, taskId, run, onOpenCont
                                                     { label: "Stop", disabled: !svc.up, onSelect: () => run("stop", { service: svc.name }) },
                                                     { label: "Pull", onSelect: () => run("pull", { service: svc.name, watch: true }) },
                                                     { label: "Pull & up", onSelect: () => run("up", { pullFirst: true, service: svc.name, watch: true }) },
+                                                    ...(canRoute && proxyNodeId
+                                                        ? [{ label: "Expose via reverse proxy…", onSelect: () => setRouteFor(svc.name) }]
+                                                        : []),
                                                     {
                                                         label: "Down",
                                                         danger: true,
@@ -409,6 +430,16 @@ function OverviewTab({ stack, host, status, tasks, busy, taskId, run, onOpenCont
                     </section>
                 </div>
             </div>
+            {routeFor && (
+                <ProxyRouteModal
+                    servers={host ? [host] : []}
+                    proxyNodeId={proxyNodeId}
+                    existing={null}
+                    preset={{ stack, service: routeFor }}
+                    onClose={() => setRouteFor(null)}
+                    onSaved={() => void 0}
+                />
+            )}
         </>
     );
 }

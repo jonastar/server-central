@@ -1,7 +1,9 @@
+import type { OidcDiscoveryDocument, OidcProviderInfo } from "@central/shared";
+
 /** Builds the `/.well-known/openid-configuration` document. `issuer` is the
  *  admin-configured, stable base URL (see config.ts `primaryUrl`) — not derived
  *  from the incoming request, since it must stay fixed once clients trust it. */
-export function discoveryDocument(issuer: string): Record<string, unknown> {
+export function discoveryDocument(issuer: string): OidcDiscoveryDocument {
     return {
         issuer,
         authorization_endpoint: `${issuer}/oidc/authorize`,
@@ -18,5 +20,15 @@ export function discoveryDocument(issuer: string): Record<string, unknown> {
         claims_supported: ["sub", "iss", "aud", "exp", "iat", "auth_time", "preferred_username", "email", "email_verified", "groups"],
         grant_types_supported: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
         revocation_endpoint: `${issuer}/oidc/revoke`,
+    };
+}
+
+/** What the SSO screen shows an admin to copy into another app — the same
+ *  document `/.well-known` serves, plus where to fetch it from. */
+export function providerInfo(issuer: string): OidcProviderInfo {
+    return {
+        discoveryUrl: `${issuer}/.well-known/openid-configuration`,
+        discovery: discoveryDocument(issuer),
+        groupsClaim: "groups",
     };
 }
