@@ -12,6 +12,8 @@ feature may run longer; most don't earn it.
 
 ## Unreleased
 
+## [0.12.1] - 2026-09-14
+
 ## [0.12.0] - 2026-09-14
 
 ### Added
