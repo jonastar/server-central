@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ProxyRoute } from "@central/shared";
+import type { ProxyContainerTarget } from "@central/shared";
 import { ProxyStore } from "../../src/features/proxy/store";
 
 // The store is where a route that can't render gets refused, before it can
@@ -20,7 +20,7 @@ async function freshStore(seed?: object): Promise<ProxyStore> {
     return store;
 }
 
-const container = (nodeId: string): ProxyRoute["target"] =>
+const container = (nodeId: string): ProxyContainerTarget =>
     ({ kind: "container", nodeId, stackId: "s1", service: "jellyfin", alias: "media-jellyfin", port: 8096, scheme: "http" });
 
 test("container routes are accepted on the proxy node and refused elsewhere", async () => {
