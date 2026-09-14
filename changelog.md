@@ -12,6 +12,8 @@ feature may run longer; most don't earn it.
 
 ## Unreleased
 
+## [0.12.0] - 2026-09-14
+
 ### Added
 
 - **Fleet dashboard redesign.** The landing page now opens with an attention strip (offline
