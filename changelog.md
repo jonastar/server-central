@@ -12,6 +12,18 @@ feature may run longer; most don't earn it.
 
 ## Unreleased
 
+### Added
+
+...
+
+### Changed
+
+...
+
+### Fixed
+
+...
+
 ## [0.12.0] - 2026-09-14
 
 ### Added
@@ -202,7 +214,7 @@ feature may run longer; most don't earn it.
 
 ### Fixed
 
-- **A cross-origin page could POST to the API.** CORS only governs reading the *response*, so a
+- **A cross-origin page could POST to the API.** CORS only governs reading the _response_, so a
   "simple" POST reached handlers regardless — including `setupOwner` on an un-setup instance.
   `/api/` now refuses a request whose `Origin` is neither the host it arrived on nor allowlisted.
 - **An outdated agent opened a root shell instead of an impersonated one**, silently ignoring the
