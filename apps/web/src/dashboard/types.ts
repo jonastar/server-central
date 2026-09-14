@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
-import type { HostCapability, ServerEntry, WidgetSpan } from "@central/shared";
+import type { HostCapability, Permission, ServerEntry, WidgetSpan } from "@central/shared";
+import type { DockerSection, Route, ServerTab, ZfsSection } from "../routes";
 
 /**
  * The widget contract.
@@ -17,6 +18,18 @@ export interface WidgetProps<TConfig = WidgetConfig> {
     entry: ServerEntry;
     /** This card's settings, already merged over `defaultConfig`. */
     config: TConfig;
+    /** The time span the page is showing; every chart on it reads the same
+     *  value so the cards line up. Widgets without a time axis ignore it. */
+    windowMs: number;
+    /** For rows that lead somewhere — a stack to its page, a unit to Services. */
+    onNavigate(route: Route): void;
+}
+
+/** Where a widget's title takes you — the tab that owns the data it shows. */
+export interface WidgetLink {
+    tab: ServerTab;
+    section?: DockerSection;
+    zfsSection?: ZfsSection;
 }
 
 export interface WidgetConfigProps<TConfig = WidgetConfig> {
@@ -41,6 +54,12 @@ export interface DashboardWidget<TConfig extends WidgetConfig = WidgetConfig> {
      *  gate `SERVER_TABS` applies to whole tabs. Unknown (older agent, never
      *  probed) still shows, deliberately: same call as App.tsx's. */
     requires?: HostCapability;
+    /** The read permission the widget's requests need. A user without it
+     *  doesn't get the card offered, and a saved card renders a notice instead
+     *  of firing requests that will be refused. */
+    permission?: Permission;
+    /** Rendered as the title's link when set. */
+    link?: WidgetLink;
     defaultSpan: WidgetSpan;
     /** Narrowest span that still renders sensibly; the span control won't go
      *  below it. */

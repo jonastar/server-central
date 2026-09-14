@@ -133,10 +133,13 @@ a render change, not a migration.
 
 ## 4. What this does not do yet
 
-- **Fleet dashboard.** `Dashboard.tsx` is still the hand-written card grid. Its widgets would be
-  fleet-scoped (aggregate across hosts) rather than host-scoped, which is a different `WidgetProps`
-  and a different default-layout question — a second registry, sharing `useHostPoll` and the
-  layout store shape. Worth doing, deliberately not bundled in.
+- **Fleet dashboard as widgets.** `FleetDashboard.tsx` is a fixed page: attention strip, totals,
+  host cards/table, fleet panels. Its data side is settled — `dashboard.fleetSummary` collects
+  the per-feature facts server-side in one fan-out — but its sections aren't registry widgets.
+  They would be fleet-scoped (aggregate across hosts) rather than host-scoped, which is a
+  different `WidgetProps` and a different default-layout question — a second registry, sharing
+  `useHostPoll` and the layout store shape under a reserved host id. Worth doing once the fixed
+  page shows which sections anyone wants to rearrange.
 - **Per-widget refresh intervals.** One 10s cadence for tier 2, matching what the views did.
 - **RBAC.** Editing a layout is available to any authenticated user, like nearly everything else
   — see the RBAC gap in [next.md](../next.md). When roles are enforced, layout editing is an

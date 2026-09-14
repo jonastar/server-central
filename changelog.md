@@ -14,6 +14,20 @@ feature may run longer; most don't earn it.
 
 ### Added
 
+- **Fleet dashboard redesign.** The landing page now opens with an attention strip (offline
+  hosts, stacks down, failed units, degraded pools, full disks, failed tasks, agent updates),
+  fleet totals, a cards/table toggle for the host list, and Recent tasks / Proxy / Storage panels.
+- **`dashboard.fleetSummary`** collects stacks, failed units and pool health across online hosts
+  in one server-side fan-out (per-host deadline, 5s shared cache) — the fleet page's one poll
+  instead of three per host.
+- **Chart hover and time axis.** Time-series charts show a crosshair with each series' value and
+  clock time; the axis carries clock ticks. Sparklines with a formatter get hover and a window label.
+- **Host overview: attention strip and time range.** A host's page opens with its own issue list
+  (same logic as the fleet page), and a 15m/30m/1h control that every chart on the page follows.
+- **Host widgets: ZFS pools and Recent tasks.** Pool health/capacity/last scrub, and the last runs
+  targeting this host. Widget titles link to their tab; the palette hides widgets the user can't
+  read and names features properly.
+
 - **Batch rename in the Files view.** Select several rows and "Rename…" takes a pattern —
   `Romance down E#` numbers them `E1`, `E2`, … (`##` pads, `*` keeps the original name, and a
   separator splits it into `$1`, `$2`… pieces) with a full preview and conflict check before
@@ -89,6 +103,10 @@ feature may run longer; most don't earn it.
   that can't be read blocks the move, and a destination on another disk is called out.
 
 ### Fixed
+
+- **Ghost stacks after removal.** Removing a stack whose containers had all exited skipped `down`, so
+  the host re-adopted it on the next read. Any existing container now triggers `down`, and `down`
+  works even when the stack directory is already gone (containers/networks removed by label).
 
 - **Moving files between disks works.** `rename(2)` can't cross a filesystem, so any move
   between two mounts failed with "invalid cross-device link"; the agent now falls back to a

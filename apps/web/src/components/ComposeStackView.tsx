@@ -214,7 +214,10 @@ export function ComposeStackView({ stackId, tab, servers, onNavigate, onBack, on
                 <DeleteComposeStackModal
                     stack={stack}
                     host={host}
-                    running={(status?.services ?? []).some((s) => s.up)}
+                    // Any container at all, not just running ones: an exited
+                    // container skipped by `down` is re-adopted as a ghost stack
+                    // on the host's next stacks read.
+                    running={(status?.services ?? []).some((s) => s.state !== undefined)}
                     onClose={() => setDeleting(false)}
                     onDeleted={onBack}
                 />

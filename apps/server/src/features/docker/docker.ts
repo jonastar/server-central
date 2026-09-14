@@ -222,8 +222,11 @@ export async function dockerStacks(server: HostAgent): Promise<DockerStacksState
     }
 
     const ps = await server.run(["docker", "ps", "-a", "--format", "{{json .}}"]);
-    const containers = parseJsonLines<PsRow>(ps.stdout);
+    return { available: true, stacks: groupStacks(parseJsonLines<PsRow>(ps.stdout)) };
+}
 
+/** Fold containers onto their compose projects, sorted by project. */
+function groupStacks(containers: PsRow[]): DockerStack[] {
     const byProject = new Map<string, DockerStack>();
     for (const c of containers) {
         const project = parseLabel(c.Labels, "com.docker.compose.project");
@@ -250,8 +253,32 @@ export async function dockerStacks(server: HostAgent): Promise<DockerStacksState
         }
     }
 
-    const stacks = [...byProject.values()].sort((a, b) => a.project.localeCompare(b.project));
-    return { available: true, stacks };
+    return [...byProject.values()].sort((a, b) => a.project.localeCompare(b.project));
+}
+
+/**
+ * Container counts and per-stack state from one `docker ps -a` — what the fleet
+ * overview needs from each host, every poll. Deliberately not `dockerOverview`:
+ * that one also runs `docker system df`, which walks every layer and volume to
+ * size them and can take seconds on a busy host, for numbers the fleet page
+ * doesn't show.
+ */
+export async function dockerFleetSnapshot(server: HostAgent): Promise<
+    { available: true; containersRunning: number; containersTotal: number; stacks: DockerStack[] }
+    | { available: false; error: string }
+> {
+    const err = await probe(server);
+    if (err) {
+        return { available: false, error: err };
+    }
+    const ps = await server.run(["docker", "ps", "-a", "--format", "{{json .}}"]);
+    const containers = parseJsonLines<PsRow>(ps.stdout);
+    return {
+        available: true,
+        containersRunning: containers.filter((c) => c.State === "running").length,
+        containersTotal: containers.length,
+        stacks: groupStacks(containers),
+    };
 }
 
 export async function dockerStackAction(
@@ -341,6 +368,10 @@ export async function composeStackAction(
             return;
         }
     }
+    if (action === "down" && !service && !(await dirExists(server, dir))) {
+        await downByLabel(server, project, onLog);
+        return;
+    }
     if (action === "down" && service) {
         const stop = await runStreamingLines(server, composeArgv(composeFile, project, "stop", ...svc), onLog, inDir);
         if (stop.code !== 0) {
@@ -355,6 +386,50 @@ export async function composeStackAction(
     const res = await runStreamingLines(server, composeArgv(composeFile, project, ...verb, ...svc), onLog, inDir);
     if (res.code !== 0) {
         throw new Error(errorText(res) || `docker compose ${action} failed`);
+    }
+}
+
+/** Plain `test -d` on the host, rather than a stat over the agent protocol: it
+ *  goes through the same `run` every other line in this file does, and a fake
+ *  agent that replays commands covers it for free. */
+async function dirExists(server: HostAgent, dir: string): Promise<boolean> {
+    const res = await server.run(["test", "-d", dir]);
+    return res.code === 0;
+}
+
+/**
+ * The `down` for a stack whose directory is gone. Every compose verb has to
+ * start inside the stack's directory (see `composeArgv`), so once that
+ * directory has been deleted — the folder removed out from under the project,
+ * or an unregister that skipped `down` because every container had already
+ * exited — compose can't be asked to tear it down at all. The compose labels on
+ * the containers and network survive, and `docker rm -f` / `docker network rm`
+ * by label is exactly what `compose down` does with them.
+ *
+ * This is what stops a removed stack coming straight back: `syncHost` adopts
+ * any project `docker ps -a` still lists, exited containers included, so a
+ * container left behind here is a ghost stack on the next read.
+ */
+async function downByLabel(server: HostAgent, project: string, onLog?: (text: string) => void): Promise<void> {
+    const filter = `label=com.docker.compose.project=${project}`;
+    onLog?.(`Stack directory is gone; removing containers and networks labelled ${project} directly.\n`);
+    const ids = await server.run(["docker", "ps", "-aq", "--filter", filter]);
+    const containerIds = ids.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (containerIds.length > 0) {
+        const rm = await server.run(["docker", "rm", "-f", ...containerIds]);
+        onLog?.(rm.stdout);
+        if (rm.code !== 0) {
+            throw new Error(errorText(rm) || "docker rm failed");
+        }
+    }
+    const nets = await server.run(["docker", "network", "ls", "-q", "--filter", filter]);
+    const networkIds = nets.stdout.split("\n").map((s) => s.trim()).filter(Boolean);
+    if (networkIds.length > 0) {
+        const rm = await server.run(["docker", "network", "rm", ...networkIds]);
+        onLog?.(rm.stdout);
+        if (rm.code !== 0) {
+            throw new Error(errorText(rm) || "docker network rm failed");
+        }
     }
 }
 

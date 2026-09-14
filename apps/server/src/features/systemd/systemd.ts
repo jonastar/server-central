@@ -41,6 +41,27 @@ function outputOrError(res: ExecResult): string {
  * enabled/disabled state (from `list-unit-files`). Both use `--plain` so there's
  * no leading status bullet to strip.
  */
+/**
+ * Just the failed units, of every type — a service that crashed, but also a
+ * mount that didn't come up or a timer whose job broke. One cheap call, for the
+ * fleet overview polling every host; `systemdList` lists all services with
+ * their enablement and is the Services tab's shape, not this one's.
+ */
+export async function systemdFailedUnits(server: HostAgent): Promise<{ available: true; units: string[] } | { available: false; error: string }> {
+    const res = await server.run(["systemctl", "list-units", "--state=failed", "--all", "--no-legend", "--no-pager", "--plain"]);
+    if (res.code !== 0) {
+        return { available: false, error: (res.stdout + res.stderr).trim().split("\n")[0] || "systemd unavailable" };
+    }
+    const units: string[] = [];
+    for (const line of res.stdout.split("\n")) {
+        const unit = line.trim().split(/\s+/)[0];
+        if (unit) {
+            units.push(unit);
+        }
+    }
+    return { available: true, units };
+}
+
 export async function systemdList(server: HostAgent): Promise<SystemdState> {
     const probe = await server.run(["systemctl", "--version"]);
     if (probe.code !== 0) {

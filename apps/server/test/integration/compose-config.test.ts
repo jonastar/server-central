@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { composeConfig, getComposeStackStatus } from "../../src/features/docker/docker";
+import { composeConfig, composeStackAction, getComposeStackStatus } from "../../src/features/docker/docker";
 import type { HostAgent } from "../../src/host-agent";
 
 // `docker compose config --format json` is asked for, but some compose builds
@@ -14,12 +14,13 @@ import type { HostAgent } from "../../src/host-agent";
 function fakeAgent(
     reply: (command: string, opts?: { cwd?: string }) => { stdout: string; stderr?: string; code?: number },
 ): HostAgent {
-    return {
-        run: async (argv: string[], opts?: { cwd?: string }) => {
-            const res = reply(argv.join(" "), opts);
-            return { stdout: res.stdout, stderr: res.stderr ?? "", code: res.code ?? 0 };
-        },
-    } as unknown as HostAgent;
+    const run = async (argv: string[], opts?: { cwd?: string }) => {
+        const res = reply(argv.join(" "), opts);
+        return { stdout: res.stdout, stderr: res.stderr ?? "", code: res.code ?? 0 };
+    };
+    // Streaming verbs go through `runStream`; with no listener the output is
+    // simply not forwarded, so a one-shot reply stands in fine.
+    return { run, runStream: (argv: string[], _onChunk: unknown, opts?: { cwd?: string }) => run(argv, opts) } as unknown as HostAgent;
 }
 
 const YAML_OUTPUT = `name: bl
@@ -232,4 +233,48 @@ test("containers still running are reported even when the compose file won't par
     expect(status.services.map((s) => s.name)).toEqual(["immich-server"]);
     expect(status.status).toBe("running");
     expect(status.error).toBeTruthy();
+});
+
+// `down` on a stack whose directory is gone: compose can't start there, so the
+// containers and network are removed by project label instead. Without this an
+// unregister leaves the exited containers behind and `syncHost` adopts the
+// project straight back — the "ghost stack" that can't be deleted.
+
+test("down on a gone directory removes the project's containers and networks by label", async () => {
+    const ran: string[] = [];
+    const agent = fakeAgent((command, opts) => {
+        ran.push(command);
+        if (command === "test -d /opt/sc-apps/static-page-test") {
+            return { stdout: "", code: 1 };
+        }
+        if (opts?.cwd) {
+            return { stdout: "", stderr: "Working directory /opt/sc-apps/static-page-test is unavailable", code: 127 };
+        }
+        if (command === "docker ps -aq --filter label=com.docker.compose.project=static-page-test") {
+            return { stdout: "b672416efadf\n" };
+        }
+        if (command === "docker network ls -q --filter label=com.docker.compose.project=static-page-test") {
+            return { stdout: "9a1c\n" };
+        }
+        return { stdout: "" };
+    });
+
+    await composeStackAction(agent, "/opt/sc-apps/static-page-test", "compose.yaml", "static-page-test", "down");
+
+    expect(ran).toContain("docker rm -f b672416efadf");
+    expect(ran).toContain("docker network rm 9a1c");
+    expect(ran.some((c) => c.includes("docker compose"))).toBe(false);
+});
+
+test("down on a present directory still goes through compose", async () => {
+    const ran: string[] = [];
+    const agent = fakeAgent((command) => {
+        ran.push(command);
+        return { stdout: "" };
+    });
+
+    await composeStackAction(agent, "/opt/sc-apps/static-page-test", "compose.yaml", "static-page-test", "down");
+
+    expect(ran).toContain("docker compose -f compose.yaml -p static-page-test down");
+    expect(ran.some((c) => c.startsWith("docker rm"))).toBe(false);
 });

@@ -63,7 +63,7 @@ function HostInfo({ entry }: WidgetProps) {
     );
 }
 
-function Cpu({ serverId, entry }: WidgetProps) {
+function Cpu({ serverId, entry, windowMs }: WidgetProps) {
     const history = useHistory(serverId);
     const latest = history.at(-1);
     if (history.length < 2) {
@@ -72,6 +72,7 @@ function Cpu({ serverId, entry }: WidgetProps) {
     return (
         <>
             <TimeSeriesChart
+                windowMs={windowMs}
                 series={[{ label: "total", color: "#3b6ef6", points: points(history, (s) => s.cpu.total) }]}
                 max={100}
                 fmt={fmtPct}
@@ -81,7 +82,7 @@ function Cpu({ serverId, entry }: WidgetProps) {
     );
 }
 
-function Memory({ serverId, entry }: WidgetProps) {
+function Memory({ serverId, entry, windowMs }: WidgetProps) {
     const history = useHistory(serverId);
     const latest = history.at(-1);
     if (history.length < 2) {
@@ -89,6 +90,7 @@ function Memory({ serverId, entry }: WidgetProps) {
     }
     return (
         <TimeSeriesChart
+                windowMs={windowMs}
             series={[
                 { label: "used", color: "#7c5cd6", points: points(history, (s) => s.memory.usedKb) },
                 ...(latest && latest.memory.swapTotalKb > 0
@@ -101,13 +103,14 @@ function Memory({ serverId, entry }: WidgetProps) {
     );
 }
 
-function Network({ serverId, entry }: WidgetProps) {
+function Network({ serverId, entry, windowMs }: WidgetProps) {
     const history = useHistory(serverId);
     if (history.length < 2) {
         return <Collecting online={entry.status.state === "online"} />;
     }
     return (
         <TimeSeriesChart
+                windowMs={windowMs}
             series={[
                 { label: "rx", color: "#22a06b", points: points(history, (s) => s.network.rxBytesPerSec) },
                 { label: "tx", color: "#e2a312", points: points(history, (s) => s.network.txBytesPerSec) },
@@ -117,13 +120,14 @@ function Network({ serverId, entry }: WidgetProps) {
     );
 }
 
-function DiskIo({ serverId, entry }: WidgetProps) {
+function DiskIo({ serverId, entry, windowMs }: WidgetProps) {
     const history = useHistory(serverId);
     if (history.length < 2) {
         return <Collecting online={entry.status.state === "online"} />;
     }
     return (
         <TimeSeriesChart
+                windowMs={windowMs}
             series={[
                 { label: "read", color: "#3b9ef6", points: points(history, (s) => s.diskIo.readBytesPerSec) },
                 { label: "write", color: "#d65d45", points: points(history, (s) => s.diskIo.writeBytesPerSec) },
@@ -203,6 +207,7 @@ export const systemWidgets = [
         featureId: FEATURE_ID,
         title: "Disk usage",
         description: "Space used per mounted filesystem.",
+        link: { tab: "mounts" },
         defaultSpan: 1,
         inDefaultLayout: 70,
         component: DiskUsage,

@@ -141,6 +141,42 @@
     color: var(--accent);
 }
 
+/* ---- Segmented control ------------------------------------------------------------
+   A row of mutually exclusive choices (cards/table, 15m/1h). Use `segment-active`
+   on the chosen one. */
+
+.segmented {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--panel);
+}
+
+.segment {
+    border: none;
+    background: none;
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.segment + .segment {
+    border-left: 1px solid var(--border);
+}
+
+.segment:hover {
+    background: var(--panel-2);
+}
+
+.segment-active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+}
+
 /* ---- Panels ------------------------------------------------------------------- */
 
 .panel {

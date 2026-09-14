@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DashboardWidgetInstance, ServerEntry, WidgetSpan } from "@central/shared";
+import type { DashboardWidgetInstance, Permission, ServerEntry, WidgetSpan } from "@central/shared";
 import { WIDGET_SPANS } from "@central/shared";
 import { api } from "../api";
-import { cx } from "../utils";
+import type { Route } from "../routes";
+import { cx, isAgentOutdated } from "../utils";
+import { useCan } from "../hooks/usePermissions";
+import { useConnection } from "../hooks/useConnection";
 import { EmptyState, ErrorBanner, Modal } from "../components/ui";
-import { defaultLayout, findWidget, instanceFor, widgetAvailable, WIDGETS } from "./registry";
+import { defaultLayout, FEATURE_NAMES, findWidget, instanceFor, widgetAvailable, widgetPermitted, WIDGETS } from "./registry";
 import { WidgetBoundary } from "./WidgetBoundary";
-import type { AnyDashboardWidget, WidgetConfig } from "./types";
+import { AttentionStrip } from "./AttentionStrip";
+import { collectHostIssues } from "./issues";
+import { useHostPoll } from "./useHostPoll";
+import type { AnyDashboardWidget, WidgetConfig, WidgetLink } from "./types";
 import styles from "./HostDashboard.module.css";
 import shared from "../styles/shared.module.css";
 
@@ -19,13 +25,37 @@ import shared from "../styles/shared.module.css";
  * nobody has arranged has no stored row at all and gets `defaultLayout()`
  * computed from the registry, which is what lets a widget added in a later
  * release appear without a migration. See doc/idea_host_dashboard.md.
+ *
+ * Above the grid sits what isn't a card: the host's own attention strip (the
+ * same issue list the fleet page shows, filtered to this host) and the time
+ * range every chart on the page shares.
  */
+
+const WINDOW_KEY = "sc.host.window";
+const WINDOWS: Array<{ ms: number; label: string }> = [
+    { ms: 15 * 60_000, label: "15m" },
+    { ms: 30 * 60_000, label: "30m" },
+    { ms: 60 * 60_000, label: "1h" },
+];
+
+function readWindow(): number {
+    try {
+        const stored = Number(localStorage.getItem(WINDOW_KEY));
+        return WINDOWS.some((w) => w.ms === stored) ? stored : WINDOWS[0].ms;
+    } catch {
+        return WINDOWS[0].ms;
+    }
+}
 
 interface CardProps {
     instance: DashboardWidgetInstance;
     widget: AnyDashboardWidget | undefined;
     entry: ServerEntry;
+    windowMs: number;
+    permitted: boolean;
     editing: boolean;
+    onOpen(link: WidgetLink): void;
+    onNavigate(route: Route): void;
     dragging: boolean;
     dropTarget: boolean;
     onSpan(span: WidgetSpan): void;
@@ -83,7 +113,15 @@ function Card(props: CardProps) {
             }}
         >
             <div className={styles["card-head"]}>
-                <h3 className={styles["card-title"]}>{widget?.title ?? instance.widget}</h3>
+                {widget?.link && !editing
+                    ? (
+                        <h3 className={styles["card-title"]}>
+                            <button className={styles["card-title-link"]} title={`Open ${widget.link.tab}`} onClick={() => props.onOpen(widget.link!)}>
+                                {widget.title} <span className={styles["card-title-arrow"]}>→</span>
+                            </button>
+                        </h3>
+                    )
+                    : <h3 className={styles["card-title"]}>{widget?.title ?? instance.widget}</h3>}
                 {label && <span className={styles["card-label"]}>{label}</span>}
                 {editing && (
                     <div className={styles["card-tools"]}>
@@ -96,10 +134,14 @@ function Card(props: CardProps) {
                 )}
             </div>
             <div className={styles["card-body"]}>
-                {Body
+                {Body && !props.permitted
+                    // Kept in the layout (it's shared, and someone else may see
+                    // it) but not rendered: its requests would only be refused.
+                    ? <div className={styles.placeholder}>You don't have permission to view this.</div>
+                    : Body
                     ? (
                         <WidgetBoundary title={widget?.title ?? instance.widget}>
-                            <Body serverId={entry.id} entry={entry} config={config} />
+                            <Body serverId={entry.id} entry={entry} config={config} windowMs={props.windowMs} onNavigate={props.onNavigate} />
                         </WidgetBoundary>
                     )
                     // A layout saved by a newer build, viewed after a downgrade.
@@ -110,8 +152,9 @@ function Card(props: CardProps) {
     );
 }
 
-function AddWidgetModal({ entry, onAdd, onClose }: {
+function AddWidgetModal({ entry, can, onAdd, onClose }: {
     entry: ServerEntry;
+    can(permission: Permission): boolean;
     onAdd(widget: AnyDashboardWidget): void;
     onClose(): void;
 }) {
@@ -129,16 +172,17 @@ function AddWidgetModal({ entry, onAdd, onClose }: {
         <Modal title="Add widget" onClose={onClose} width={520}>
             {groups.map(([featureId, widgets]) => (
                 <div key={featureId} className={styles["palette-group"]}>
-                    <h4>{featureId}</h4>
+                    <h4>{FEATURE_NAMES[featureId] ?? featureId}</h4>
                     {widgets.map((widget) => {
                         const available = widgetAvailable(widget, entry);
+                        const permitted = widgetPermitted(widget, can);
                         return (
                             <button
                                 key={widget.id}
                                 type="button"
                                 className={styles["palette-item"]}
-                                disabled={!available}
-                                title={available ? undefined : `This host reported ${widget.requires} unavailable`}
+                                disabled={!available || !permitted}
+                                title={!available ? `This host reported ${widget.requires} unavailable` : !permitted ? "You don't have permission to view this" : undefined}
                                 onClick={() => onAdd(widget)}
                             >
                                 <div className={styles["palette-title"]}>{widget.title}</div>
@@ -172,8 +216,27 @@ function ConfigureModal({ instance, widget, entry, onChange, onClose }: {
     );
 }
 
-export function HostDashboard({ entry }: { entry: ServerEntry }) {
+export function HostDashboard({ entry, onNavigate }: { entry: ServerEntry; onNavigate(route: Route): void }) {
     const serverId = entry.id;
+    const can = useCan();
+    const online = entry.status.state === "online";
+    const [windowMs, setWindowMs] = useState<number>(readWindow);
+    useEffect(() => {
+        try {
+            localStorage.setItem(WINDOW_KEY, String(windowMs));
+        } catch {
+            // Storage blocked: the choice still holds for this page load.
+        }
+    }, [windowMs]);
+
+    // The same digest the fleet page polls, so the two pages share one cache
+    // entry and the host's strip agrees with its card over there.
+    const summary = useHostPoll("dashboard", "fleetSummary", undefined, { enabled: online && can("panel.dashboard.read") });
+    const latest = useConnection().metrics[serverId]?.at(-1);
+    const issues = useMemo(
+        () => collectHostIssues(entry, latest, summary.data?.hosts.find((h) => h.hostId === serverId), isAgentOutdated(entry)),
+        [entry, latest, summary.data, serverId],
+    );
     /** null only while the stored layout is still being fetched; the default is
      *  materialized into state on load rather than computed per render, because
      *  `defaultLayout` mints fresh instance ids each call — recomputing it would
@@ -202,7 +265,7 @@ export function HostDashboard({ entry }: { entry: ServerEntry }) {
                 if (!cancelled) {
                     // No stored row means nobody has arranged this host: build
                     // the default from the registry. See idea_host_dashboard.md §3.
-                    setLayout(stored ? stored.widgets : defaultLayout(entry));
+                    setLayout(stored ? stored.widgets : defaultLayout(entry, can));
                 }
             } catch (err) {
                 if (!cancelled) {
@@ -251,7 +314,7 @@ export function HostDashboard({ entry }: { entry: ServerEntry }) {
         setBusy(true);
         try {
             await api("dashboard", "reset", { hostId: serverId });
-            setLayout(defaultLayout(entry));
+            setLayout(defaultLayout(entry, can));
             setEditing(false);
             setError(null);
         } catch (err) {
@@ -288,6 +351,15 @@ export function HostDashboard({ entry }: { entry: ServerEntry }) {
             <header className={shared["view-header"]}>
                 <h1>{entry.name}</h1>
                 <div className={styles.toolbar}>
+                    {!editing && (
+                        <div className={shared.segmented} role="group" aria-label="Chart time range" title="Time range for every chart on this page">
+                            {WINDOWS.map((w) => (
+                                <button key={w.ms} className={cx(shared.segment, windowMs === w.ms && shared["segment-active"])} onClick={() => setWindowMs(w.ms)}>
+                                    {w.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     {editing
                         ? (
                             <>
@@ -303,9 +375,12 @@ export function HostDashboard({ entry }: { entry: ServerEntry }) {
                 </div>
             </header>
 
-            {entry.status.state === "error" && (
-                <ErrorBanner>Connection failed: {entry.status.error}</ErrorBanner>
-            )}
+            <AttentionStrip
+                issues={issues}
+                waiting={online && summary.loading}
+                clearText="Every stack is up, nothing is failing."
+                onNavigate={onNavigate}
+            />
             {error && <ErrorBanner>{error}</ErrorBanner>}
 
             {layout === null
@@ -314,29 +389,37 @@ export function HostDashboard({ entry }: { entry: ServerEntry }) {
                 ? <EmptyState>This dashboard is empty — add a widget, or reset it to the default layout.</EmptyState>
                 : (
                     <div className={styles.grid} onDragLeave={() => setOverId(null)}>
-                        {layout.map((instance) => (
-                            <Card
-                                key={instance.id}
-                                instance={instance}
-                                widget={findWidget(instance.widget)}
-                                entry={entry}
-                                editing={editing}
-                                dragging={dragId === instance.id}
-                                dropTarget={editing && overId === instance.id && dragId !== null && dragId !== instance.id}
-                                onSpan={(span) => patch(instance.id, { span })}
-                                onRemove={() => setLayout((current) => (current ?? []).filter((w) => w.id !== instance.id))}
-                                onConfigure={() => setConfiguring(instance.id)}
-                                onDragStart={() => setDragId(instance.id)}
-                                onDragEnd={() => { setDragId(null); setOverId(null); }}
-                                onDragOver={() => reorder(instance.id)}
-                            />
-                        ))}
+                        {layout.map((instance) => {
+                            const widget = findWidget(instance.widget);
+                            return (
+                                <Card
+                                    key={instance.id}
+                                    instance={instance}
+                                    widget={widget}
+                                    entry={entry}
+                                    windowMs={windowMs}
+                                    permitted={!widget || widgetPermitted(widget, can)}
+                                    editing={editing}
+                                    onOpen={(link) => onNavigate({ view: "server", serverId, tab: link.tab, section: link.section, zfsSection: link.zfsSection })}
+                                    onNavigate={onNavigate}
+                                    dragging={dragId === instance.id}
+                                    dropTarget={editing && overId === instance.id && dragId !== null && dragId !== instance.id}
+                                    onSpan={(span) => patch(instance.id, { span })}
+                                    onRemove={() => setLayout((current) => (current ?? []).filter((w) => w.id !== instance.id))}
+                                    onConfigure={() => setConfiguring(instance.id)}
+                                    onDragStart={() => setDragId(instance.id)}
+                                    onDragEnd={() => { setDragId(null); setOverId(null); }}
+                                    onDragOver={() => reorder(instance.id)}
+                                />
+                            );
+                        })}
                     </div>
                 )}
 
             {adding && (
                 <AddWidgetModal
                     entry={entry}
+                    can={can}
                     onAdd={(widget) => {
                         setLayout([...(layout ?? []), instanceFor(widget)]);
                         setAdding(false);

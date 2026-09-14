@@ -260,9 +260,9 @@ export const PANEL_PERMISSIONS = {
     },
 
     "panel.dashboard.read": {
-        label: "View host dashboards",
-        description: "See the widget layout on a host's overview.",
-        ops: ["dashboard/get"],
+        label: "View dashboards",
+        description: "See the widget layout on a host's overview, and the fleet overview's summary of stacks, failed units and pool health across hosts.",
+        ops: ["dashboard/get", "dashboard/fleetSummary"],
     },
     "panel.dashboard.write": {
         label: "Arrange host dashboards",

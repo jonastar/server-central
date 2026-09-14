@@ -26,6 +26,7 @@ import { createProcessesFeature } from "./features/processes/feature";
 import { ProxyManager } from "./features/proxy/manager";
 import { DashboardStore } from "./features/dashboard/store";
 import { createDashboardFeature } from "./features/dashboard/feature";
+import { FleetSummaryCollector } from "./features/dashboard/fleet-summary";
 import { ProxyStore } from "./features/proxy/store";
 import { createProxyFeature } from "./features/proxy/feature";
 import { createServersFeature } from "./features/servers/feature";
@@ -163,6 +164,7 @@ const deviceStore = new DeviceCodeStore();
 // keeps minting access tokens for it.
 auth.onUserCredentialsRevoked((userId) => refreshStore.revokeForUser(userId));
 const dashboardStore = new DashboardStore();
+const fleetSummary = new FleetSummaryCollector(fleet, { registeredStacks: () => stackStore.list() });
 const proxyStore = new ProxyStore();
 const proxyManager = new ProxyManager(fleet, proxyStore);
 
@@ -192,7 +194,7 @@ const baseFeatures = defineFeatures(
     createAuthFeature(auth, roleStore),
     createAppsFeature(appStore, oidcStore),
     createOidcFeature(oidcStore, auth, appStore, refreshStore, deviceStore),
-    createDashboardFeature(dashboardStore),
+    createDashboardFeature(dashboardStore, fleetSummary),
     createProxyFeature(proxyManager, proxyStore),
     createServersFeature(fleet, nodeServer),
     createSettingsFeature(nodeServer, oidcStore, applyAllowedOrigins, applyTrustedProxies, trustedProxiesLocked),

@@ -49,6 +49,8 @@ export const systemdWidgets = [
         title: "Failed units",
         description: "systemd units currently in a failed state.",
         requires: "systemd",
+        permission: "panel.systemd.read",
+        link: { tab: "services" },
         defaultSpan: 1,
         component: FailedUnits,
     }),

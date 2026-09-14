@@ -8,10 +8,18 @@ re-document finished work here, and delete an item from this file once it lands.
 - Better process list? Or is it better to just jump into `htop` in the terminal at that point?
 - Host user authorized keys mangement
   - Option to sync authorized keys across all mapped users?
-- Fleet-level dashboard widgets — `Dashboard.tsx` is still a hand-written card grid. The host
-  registry (`apps/web/src/dashboard`) is the model; fleet widgets aggregate across hosts, so
-  they need their own `WidgetProps` and a separate registry sharing `useHostPoll` and the layout
-  store shape. See [doc/idea_host_dashboard.md](doc/idea_host_dashboard.md) §4.
+- Fleet dashboard phase 2 — `FleetDashboard.tsx` shipped as a fixed layout on live data. Turning
+  its sections into `fleet.*` widgets needs a second registry with its own `WidgetProps` and a
+  layout row for the fleet (a reserved host id is enough). See
+  [doc/idea_host_dashboard.md](doc/idea_host_dashboard.md) §4. Also pending: proxy route
+  reachability / cert state in the Proxy panel (needs the LE introspection listed under Reverse
+  proxy), and thresholds (`DISK_WARN`, `SCRUB_STALE_MS`) as settings rather than constants.
+  - Dismissing attention items (e.g. a known-failed unit). Decided but not built: *snooze*
+    semantics (1 day / 1 week / until undone), stored per host on the control plane like the
+    layout, gated by `panel.dashboard.write`; dismissed items stay under the "informational"
+    toggle with undo. Needs one issue per failed unit and a stable key per issue
+    (`failed-unit:<unit>`, `stack-stopped:<project>`, …). Acknowledge-until-recovery was
+    rejected for now: a transient "docker not answering" would clear every stack ack.
 - Temperature monitoring?
 - compose stack .env management
   - A visual editor and more support in the UI for variables defined in a .env file, as well as attaching and detect the env file on the service

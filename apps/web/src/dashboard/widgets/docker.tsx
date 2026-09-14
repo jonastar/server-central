@@ -1,4 +1,6 @@
 import type { ComposeStackRunStatus, HostComposeStacks } from "@central/shared";
+import type { Route } from "../../routes";
+import { cx } from "../../utils";
 import { EmptyState, ErrorBanner } from "../../components/ui";
 import { observedStatus, stackTone, StatusBadge } from "../../components/docker/status";
 import { useHostPoll } from "../useHostPoll";
@@ -25,6 +27,8 @@ interface StackRow {
     status: ComposeStackRunStatus;
     running: number;
     total: number;
+    /** Registered stack id; absent for one only observed from labels. */
+    stackId?: string;
 }
 
 function mergeStacks(state: HostComposeStacks): StackRow[] {
@@ -41,9 +45,9 @@ function mergeStacks(state: HostComposeStacks): StackRow[] {
     for (const stack of state.stacks) {
         const existing = byProject.get(stack.project);
         byProject.set(stack.project, existing
-            ? { ...existing, label: stack.name }
+            ? { ...existing, label: stack.name, stackId: stack.id }
             // Registered but nothing running: it's simply down.
-            : { project: stack.project, label: stack.name, status: "down", running: 0, total: 0 });
+            : { project: stack.project, label: stack.name, status: "down", running: 0, total: 0, stackId: stack.id });
     }
     return [...byProject.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -52,17 +56,25 @@ function useStacks(serverId: string, online: boolean) {
     return useHostPoll("compose", "readForHost", { hostId: serverId }, { enabled: online });
 }
 
-function StackRowLine({ row }: { row: StackRow }) {
+/** Where a row leads — the same rule as the Stacks view: a registered stack
+ *  has a page of its own, an observed-only one has just its containers. */
+function stackRoute(serverId: string, row: StackRow): Route {
+    return row.stackId
+        ? { view: "server", serverId, tab: "docker", section: "stacks", stackId: row.stackId, stackTab: "overview" }
+        : { view: "server", serverId, tab: "docker", section: "containers", stack: row.project };
+}
+
+function StackRowLine({ row, onOpen }: { row: StackRow; onOpen(): void }) {
     return (
-        <div className={styles["stack-row"]}>
+        <button type="button" className={cx(styles["stack-row"], styles["stack-row-link"])} onClick={onOpen} title={row.stackId ? `Open ${row.label}` : `Containers of ${row.project}`}>
             <StatusBadge tone={stackTone(row.status)}>{row.status}</StatusBadge>
-            <span className={styles["stack-name"]} title={row.project}>{row.label}</span>
+            <span className={styles["stack-name"]}>{row.label}</span>
             <span className={shared.dim}>{row.total > 0 ? `${row.running}/${row.total}` : "—"}</span>
-        </div>
+        </button>
     );
 }
 
-function Stacks({ serverId, entry }: WidgetProps) {
+function Stacks({ serverId, entry, onNavigate }: WidgetProps) {
     const online = entry.status.state === "online";
     const { data, error, loading } = useStacks(serverId, online);
 
@@ -84,7 +96,7 @@ function Stacks({ serverId, entry }: WidgetProps) {
     }
     return (
         <div className={styles["stack-list"]}>
-            {rows.map((row) => <StackRowLine key={row.project} row={row} />)}
+            {rows.map((row) => <StackRowLine key={row.project} row={row} onOpen={() => onNavigate(stackRoute(serverId, row))} />)}
         </div>
     );
 }
@@ -100,7 +112,7 @@ interface PinnedStackConfig {
     [key: string]: unknown;
 }
 
-function PinnedStack({ serverId, entry, config }: WidgetProps<PinnedStackConfig>) {
+function PinnedStack({ serverId, entry, config, onNavigate }: WidgetProps<PinnedStackConfig>) {
     const online = entry.status.state === "online";
     const { data, error, loading } = useStacks(serverId, online);
 
@@ -122,7 +134,7 @@ function PinnedStack({ serverId, entry, config }: WidgetProps<PinnedStackConfig>
     }
     return (
         <div className={styles["stack-list"]}>
-            <StackRowLine row={row} />
+            <StackRowLine row={row} onOpen={() => onNavigate(stackRoute(serverId, row))} />
         </div>
     );
 }
@@ -196,6 +208,8 @@ export const dockerWidgets = [
         title: "Compose stacks",
         description: "Every compose stack on this host and whether it's up.",
         requires: "docker",
+        permission: "panel.compose.read",
+        link: { tab: "docker", section: "stacks" },
         defaultSpan: 2,
         inDefaultLayout: 60,
         component: Stacks,
@@ -206,6 +220,8 @@ export const dockerWidgets = [
         title: "Stack",
         description: "One chosen compose stack — add a card per stack you actually watch.",
         requires: "docker",
+        permission: "panel.compose.read",
+        link: { tab: "docker", section: "stacks" },
         defaultSpan: 1,
         component: PinnedStack,
         configForm: PinnedStackConfigForm,
@@ -218,6 +234,8 @@ export const dockerWidgets = [
         title: "Docker totals",
         description: "Container, stack, volume and image counts.",
         requires: "docker",
+        permission: "panel.docker.read",
+        link: { tab: "docker" },
         defaultSpan: 1,
         component: Summary,
     }),

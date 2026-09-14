@@ -1,9 +1,20 @@
-import type { DashboardWidgetInstance, ServerEntry } from "@central/shared";
+import type { DashboardWidgetInstance, Permission, ServerEntry } from "@central/shared";
 import { hostCapabilityUnavailable } from "../utils";
 import type { AnyDashboardWidget } from "./types";
 import { systemWidgets } from "./widgets/system";
 import { dockerWidgets } from "./widgets/docker";
 import { systemdWidgets } from "./widgets/systemd";
+import { zfsWidgets } from "./widgets/zfs";
+import { taskWidgets } from "./widgets/tasks";
+
+/** How the palette names a feature's group; the id is the fallback. */
+export const FEATURE_NAMES: Record<string, string> = {
+    servers: "Host",
+    docker: "Docker",
+    systemd: "Services",
+    zfs: "ZFS",
+    tasks: "Tasks",
+};
 
 /**
  * Every dashboard widget, composed from per-feature arrays.
@@ -29,7 +40,7 @@ function composeWidgets(...slices: AnyDashboardWidget[][]): AnyDashboardWidget[]
     return all;
 }
 
-export const WIDGETS = composeWidgets(systemWidgets, dockerWidgets, systemdWidgets);
+export const WIDGETS = composeWidgets(systemWidgets, dockerWidgets, systemdWidgets, zfsWidgets, taskWidgets);
 
 const BY_ID = new Map(WIDGETS.map((w) => [w.id, w]));
 
@@ -49,6 +60,12 @@ export function findWidget(id: string): AnyDashboardWidget | undefined {
  */
 export function widgetAvailable(widget: AnyDashboardWidget, entry: ServerEntry): boolean {
     return !hostCapabilityUnavailable(entry.status, widget.requires);
+}
+
+/** Whether the user may see what the widget shows. Widgets declaring no
+ *  permission are open to anyone who can open the page. */
+export function widgetPermitted(widget: AnyDashboardWidget, can: (p: Permission) => boolean): boolean {
+    return widget.permission === undefined || can(widget.permission);
 }
 
 let instanceCounter = 0;
@@ -79,9 +96,9 @@ export function instanceFor(widget: AnyDashboardWidget): DashboardWidgetInstance
  * doc/idea_host_dashboard.md §3, including what this costs on a host someone
  * *has* customized.
  */
-export function defaultLayout(entry: ServerEntry): DashboardWidgetInstance[] {
+export function defaultLayout(entry: ServerEntry, can: (p: Permission) => boolean): DashboardWidgetInstance[] {
     return WIDGETS
-        .filter((w) => w.inDefaultLayout !== undefined && widgetAvailable(w, entry))
+        .filter((w) => w.inDefaultLayout !== undefined && widgetAvailable(w, entry) && widgetPermitted(w, can))
         .sort((a, b) => a.inDefaultLayout! - b.inDefaultLayout!)
         .map(instanceFor);
 }

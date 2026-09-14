@@ -11,9 +11,9 @@ import { connectionManager } from "./connection";
 import { LoginView } from "./components/LoginView";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
-import { Dashboard } from "./components/Dashboard";
 import { AgentsView } from "./components/AgentsView";
 import { HostDashboard } from "./dashboard/HostDashboard";
+import { FleetDashboard } from "./dashboard/FleetDashboard";
 import { FilesView } from "./components/FilesView";
 import { DockerView } from "./components/DockerView";
 import { ZfsView } from "./components/ZfsView";
@@ -69,13 +69,7 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
             }
         }
         if (route.view === "dashboard") {
-            return (
-                <Dashboard
-                    servers={conn.servers}
-                    metrics={conn.metrics}
-                    onOpenServer={(serverId) => setRoute({ view: "server", serverId, tab: "overview" })}
-                />
-            );
+            return <FleetDashboard servers={conn.servers} metrics={conn.metrics} onNavigate={setRoute} />;
         }
         if (route.view === "agents") {
             return (
@@ -120,7 +114,7 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
 
         switch (route.tab) {
             case "overview":
-                return <HostDashboard entry={currentEntry} />;
+                return <HostDashboard entry={currentEntry} onNavigate={setRoute} />;
             case "files":
                 return (
                     <FilesView

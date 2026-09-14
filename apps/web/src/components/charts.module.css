@@ -41,10 +41,116 @@
     font-size: 11px;
 }
 
+.plot {
+    position: relative;
+}
+
+.axis {
+    position: relative;
+    height: 14px;
+    margin-top: 3px;
+    font-size: 10px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.tick {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.tick:first-child {
+    transform: none;
+}
+
+.tick:last-child {
+    transform: translateX(-100%);
+}
+
+.hover-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--text);
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+.hover-dot {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 2px solid var(--panel);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    box-sizing: border-box;
+}
+
+.tooltip {
+    position: absolute;
+    top: 4px;
+    transform: translateX(8px);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    line-height: 1.5;
+    box-shadow: 0 2px 8px rgba(20, 30, 60, 0.12);
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 1;
+}
+
+.tooltip-flip {
+    transform: translateX(calc(-100% - 8px));
+}
+
+.tooltip-time {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tooltip-row b {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+
 .sparkline {
     width: 100%;
     background: var(--panel-2);
     border-radius: 3px;
+    display: block;
+}
+
+.spark-wrap {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+}
+
+.spark-wrap .sparkline {
+    height: 100%;
+}
+
+.spark-window {
+    position: absolute;
+    left: 4px;
+    bottom: 1px;
+    font-size: 9px;
+    line-height: 1;
+    color: var(--muted);
+    pointer-events: none;
 }
 
 .usage-bar {

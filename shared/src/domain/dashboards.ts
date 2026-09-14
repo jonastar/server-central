@@ -1,3 +1,6 @@
+import type { ComposeStackRunStatus } from "./compose";
+import type { ZfsHealth } from "./zfs";
+
 // ---- Host dashboards -------------------------------------------------------------
 //
 // The per-host overview is a list of widget *instances* the operator arranged.
@@ -52,4 +55,58 @@ export interface DashboardOperations {
     set: { data: { hostId: string; widgets: DashboardWidgetInstance[] }; response: HostDashboard };
     /** Drop the stored arrangement, returning the host to the registry default. */
     reset: { data: { hostId: string }; response: void };
+    /** What the fleet overview shows beyond live metrics — see {@link FleetSummary}. */
+    fleetSummary: { data: void; response: FleetSummary };
+}
+
+// ---- Fleet summary ------------------------------------------------------------------
+//
+// The fleet overview wants a few facts from every online host — stacks and
+// their state, failed units, pool health — that live behind three different
+// feature namespaces. Polling those per host from the browser would be N hosts ×
+// three requests every ten seconds, so the control plane collects them in one
+// fan-out and answers with this compact record, briefly cached so ten open tabs
+// cost one collection. Live metrics and connection state are *not* in here:
+// they already stream over the events socket.
+//
+// Every per-subsystem field is `null` when that subsystem isn't there to ask —
+// capability reported unavailable, or the host offline — and the `errors` map
+// carries the reason when asking *failed*. The two are kept apart so the page
+// can stay quiet about a host that simply has no ZFS, and loud about one whose
+// docker daemon stopped answering.
+
+export interface FleetStackSummary {
+    project: string;
+    /** Registered name when SC manages the stack, else the compose project. */
+    name: string;
+    status: ComposeStackRunStatus;
+    running: number;
+    total: number;
+}
+
+export interface FleetPoolSummary {
+    name: string;
+    state: ZfsHealth;
+    capacityPct: number;
+    /** When the last scrub finished; null when none has ever completed. */
+    lastScrubAt: number | null;
+    scrubInProgress: boolean;
+}
+
+export type FleetSubsystem = "docker" | "systemd" | "zfs";
+
+export interface FleetHostSummary {
+    hostId: string;
+    docker: { containersRunning: number; containersTotal: number; stacks: FleetStackSummary[] } | null;
+    /** Units in a failed state. */
+    failedUnits: string[] | null;
+    pools: FleetPoolSummary[] | null;
+    /** Why a subsystem's field is null even though the host should have it. */
+    errors: Partial<Record<FleetSubsystem, string>>;
+}
+
+export interface FleetSummary {
+    hosts: FleetHostSummary[];
+    /** When this collection ran — older than the poll interval means a cache hit. */
+    capturedAt: number;
 }
