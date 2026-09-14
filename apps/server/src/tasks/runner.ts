@@ -64,6 +64,7 @@ export class TaskRunner {
         // member for the same reason. See shared/src/tasks.ts.
         const controller = new AbortController();
         const ctx: TaskCtx = {
+            id: run.id,
             signal: controller.signal,
             agent: null,
             target: run.target,

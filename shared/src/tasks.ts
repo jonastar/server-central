@@ -106,6 +106,19 @@ export interface TaskUpdateAgent {
     force?: boolean;
 }
 
+/**
+ * Update the control plane itself to the latest release. The one kind whose
+ * run outlives the process that started it: the handler downloads the binary,
+ * repoints the install symlink and exits so the supervisor re-execs — and the
+ * run is still `running` in the store when the new process boots. That process
+ * resolves it (see `TaskStore.init`), so the run's terminal status is the first
+ * `taskUpdate` the reconnected UI sees: proof the restart landed, not just that
+ * it was asked for. Control-plane-local (`target: null`).
+ */
+export interface TaskUpdateControlPlane {
+    kind: "update_control_plane";
+}
+
 /** A synthetic run that touches nothing: it just emits log lines for
  *  `durationMs`, then succeeds (or fails, on demand). Exists so the task UI —
  *  the corner widget, the live modal, run history — can be exercised without a
@@ -232,6 +245,7 @@ export type TaskSpec =
     | TaskDockerImagePull
     | TaskDockerComposeAction
     | TaskUpdateAgent
+    | TaskUpdateControlPlane
     | TaskDebugFake
     | TaskZfsPoolCreate
     | TaskZfsPoolDestroy
@@ -307,6 +321,13 @@ export interface TaskUpdateAgentResult {
     kind: "update_agent";
 }
 
+/** Written by the *new* process on boot — `version` is what it found itself
+ *  running, which by then has been checked against what the run installed. */
+export interface TaskUpdateControlPlaneResult {
+    kind: "update_control_plane";
+    version: string;
+}
+
 export interface TaskDebugFakeResult {
     kind: "debug_fake";
     /** How many log lines the run emitted. */
@@ -378,6 +399,7 @@ export type TaskResult =
     | TaskDockerImagePullResult
     | TaskDockerComposeActionResult
     | TaskUpdateAgentResult
+    | TaskUpdateControlPlaneResult
     | TaskDebugFakeResult
     | TaskZfsPoolCreateResult
     | TaskZfsPoolDestroyResult

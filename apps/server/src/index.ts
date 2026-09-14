@@ -45,7 +45,7 @@ import { runAuthCli } from "./auth-cli";
 import { serveDevUi, serveStatic, usingDevUi } from "./static";
 import { handleRpc, isRpcPath } from "./http/rpc";
 import { EventHub, type WsData } from "./http/ws";
-import { offerInteractiveInstall, runServerInstallCli } from "./server-install";
+import { interruptedUpdateResolver, offerInteractiveInstall, runServerInstallCli } from "./server-install";
 import { createZfsFeature } from "./features/zfs/feature";
 
 // This single binary is both the control plane and the host agent. With
@@ -199,7 +199,9 @@ const baseFeatures = defineFeatures(
 );
 
 const taskStore = new TaskStore();
-await taskStore.init();
+// A self-update leaves its run `running` for the next process — this one — to
+// settle, which has to happen here, before the first socket sees the history.
+await taskStore.init(await interruptedUpdateResolver());
 
 hub = new EventHub(fleet, taskStore);
 

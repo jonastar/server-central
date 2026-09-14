@@ -1,5 +1,17 @@
-import type { TaskRun, TaskSpec } from "@central/shared";
+import type { TaskResult, TaskRun, TaskSpec } from "@central/shared";
 import { readTaskState, writeTaskState } from "../config";
+
+/**
+ * A verdict on a run the previous process left mid-flight — for the one kind
+ * whose run is *supposed* to outlive its process (`update_control_plane`: the
+ * handler exits so the supervisor re-execs the new binary). `null` means "not
+ * mine": the store fails the run as interrupted, which is right for every
+ * other kind.
+ */
+export type OrphanResolver = (run: TaskRun) =>
+    | { status: "succeeded"; result: TaskResult }
+    | { status: "failed"; error: string }
+    | null;
 
 /** Most recent runs to keep on disk (and in memory). Older ones are dropped. */
 const MAX_RUNS = 200;
@@ -12,11 +24,11 @@ const MAX_RUNS = 200;
 export class TaskStore {
     private runs = new Map<string, TaskRun>();
 
-    async init(): Promise<void> {
+    async init(resolveOrphan: OrphanResolver = () => null): Promise<void> {
         for (const run of await readTaskState()) {
             this.runs.set(run.id, run);
         }
-        await this.reapOrphans();
+        await this.reapOrphans(resolveOrphan);
     }
 
     /**
@@ -27,15 +39,25 @@ export class TaskStore {
      * they'd otherwise sit as "running" forever until pruned. Resolve them once
      * on load instead. `finishedAt` is the reap time, not the true end time,
      * which is unknowable; the error says as much.
+     *
+     * The exception is a run that was meant to end this way: `resolveOrphan`
+     * gets first say, and a verdict from it (either way) stands in for the
+     * generic "interrupted" failure.
      */
-    private async reapOrphans(): Promise<void> {
+    private async reapOrphans(resolveOrphan: OrphanResolver): Promise<void> {
         let reaped = 0;
         for (const run of this.runs.values()) {
             if (run.status !== "pending" && run.status !== "running") {
                 continue;
             }
-            run.status = "failed";
-            run.error = "Interrupted by a control-plane restart; the outcome is unknown.";
+            const verdict = resolveOrphan(run);
+            if (verdict?.status === "succeeded") {
+                run.status = "succeeded";
+                run.result = verdict.result;
+            } else {
+                run.status = "failed";
+                run.error = verdict?.error ?? "Interrupted by a control-plane restart; the outcome is unknown.";
+            }
             run.finishedAt = Date.now();
             reaped++;
         }

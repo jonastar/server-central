@@ -104,6 +104,8 @@ export function specSummary(spec: TaskSpec): string {
         }
         case "update_agent":
             return spec.force ? "Update agent (forced)" : "Update agent";
+        case "update_control_plane":
+            return "Update control plane";
         case "debug_fake":
             return `Fake task (${(spec.durationMs / 1000).toFixed(1)}s${spec.fail ? ", failing" : ""})`;
         case "zfs_pool_create":
@@ -150,6 +152,8 @@ export function resultSummary(run: TaskRun): string {
             return run.result.ip ?? "not detected";
         case "debug_fake":
             return `${run.result.lines} log lines`;
+        case "update_control_plane":
+            return `now on ${run.result.version}`;
         case "service_action":
         case "docker_stack_action":
         case "docker_container_action":

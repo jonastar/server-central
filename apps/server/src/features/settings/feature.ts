@@ -129,12 +129,14 @@ export const createSettingsFeature = (
         async getControlPlaneStatus() {
             return controlPlaneStatus();
         },
-
-        async updateControlPlane() {
+    },
+    tasks: {
+        /** Never resolves on success — the process exits and the next one
+         *  settles the run on boot. See `updateControlPlane`. */
+        update_control_plane(_spec, ctx) {
             console.log(`[update] control-plane self-update requested (current ${AGENT_VERSION})`);
-            await updateControlPlane();
+            return updateControlPlane(ctx);
         },
-
     },
 });
 

@@ -46,9 +46,9 @@ export interface SettingsOperations {
     // Refused while SC_TRUSTED_PROXIES is set, since the environment overrides it.
     setTrustedProxies: { data: { trustedProxies: TrustedProxyConfig[] }; response: void };
 
-    // Control plane (the server itself): its running version vs. the latest release,
-    // and a self-update that swaps the binary and restarts. updateAvailable is false
-    // unless the control plane is installed as a service and a newer release exists.
+    // Control plane (the server itself): its running version vs. the latest release.
+    // updateAvailable is false unless the control plane is installed as a service and
+    // a newer release exists. The update itself is the `update_control_plane` task.
     getControlPlaneStatus: {
         data: void;
         response: {
@@ -63,5 +63,4 @@ export interface SettingsOperations {
             logUnit: string | null;
         };
     };
-    updateControlPlane: { data: void; response: void };
 }

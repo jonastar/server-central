@@ -151,6 +151,10 @@ feature may run longer; most don't earn it.
 
 ### Changed
 
+- **Control-plane self-update is a task that completes on restart.** The run stays open across
+  the restart and the new process settles it — succeeded only once that version is actually up
+  — so the modal shows the whole thing and the page reloads on the new build instead of sitting
+  on a stale "Updating…".
 - **Uploads are no longer size-limited.** `MAX_UPLOAD_BYTES` (256MB) is gone: a file is uploaded
   as however many requests it takes, so what fits is a question about the host's disk.
 - **Uploads stream end to end.** Browser, control plane and agent each hold one chunk instead of

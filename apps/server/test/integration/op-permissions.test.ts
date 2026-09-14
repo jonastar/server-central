@@ -185,7 +185,7 @@ describe("what each role can actually reach", () => {
         const viewer = allowedOps("viewer");
         expect(viewer).toContain("docker/list");
         expect(viewer).toContain("files/getMounts");
-        for (const denied of ["files/write", "files/delete", "docker/containerExec", "proxy/setConfig", "tasks/run", "auth/createUser", "settings/updateControlPlane"]) {
+        for (const denied of ["files/write", "files/delete", "docker/containerExec", "proxy/setConfig", "tasks/run", "auth/createUser", "settings/setTrustedProxies"]) {
             expect(viewer, `viewer must not reach ${denied}`).not.toContain(denied);
         }
         expect(runnable("viewer")).toEqual([]);

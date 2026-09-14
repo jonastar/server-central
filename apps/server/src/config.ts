@@ -31,6 +31,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
 const AGENT_STATE_FILE = path.join(CONFIG_DIR, "agents.json");
 const AGENT_TOKENS_FILE = path.join(CONFIG_DIR, "agent-tokens.json");
 const TASK_STATE_FILE = path.join(CONFIG_DIR, "tasks.json");
+const PENDING_UPDATE_FILE = path.join(CONFIG_DIR, "pending-update.json");
 const STACK_STATE_FILE = path.join(CONFIG_DIR, "compose-stacks.json");
 // Pre-rename name for the same registry, read once on startup so an install
 // from before compose stacks were split out of "apps" carries its stacks over.
@@ -281,6 +282,41 @@ export async function readTaskState(): Promise<TaskRun[]> {
 export async function writeTaskState(runs: TaskRun[]): Promise<void> {
     await ensureDir();
     await writeFileAtomic(TASK_STATE_FILE, JSON.stringify(runs, null, 2));
+}
+
+/**
+ * The note a self-updating control plane leaves for its successor: which run
+ * installed which version, written just before the old process exits. The new
+ * process takes it on boot (read + delete, one shot) to settle that run — see
+ * `interruptedUpdateResolver` in server-install.ts. Absent almost always.
+ */
+export interface PendingUpdate {
+    runId: string;
+    version: string;
+}
+
+export async function writePendingUpdate(pending: PendingUpdate): Promise<void> {
+    await ensureDir();
+    await writeFileAtomic(PENDING_UPDATE_FILE, JSON.stringify(pending, null, 2));
+}
+
+/** Read and remove the marker, so it can't outlive the boot it was meant for. */
+export async function takePendingUpdate(): Promise<PendingUpdate | null> {
+    let text: string;
+    try {
+        text = await fs.readFile(PENDING_UPDATE_FILE, "utf8");
+    } catch {
+        return null;
+    }
+    await fs.rm(PENDING_UPDATE_FILE, { force: true });
+    try {
+        const parsed = JSON.parse(text) as Partial<PendingUpdate>;
+        return typeof parsed.runId === "string" && typeof parsed.version === "string"
+            ? { runId: parsed.runId, version: parsed.version }
+            : null;
+    } catch {
+        return null;
+    }
 }
 
 /** Persisted registry of SC-managed compose stacks — the control plane's list

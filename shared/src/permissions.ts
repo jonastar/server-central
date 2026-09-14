@@ -290,8 +290,8 @@ export const PANEL_PERMISSIONS = {
     "panel.settings.admin": {
         label: "Change settings",
         description: "Edit the primary URL, agent domain, allowed origins and trusted proxies, and update the control plane itself.",
-        ops: ["settings/setDomain", "settings/setPrimaryUrl", "settings/setAllowedOrigins", "settings/setTrustedProxies", "settings/updateControlPlane"],
-        tasks: ["debug_fake"],
+        ops: ["settings/setDomain", "settings/setPrimaryUrl", "settings/setAllowedOrigins", "settings/setTrustedProxies"],
+        tasks: ["update_control_plane", "debug_fake"],
         escalation: "Replaces the control plane's own binary, and edits the trusted-proxy list that decides which client addresses are believed.",
     },
 

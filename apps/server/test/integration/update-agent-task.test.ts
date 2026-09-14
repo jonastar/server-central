@@ -61,7 +61,7 @@ function makeInstalledAgent(fleet: Fleet, version: string): HostAgent {
 }
 
 function fakeCtx(fleet: Fleet, agent: HostAgent): TaskCtx {
-    return { signal: new AbortController().signal, agent, target: MACHINE, fleet, log: () => {} };
+    return { id: "run-1", signal: new AbortController().signal, agent, target: MACHINE, fleet, log: () => {} };
 }
 
 test("update_agent does not resolve on ack alone — it waits for a genuine reconnect", async () => {
@@ -113,7 +113,7 @@ test("update_agent times out if the agent never reconnects", async () => {
     // of hanging, and report a clear error rather than a false success.
     const controller = new AbortController();
     controller.abort();
-    const ctx: TaskCtx = { signal: controller.signal, agent: oldAgent, target: MACHINE, fleet, log: () => {} };
+    const ctx: TaskCtx = { id: "run-2", signal: controller.signal, agent: oldAgent, target: MACHINE, fleet, log: () => {} };
 
     await expect(taskHandlers.update_agent({ kind: "update_agent" }, ctx)).rejects.toThrow();
 });

@@ -30,6 +30,7 @@ function makeCtx(chunks: [stream: "stdout" | "stderr", data: string][] = [], cod
     } as unknown as HostAgent;
 
     const ctx: TaskCtx = {
+        id: "run-exec",
         log: (text, stream) => logged.push(`${stream ?? "stdout"}:${text}`),
         signal: new AbortController().signal,
         agent,

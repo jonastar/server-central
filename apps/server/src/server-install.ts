@@ -1,10 +1,12 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { InstallMechanism } from "@central/shared";
+import type { InstallMechanism, TaskUpdateControlPlaneResult } from "@central/shared";
 import { AGENT_VERSION } from "@central/shared";
 import { DEFAULT_INSTALL_DIR } from "./agent/agent";
 import { downloadVerifiedBinary, getLatestVersion } from "./binary-store";
-import { CONFIG_DIR } from "./config";
+import { CONFIG_DIR, takePendingUpdate, writePendingUpdate } from "./config";
+import type { OrphanResolver } from "./tasks/store";
+import type { TaskCtx } from "./tasks/types";
 import {
     type ServiceSpec,
     copySelfToVersionedBin,
@@ -221,14 +223,26 @@ export async function controlPlaneStatus(): Promise<ControlPlaneStatus> {
     };
 }
 
+/** Grace between the last log line and `process.exit`, so the `taskLog`
+ *  broadcasts and the persisted run state are on the wire / on disk first. */
+const EXIT_DELAY_MS = 1500;
+
 /**
- * Self-update the installed control plane: fetch its own-platform binary for the
- * latest release (checksum-verified), point the stable symlink at it, then exit so
- * the supervisor (systemd Restart=always) re-execs the new version. Mirrors the host
- * agent's self-update; the install dir is the dir the running binary lives in, the
- * data dir is the active CONFIG_DIR (SC_DATA_DIR).
+ * Self-update the installed control plane, as the body of the
+ * `update_control_plane` task: fetch its own-platform binary for the latest
+ * release (checksum-verified), point the stable symlink at it, leave a note for
+ * the next process (`writePendingUpdate`), then exit so the supervisor (systemd
+ * Restart=always) re-execs the new version. Mirrors the host agent's self-update;
+ * the install dir is the dir the running binary lives in, the data dir is the
+ * active CONFIG_DIR (SC_DATA_DIR).
+ *
+ * On the success path this never resolves: the process is gone before it could.
+ * The run stays `running` on disk and the new process settles it on boot via
+ * {@link interruptedUpdateResolver} — that's what makes the run's completion
+ * mean "the new version is up", not merely "the old one agreed to go". Every
+ * failure path throws normally, before anything irreversible.
  */
-export async function updateControlPlane(): Promise<void> {
+export async function updateControlPlane(ctx: Pick<TaskCtx, "id" | "log">): Promise<TaskUpdateControlPlaneResult> {
     if (process.platform !== "linux") {
         throw new Error("Control-plane self-update is only supported on Linux");
     }
@@ -246,11 +260,44 @@ export async function updateControlPlane(): Promise<void> {
     const platform = `linux-${process.arch}`;
     const bin = paths.versionedBin(latest);
     console.log(`[update] control-plane self-update ${AGENT_VERSION} -> ${latest} (${platform})`);
+    ctx.log(`Updating ${AGENT_VERSION} -> ${latest} (${platform})`);
+    ctx.log(`Downloading ${latest}...`);
     await downloadVerifiedBinary(platform, latest, bin);
+    ctx.log(`Downloaded and verified ${bin}`);
+    // The marker goes down before the symlink moves: if writing it fails the
+    // run fails with nothing changed, whereas a symlink already repointed with
+    // no marker would restart into a run nobody can settle.
+    await writePendingUpdate({ runId: ctx.id, version: latest });
     await pointSymlink(bin, paths.bin);
     await pruneOldBinaries(SERVER_SPEC, paths, bin);
+    ctx.log(`Installed ${latest} as ${paths.bin}`);
+    ctx.log("Restarting the control plane — this run completes once the new version is up.");
 
-    console.log(`[update] updated to ${latest}; exiting in 1.5s so the supervisor re-execs the new binary.`);
-    // Delay so the API success reply is sent before we drop the connection.
-    setTimeout(() => process.exit(0), 1500);
+    console.log(`[update] updated to ${latest}; exiting in ${EXIT_DELAY_MS}ms so the supervisor re-execs the new binary.`);
+    setTimeout(() => process.exit(0), EXIT_DELAY_MS);
+    return new Promise<never>(() => { /* the process exits first */ });
+}
+
+/**
+ * How the *new* process settles the `update_control_plane` run the old one left
+ * `running`: succeeded if this is the version that run installed, failed
+ * (saying which version came up instead) if not. Taken once at boot — the
+ * marker is consumed whether or not the run it names is still in the store —
+ * and any other orphaned run of this kind gets the store's generic
+ * "interrupted" verdict, since nothing vouches for it.
+ */
+export async function interruptedUpdateResolver(): Promise<OrphanResolver> {
+    const pending = await takePendingUpdate();
+    if (pending) {
+        console.log(`[update] booted after self-update to ${pending.version} (running ${AGENT_VERSION}); settling run ${pending.runId}`);
+    }
+    return (run) => {
+        if (run.spec.kind !== "update_control_plane" || !pending || run.id !== pending.runId) {
+            return null;
+        }
+        if (pending.version !== AGENT_VERSION) {
+            return { status: "failed", error: `Restarted on ${AGENT_VERSION}, expected ${pending.version}` };
+        }
+        return { status: "succeeded", result: { kind: "update_control_plane", version: AGENT_VERSION } };
+    };
 }

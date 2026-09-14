@@ -21,6 +21,8 @@ import type {
     TaskSpec,
     TaskUpdateAgent,
     TaskUpdateAgentResult,
+    TaskUpdateControlPlane,
+    TaskUpdateControlPlaneResult,
     TaskZfsDatasetCreate,
     TaskZfsDatasetCreateResult,
     TaskZfsDatasetDestroy,
@@ -74,6 +76,9 @@ import type { HostAgent } from "../host-agent";
  * most handlers should just use `agent` and never touch `fleet` directly.
  */
 export interface TaskCtx {
+    /** The run's id — for a handler that has to leave something behind keyed to
+     *  its run (`update_control_plane`'s restart marker); most never need it. */
+    id: string;
     log(text: string, stream?: "stdout" | "stderr"): void;
     signal: AbortSignal;
     agent: HostAgent | null;
@@ -96,6 +101,7 @@ export interface TaskHandlers {
     docker_image_pull(spec: TaskDockerImagePull, ctx: TaskCtx): Promise<TaskDockerImagePullResult>;
     docker_compose_action(spec: TaskDockerComposeAction, ctx: TaskCtx): Promise<TaskDockerComposeActionResult>;
     update_agent(spec: TaskUpdateAgent, ctx: TaskCtx): Promise<TaskUpdateAgentResult>;
+    update_control_plane(spec: TaskUpdateControlPlane, ctx: TaskCtx): Promise<TaskUpdateControlPlaneResult>;
     debug_fake(spec: TaskDebugFake, ctx: TaskCtx): Promise<TaskDebugFakeResult>;
     zfs_pool_create(spec: TaskZfsPoolCreate, ctx: TaskCtx): Promise<TaskZfsPoolCreateResult>;
     zfs_pool_destroy(spec: TaskZfsPoolDestroy, ctx: TaskCtx): Promise<TaskZfsPoolDestroyResult>;

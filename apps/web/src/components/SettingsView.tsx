@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { SettingsOperations } from "@central/shared";
 import { api } from "../api";
+import { runTaskAndWait } from "../taskRun";
 import { useConnection } from "../hooks/useConnection";
 import { UsersTab } from "./settings/UsersTab";
 import { RolesTab } from "./settings/RolesTab";
@@ -17,8 +18,6 @@ import uiStyles from "./ui.module.css";
 import { colorVars } from "../styles/colorVars";
 
 type ControlPlaneStatus = SettingsOperations["getControlPlaneStatus"]["response"];
-
-
 
 function GeneralSettings() {
     const [domain, setDomain] = useState<string>("");
@@ -211,15 +210,23 @@ function GeneralSettings() {
         await saveProxies(proxies.filter((p) => p.address !== address));
     }
 
+    // The update is a task whose run outlives the server that started it: the
+    // old process downloads, swaps the binary and exits with the run still
+    // `running`; the new one settles it on boot. So the wait here spans the
+    // restart — the socket drops, reconnects on its own, and the `init` snapshot
+    // it then gets carries the run's terminal status. Only then is the reload
+    // right: by that point this tab is the old UI build talking to a new server
+    // (the web assets ship inside the binary), and nothing short of reloading
+    // makes the version on screen or this button truthful again.
     async function handleUpdateControlPlane() {
-        if (!confirm("Update the control plane? It downloads the new version and restarts — this page will briefly disconnect, then reconnect.")) {
+        if (!confirm("Update the control plane? It downloads the new version and restarts — this page will reload once it's back.")) {
             return;
         }
         setUpdating(true);
         setCpMsg(null);
         try {
-            await api("settings", "updateControlPlane", undefined);
-            setCpMsg("Update started; the control plane is restarting. This page will reconnect shortly.");
+            await runTaskAndWait({ kind: "update_control_plane" }, null, { feedback: "modal" });
+            location.reload();
         } catch (err) {
             setCpMsg(err instanceof Error ? err.message : String(err));
             setUpdating(false);
