@@ -46,9 +46,31 @@ export interface ComposeServiceStatus {
     state?: string;
     ports?: string;
     up: boolean;
+    /** See `ContainerInfo.completed`: a one-shot service that ran to the end. */
+    completed?: boolean;
 }
 
 export type ComposeStackRunStatus = "running" | "partial" | "stopped" | "down";
+
+/**
+ * A stack's state from its container counts — the one rule for a stack
+ * observed from labels and a registered one alike.
+ *
+ * `completed` containers are the finished one-shots (a migrations service):
+ * they're part of `total` but nobody expects them to run, so they don't make a
+ * stack partial. They can't rescue a stack either — nothing running is
+ * stopped, however many one-shots finished, since a stack of `restart: no`
+ * services that somebody stopped looks exactly the same from outside.
+ */
+export function stackRunStatus(running: number, total: number, completed = 0): ComposeStackRunStatus {
+    if (total === 0) {
+        return "down";
+    }
+    if (running === 0) {
+        return "stopped";
+    }
+    return running >= total - completed ? "running" : "partial";
+}
 
 export interface ComposeStackStatus {
     status: ComposeStackRunStatus;

@@ -16,6 +16,10 @@ export interface ContainerInfo {
     project?: string;
     /** Compose service (com.docker.compose.service label), if any. */
     service?: string;
+    /** Exited 0 under a restart policy that won't bring it back (`no`,
+     *  `on-failure`): a one-shot that finished — migrations, an init job — not
+     *  something that stopped. Absent for every other container. */
+    completed?: boolean;
 }
 
 export interface DockerVolumeInfo {
@@ -65,6 +69,9 @@ export interface DockerStack {
     containers: number;
     /** Containers currently running. */
     running: number;
+    /** Containers that finished (see `ContainerInfo.completed`) — counted in
+     *  `containers`, but not expected to run, so not held against the stack. */
+    completed: number;
     /** com.docker.compose.project.config_files label, if present. */
     configFiles: string;
     /** Distinct container states present in the stack. */
@@ -97,6 +104,8 @@ export interface DockerContainerDetail {
     env: string[];
     networks: string[];
     restartPolicy: string;
+    /** Same rule as `ContainerInfo.completed`, from the inspect itself. */
+    completed: boolean;
     /** Container labels (`Config.Labels`), as key/value pairs, sorted by key. */
     labels: { key: string; value: string }[];
     /** Pretty-printed raw `docker inspect` JSON. */

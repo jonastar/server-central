@@ -90,6 +90,49 @@ test("getComposeStackStatus merges YAML-shaped config with compose ps", async ()
     expect(status.status).toBe("partial");
 });
 
+// A migrations service that exited 0 under `restart: no` has done its job; the
+// stack is running, not partial, and the service says so rather than "exited".
+test("getComposeStackStatus reads a finished one-shot as completed, not down", async () => {
+    const status = await getComposeStackStatus(
+        fakeAgent((command) => {
+            if (command.includes(" ps ")) {
+                return { stdout: [
+                    JSON.stringify({ ID: "aaa111", Service: "db", State: "running", ExitCode: 0 }),
+                    JSON.stringify({ ID: "bbb222", Service: "migrations", State: "exited", Status: "Exited (0) 2 hours ago", ExitCode: 0 }),
+                ].join("\n") };
+            }
+            if (command.startsWith("docker inspect")) {
+                return { stdout: "bbb222" + "0".repeat(58) + " no\n" };
+            }
+            return { stdout: JSON.stringify({ services: { db: {}, migrations: {} } }) };
+        }),
+        "/opt/bl", "compose.yaml", "bl",
+    );
+    expect(status.status).toBe("running");
+    expect(status.services.find((s) => s.name === "migrations")).toMatchObject({ up: false, completed: true });
+    expect(status.services.find((s) => s.name === "db")?.completed).toBeUndefined();
+});
+
+test("getComposeStackStatus keeps an exit-0 service under restart: always as down", async () => {
+    const status = await getComposeStackStatus(
+        fakeAgent((command) => {
+            if (command.includes(" ps ")) {
+                return { stdout: [
+                    JSON.stringify({ ID: "aaa111", Service: "db", State: "running", ExitCode: 0 }),
+                    JSON.stringify({ ID: "bbb222", Service: "web", State: "exited", ExitCode: 0 }),
+                ].join("\n") };
+            }
+            if (command.startsWith("docker inspect")) {
+                return { stdout: "bbb222" + "0".repeat(58) + " always\n" };
+            }
+            return { stdout: JSON.stringify({ services: { db: {}, web: {} } }) };
+        }),
+        "/opt/bl", "compose.yaml", "bl",
+    );
+    expect(status.status).toBe("partial");
+    expect(status.services.find((s) => s.name === "web")?.completed).toBeUndefined();
+});
+
 // ---- status when the stack's directory is gone ------------------------------
 //
 // Every compose command runs with the stack's directory as its cwd, so none of

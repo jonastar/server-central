@@ -54,3 +54,7 @@
 .pill-dot-err {
     background: var(--err);
 }
+
+.pill-dot-muted {
+    background: var(--muted);
+}

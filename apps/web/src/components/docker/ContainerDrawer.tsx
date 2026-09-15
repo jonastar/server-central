@@ -7,7 +7,7 @@ import { FilesView } from "../FilesView";
 import { useHistoryState } from "../../hooks/useHistoryState";
 import { LogViewerPane } from "../LogViewerModal";
 import { TerminalView } from "../TerminalView";
-import { containerTone, StatusBadge } from "./status";
+import { containerState, containerTone, StatusBadge } from "./status";
 import shared from "../../styles/shared.module.css";
 
 type DrawerTab = "details" | "volumes" | "logs" | "exec" | "terminal" | "raw";
@@ -183,6 +183,7 @@ export function ContainerDrawer({ serverId, containerId, container, busy, taskId
     const name = container?.name ?? detail?.name ?? containerId.slice(0, 12);
     const state = container?.state ?? detail?.state ?? "";
     const status = container?.status ?? detail?.status ?? "";
+    const completed = container?.completed ?? detail?.completed ?? false;
 
     // Same shape as every other row's actions: one contextual primary, one
     // obvious sibling, everything else — destructive included — in the menu.
@@ -206,7 +207,7 @@ export function ContainerDrawer({ serverId, containerId, container, busy, taskId
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
                 <b style={{ fontSize: 14 }}>{name}</b>
-                {state && <StatusBadge tone={containerTone(state)} title={status}>{state}</StatusBadge>}
+                {state && <StatusBadge tone={containerTone({ state, completed })} title={status}>{containerState({ state, completed })}</StatusBadge>}
                 <span className={cx(shared.mono, shared.dim)}>{containerId.slice(0, 12)}</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>

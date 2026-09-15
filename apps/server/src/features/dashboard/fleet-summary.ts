@@ -1,3 +1,4 @@
+import { stackRunStatus } from "@central/shared";
 import type { ComposeStack, DockerStack, FleetHostSummary, FleetPoolSummary, FleetStackSummary, FleetSummary, HostCapability, ServerEntry, ZfsPool } from "@central/shared";
 import type { Fleet } from "../../fleet";
 import type { HostAgent } from "../../host-agent";
@@ -94,6 +95,7 @@ async function summarizeHost(entry: ServerEntry, agent: HostAgent, registered: C
             out.docker = {
                 containersRunning: snap.containersRunning,
                 containersTotal: snap.containersTotal,
+                containersCompleted: snap.containersCompleted,
                 stacks: mergeStacks(snap.stacks, registered),
             };
         }),
@@ -125,16 +127,17 @@ export function mergeStacks(observed: DockerStack[], registered: ComposeStack[])
         byProject.set(obs.project, {
             project: obs.project,
             name: obs.project,
-            status: obs.containers === 0 ? "down" : obs.running === obs.containers ? "running" : obs.running === 0 ? "stopped" : "partial",
+            status: stackRunStatus(obs.running, obs.containers, obs.completed),
             running: obs.running,
-            total: obs.containers,
+            total: obs.containers - obs.completed,
+            completed: obs.completed,
         });
     }
     for (const stack of registered) {
         const existing = byProject.get(stack.project);
         byProject.set(stack.project, existing
             ? { ...existing, name: stack.name }
-            : { project: stack.project, name: stack.name, status: "down", running: 0, total: 0 });
+            : { project: stack.project, name: stack.name, status: "down", running: 0, total: 0, completed: 0 });
     }
     return [...byProject.values()].sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -58,7 +58,7 @@ export function AttentionStrip({ issues, waiting, clearText, onNavigate }: {
                             <ToneDot tone={issue.tone} />
                             <span className={styles["attention-kind"]}>{issue.kind}</span>
                             <span className={styles["attention-subject"]}>{issue.subject}</span>
-                            {issue.detail && <span className={shared.dim}>{issue.detail}</span>}
+                            {issue.detail && <span className={styles["attention-detail"]}>{issue.detail}</span>}
                             {issue.hostName && <span className={styles["attention-host"]}>{issue.hostName}</span>}
                         </li>
                     ))}

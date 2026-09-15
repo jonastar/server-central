@@ -45,12 +45,14 @@ function rowStatus(row: Row): ComposeStackRunStatus {
     return row.observed ? observedStatus(row.observed) : "down";
 }
 
-/** Running / total containers, from whichever side of the merge knows. */
-function rowCounts(row: Row): { running: number; total: number } {
+/** Running / expected containers, from whichever side of the merge knows.
+ *  Finished one-shots aren't expected, so they're out of `total` and counted
+ *  on their own. */
+function rowCounts(row: Row): { running: number; total: number; completed: number } {
     if (row.observed) {
-        return { running: row.observed.running, total: row.observed.containers };
+        return { running: row.observed.running, total: row.observed.containers - row.observed.completed, completed: row.observed.completed };
     }
-    return { running: 0, total: row.status?.services.length ?? 0 };
+    return { running: 0, total: row.status?.services.length ?? 0, completed: 0 };
 }
 
 export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack }: {
@@ -184,7 +186,7 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
                         const { registered: reg, observed: obs } = row;
                         const location = reg ? reg.dir : (obs?.configFiles ?? "");
                         const runState = rowStatus(row);
-                        const { running, total } = rowCounts(row);
+                        const { running, total, completed } = rowCounts(row);
                         const up = running > 0;
                         return (
                             <DetailedRow
@@ -219,6 +221,7 @@ export function DockerStacks({ serverId, servers, onViewContainers, onOpenStack 
                                             />
                                         </span>
                                         <span className={shared.mono}>{running}/{total}</span>
+                                        {completed > 0 && <span className={shared.dim} title="One-shot containers that ran to the end">· {completed} completed</span>}
                                     </span>
                                 )}
                                 secondary={<span className={shared.mono} title={location}>{location || "—"}</span>}

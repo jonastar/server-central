@@ -81,7 +81,9 @@ export interface FleetStackSummary {
     name: string;
     status: ComposeStackRunStatus;
     running: number;
+    /** Containers expected to run — finished one-shots aren't among them. */
     total: number;
+    completed: number;
 }
 
 export interface FleetPoolSummary {
@@ -97,7 +99,7 @@ export type FleetSubsystem = "docker" | "systemd" | "zfs";
 
 export interface FleetHostSummary {
     hostId: string;
-    docker: { containersRunning: number; containersTotal: number; stacks: FleetStackSummary[] } | null;
+    docker: { containersRunning: number; containersTotal: number; containersCompleted: number; stacks: FleetStackSummary[] } | null;
     /** Units in a failed state. */
     failedUnits: string[] | null;
     pools: FleetPoolSummary[] | null;

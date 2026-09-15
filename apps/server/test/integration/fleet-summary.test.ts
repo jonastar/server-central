@@ -63,7 +63,8 @@ test("collects docker, failed units and pools for an online host in one pass", a
     expect(host.docker).toEqual({
         containersRunning: 2,
         containersTotal: 3,
-        stacks: [{ project: "shop", name: "Shop", status: "partial", running: 1, total: 2 }],
+        containersCompleted: 0,
+        stacks: [{ project: "shop", name: "Shop", status: "partial", running: 1, total: 2, completed: 0 }],
     });
     expect(host.failedUnits).toEqual(["fail2ban.service", "backup.timer"]);
     expect(host.pools?.[0]).toMatchObject({ name: "tank", state: "ONLINE", capacityPct: 78, scrubInProgress: false });
@@ -116,17 +117,56 @@ test("offline hosts are skipped, and concurrent callers share one collection", a
     expect(calls.length).toBe(afterFirst);
 });
 
+// A one-shot that ran to the end (exit 0, and a restart policy that won't
+// bring it back) is finished, not down: the stack stays running and the host
+// stays healthy. Only the exit-0 containers cost an inspect — and with none
+// exited, the fleet poll stays at `docker version` + `docker ps`.
+test("a finished one-shot doesn't degrade its stack", async () => {
+    const calls: string[] = [];
+    const ps = [
+        JSON.stringify({ ID: "aaa111", Names: "app", State: "running", Status: "Up 3 days", Labels: "com.docker.compose.project=shop" }),
+        JSON.stringify({ ID: "bbb222", Names: "migrations", State: "exited", Status: "Exited (0) 3 days ago", Labels: "com.docker.compose.project=shop" }),
+        JSON.stringify({ ID: "ccc333", Names: "worker", State: "exited", Status: "Exited (0) 2 hours ago", Labels: "com.docker.compose.project=shop" }),
+        JSON.stringify({ ID: "ddd444", Names: "cron", State: "exited", Status: "Exited (1) 2 hours ago", Labels: "com.docker.compose.project=other" }),
+    ].join("\n");
+    const agent = fakeAgent({
+        "docker version": "27.0",
+        "docker ps": ps,
+        // Full ids, as inspect prints them: migrations is a one-shot, worker was
+        // stopped by hand under a policy that would otherwise keep it up.
+        "docker inspect": "bbb222" + "0".repeat(58) + " on-failure\n" + "ccc333" + "0".repeat(58) + " unless-stopped\n",
+        "systemctl list-units": "",
+    }, calls);
+    const collector = new FleetSummaryCollector(fakeFleet([{ entry: online("a", { docker: true, systemd: true }), agent }]), { registeredStacks: () => [] });
+
+    const host = (await collector.get()).hosts[0];
+    expect(host.docker).toEqual({
+        containersRunning: 1,
+        containersTotal: 4,
+        containersCompleted: 1,
+        stacks: [
+            { project: "other", name: "other", status: "stopped", running: 0, total: 1, completed: 0 },
+            { project: "shop", name: "shop", status: "partial", running: 1, total: 2, completed: 1 },
+        ],
+    });
+    // Only the exit-0 containers are asked about; the crashed one isn't a candidate.
+    const inspect = calls.find((c) => c.startsWith("docker inspect"))!;
+    expect(inspect).toContain("bbb222");
+    expect(inspect).toContain("ccc333");
+    expect(inspect).not.toContain("ddd444");
+});
+
 test("mergeStacks: a registered project nothing runs under is down, and registration names an observed one", () => {
     const merged = mergeStacks(
-        [{ project: "immich", containers: 5, running: 5, configFiles: "", states: ["running"] }],
+        [{ project: "immich", containers: 5, running: 5, completed: 0, configFiles: "", states: ["running"] }],
         [
             { id: "1", name: "Immich", hostId: "h", dir: "", composeFile: "", project: "immich", createdAt: 0 },
             { id: "2", name: "Paperless", hostId: "h", dir: "", composeFile: "", project: "paperless", createdAt: 0 },
         ],
     );
     expect(merged).toEqual([
-        { project: "immich", name: "Immich", status: "running", running: 5, total: 5 },
-        { project: "paperless", name: "Paperless", status: "down", running: 0, total: 0 },
+        { project: "immich", name: "Immich", status: "running", running: 5, total: 5, completed: 0 },
+        { project: "paperless", name: "Paperless", status: "down", running: 0, total: 0, completed: 0 },
     ]);
 });
 

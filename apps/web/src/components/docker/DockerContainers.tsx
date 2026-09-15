@@ -6,7 +6,7 @@ import { DetailedList, DetailedRow, DrawerLayout, EmptyState, ErrorBanner } from
 import { StatusFilter, type StatusToken } from "../StatusFilter";
 import { ContainerDrawer } from "./ContainerDrawer";
 import { PortLinks } from "./ports";
-import { containerTone, StatusBadge } from "./status";
+import { containerState, containerTone, StatusBadge } from "./status";
 import shared from "../../styles/shared.module.css";
 
 const REFRESH_MS = 10_000;
@@ -77,11 +77,11 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
             || c.image.toLowerCase().includes(q)
             || (c.project ?? "").toLowerCase().includes(q);
     });
-    const counts = { all: textFiltered.length, ok: 0, warn: 0, err: 0 };
+    const counts = { all: textFiltered.length, ok: 0, warn: 0, err: 0, muted: 0 };
     for (const c of textFiltered) {
-        counts[containerTone(c.state) as "ok" | "warn" | "err"]++;
+        counts[containerTone(c)]++;
     }
-    const shown = textFiltered.filter((c) => statusFilter === "all" || containerTone(c.state) === statusFilter);
+    const shown = textFiltered.filter((c) => statusFilter === "all" || containerTone(c) === statusFilter);
 
     return (
         <DrawerLayout>
@@ -102,6 +102,9 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
                             { value: "ok", label: "Running", count: counts.ok },
                             { value: "warn", label: "Paused", count: counts.warn },
                             { value: "err", label: "Stopped", count: counts.err },
+                            // Finished one-shots are nothing to act on; the bucket
+                            // only shows up when there are some to look at.
+                            ...(counts.muted > 0 ? [{ value: "muted" as const, label: "Completed", count: counts.muted }] : []),
                         ]}
                     />
                 </div>
@@ -131,7 +134,7 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
                 ) : (
                     <DetailedList>
                         {shown.map((c) => {
-                            const tone = containerTone(c.state);
+                            const tone = containerTone(c);
                             const isOpen = containerId === c.id;
                             return (
                                 <DetailedRow
@@ -143,7 +146,7 @@ export function DockerContainers({ serverId, hostIp, stack, initialFilter, conta
                                     // so there's one place a container is acted on.
                                     onClick={() => (isOpen ? onCloseContainer() : onOpenContainer(c.id))}
                                     title={c.name}
-                                    badge={<StatusBadge tone={tone}>{c.state}</StatusBadge>}
+                                    badge={<StatusBadge tone={tone} title={c.completed ? c.state : undefined}>{containerState(c)}</StatusBadge>}
                                     meta={c.status}
                                     secondary={(
                                         <>

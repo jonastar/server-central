@@ -1,3 +1,4 @@
+import { stackRunStatus } from "@central/shared";
 import type {
     ComposeStackRunStatus,
     ComposeServiceStatus,
@@ -117,7 +118,7 @@ type PsRow = {
     Labels?: string;
 };
 
-function toContainer(r: PsRow): ContainerInfo {
+function toContainer(r: PsRow, completed: Set<string>): ContainerInfo {
     return {
         id: r.ID,
         name: r.Names,
@@ -128,7 +129,63 @@ function toContainer(r: PsRow): ContainerInfo {
         createdAt: r.CreatedAt,
         project: parseLabel(r.Labels, "com.docker.compose.project"),
         service: parseLabel(r.Labels, "com.docker.compose.service"),
+        ...(completed.has(r.ID) ? { completed: true } : {}),
     };
+}
+
+// ---- Finished one-shots ------------------------------------------------------
+//
+// Docker has no "done" state: a migrations service that ran to the end sits in
+// `docker ps -a` as "Exited (0)" next to a crashed one at "Exited (1)", and
+// compose merely hides both from `ps` without `--all`. Read as "not running",
+// the finished one keeps its stack partial and the host degraded forever.
+//
+// Exit 0 alone doesn't say "finished": `docker stop nginx` also exits 0. The
+// restart policy does — under `no` (the default) or `on-failure`, an exit-0
+// container is never coming back, so that exit *was* the container's last
+// word. Under `always`/`unless-stopped` it's something somebody stopped, and
+// that stays red.
+
+const ONESHOT_RESTART_POLICIES = new Set(["", "no", "on-failure"]);
+
+/** The exit code out of whichever field carries it: compose's structured
+ *  `ExitCode`, or the "Exited (0) 3 hours ago" / "exited (0)" renderings of
+ *  `docker ps` and older compose builds. */
+function exitCodeOf(row: { State?: string; Status?: string; ExitCode?: number }): number | undefined {
+    if (typeof row.ExitCode === "number") {
+        return row.ExitCode;
+    }
+    const m = /^exited \((\d+)\)/i.exec(row.Status ?? "") ?? /^exited \((\d+)\)/i.exec(row.State ?? "");
+    return m ? Number(m[1]) : undefined;
+}
+
+/** Restart policy per container id, matched by prefix: `docker ps` hands out
+ *  12-character ids, `inspect` prints the full 64. A container gone between
+ *  the two calls is simply missing from the map. */
+async function restartPolicies(server: HostAgent, ids: string[]): Promise<Map<string, string>> {
+    const safe = ids.filter((id) => SAFE_ID_RE.test(id));
+    const out = new Map<string, string>();
+    if (safe.length === 0) {
+        return out;
+    }
+    const res = await server.run(["docker", "inspect", "--format", "{{.Id}} {{.HostConfig.RestartPolicy.Name}}", ...safe]);
+    for (const line of res.stdout.split("\n")) {
+        const [full, name = ""] = line.trim().split(/\s+/);
+        const id = full && safe.find((s) => full.startsWith(s));
+        if (id) {
+            out.set(id, name);
+        }
+    }
+    return out;
+}
+
+/** Ids of the containers among `rows` that finished rather than stopped or
+ *  failed — one `docker inspect` for the exit-0 candidates, none when there
+ *  aren't any (the common case on a host with nothing exited). */
+async function completedIds(server: HostAgent, rows: Array<{ ID?: string; State?: string; Status?: string; ExitCode?: number }>): Promise<Set<string>> {
+    const candidates = rows.flatMap((r) => (r.ID && r.State?.toLowerCase().startsWith("exited") && exitCodeOf(r) === 0 ? [r.ID] : []));
+    const policies = await restartPolicies(server, candidates);
+    return new Set(candidates.filter((id) => ONESHOT_RESTART_POLICIES.has(policies.get(id) ?? "always")));
 }
 
 async function probe(server: HostAgent): Promise<string | null> {
@@ -154,7 +211,9 @@ export async function dockerList(server: HostAgent): Promise<DockerState> {
     type VolRow = { Name: string; Driver: string; Mountpoint?: string };
     type ImgRow = { ID: string; Repository: string; Tag: string; Size: string; CreatedSince: string };
 
-    const containers: ContainerInfo[] = parseJsonLines<PsRow>(ps.stdout).map(toContainer);
+    const rows = parseJsonLines<PsRow>(ps.stdout);
+    const completed = await completedIds(server, rows);
+    const containers: ContainerInfo[] = rows.map((r) => toContainer(r, completed));
     const vols: DockerVolumeInfo[] = parseJsonLines<VolRow>(volumes.stdout).map((r) => ({
         name: r.Name,
         driver: r.Driver,
@@ -222,11 +281,12 @@ export async function dockerStacks(server: HostAgent): Promise<DockerStacksState
     }
 
     const ps = await server.run(["docker", "ps", "-a", "--format", "{{json .}}"]);
-    return { available: true, stacks: groupStacks(parseJsonLines<PsRow>(ps.stdout)) };
+    const rows = parseJsonLines<PsRow>(ps.stdout);
+    return { available: true, stacks: groupStacks(rows, await completedIds(server, rows)) };
 }
 
 /** Fold containers onto their compose projects, sorted by project. */
-function groupStacks(containers: PsRow[]): DockerStack[] {
+function groupStacks(containers: PsRow[], completed: Set<string>): DockerStack[] {
     const byProject = new Map<string, DockerStack>();
     for (const c of containers) {
         const project = parseLabel(c.Labels, "com.docker.compose.project");
@@ -239,6 +299,7 @@ function groupStacks(containers: PsRow[]): DockerStack[] {
                 project,
                 containers: 0,
                 running: 0,
+                completed: 0,
                 configFiles: parseLabel(c.Labels, "com.docker.compose.project.config_files") ?? "",
                 states: [],
             };
@@ -247,6 +308,8 @@ function groupStacks(containers: PsRow[]): DockerStack[] {
         stack.containers += 1;
         if (c.State === "running") {
             stack.running += 1;
+        } else if (completed.has(c.ID)) {
+            stack.completed += 1;
         }
         if (!stack.states.includes(c.State)) {
             stack.states.push(c.State);
@@ -264,7 +327,7 @@ function groupStacks(containers: PsRow[]): DockerStack[] {
  * doesn't show.
  */
 export async function dockerFleetSnapshot(server: HostAgent): Promise<
-    { available: true; containersRunning: number; containersTotal: number; stacks: DockerStack[] }
+    { available: true; containersRunning: number; containersTotal: number; containersCompleted: number; stacks: DockerStack[] }
     | { available: false; error: string }
 > {
     const err = await probe(server);
@@ -273,11 +336,13 @@ export async function dockerFleetSnapshot(server: HostAgent): Promise<
     }
     const ps = await server.run(["docker", "ps", "-a", "--format", "{{json .}}"]);
     const containers = parseJsonLines<PsRow>(ps.stdout);
+    const completed = await completedIds(server, containers);
     return {
         available: true,
         containersRunning: containers.filter((c) => c.State === "running").length,
         containersTotal: containers.length,
-        stacks: groupStacks(containers),
+        containersCompleted: completed.size,
+        stacks: groupStacks(containers, completed),
     };
 }
 
@@ -540,6 +605,8 @@ interface ComposePsEntry {
     Service: string;
     Image?: string;
     State?: string;
+    Status?: string;
+    ExitCode?: number;
     Publishers?: { TargetPort?: number; PublishedPort?: number; Protocol?: string }[];
     /** Only set by the `docker ps` fallback, which has no `Publishers`. */
     PsPorts?: string;
@@ -599,6 +666,7 @@ async function psByProjectLabel(server: HostAgent, project: string): Promise<Com
             Service: service,
             Image: row.Image,
             State: row.State,
+            Status: row.Status,
             // Ports come back as a rendered string here, not compose's structured
             // Publishers, so they're parsed rather than read off fields.
             PsPorts: portsFromPsString(row.Ports),
@@ -633,6 +701,7 @@ export async function getComposeStackStatus(
         ? parseJsonLines<ComposePsEntry>(psRes.stdout)
         : await psByProjectLabel(server, project);
     const byService = new Map(present.map((e) => [e.Service, e]));
+    const completed = await completedIds(server, present);
 
     // Union of what the compose file declares and what's actually running, in
     // that order. Running-but-undeclared matters more than it sounds: if the
@@ -656,15 +725,15 @@ export async function getComposeStackStatus(
             state: entry?.State,
             ports: entry ? (entry.PsPorts ?? formatPorts(entry)) : undefined,
             up: entry?.State === "running",
+            ...(entry?.ID && completed.has(entry.ID) ? { completed: true } : {}),
         };
     });
 
-    const upCount = services.filter((s) => s.up).length;
-    const status: ComposeStackRunStatus =
-        services.length === 0 || present.length === 0 ? "down"
-            : upCount === 0 ? "stopped"
-                : upCount === services.length ? "running"
-                    : "partial";
+    // A declared service with no container yet counts against the stack like a
+    // stopped one would: it's expected up and isn't.
+    const status: ComposeStackRunStatus = services.length === 0 || present.length === 0
+        ? "down"
+        : stackRunStatus(services.filter((s) => s.up).length, services.length, services.filter((s) => s.completed).length);
 
     return { status, services, error };
 }
@@ -754,6 +823,7 @@ export async function dockerContainerInspect(server: HostAgent, containerId: str
 
     const networks = Object.keys(c.NetworkSettings?.Networks ?? {});
     const restart = c.HostConfig?.RestartPolicy?.Name || "no";
+    const completed = c.State?.Status === "exited" && c.State?.ExitCode === 0 && ONESHOT_RESTART_POLICIES.has(restart);
 
     const labels = Object.entries(c.Config?.Labels ?? {})
         .map(([key, value]) => ({ key, value: String(value) }))
@@ -772,6 +842,7 @@ export async function dockerContainerInspect(server: HostAgent, containerId: str
         env: c.Config?.Env ?? [],
         networks,
         restartPolicy: restart,
+        completed,
         labels,
         raw: JSON.stringify(c, null, 2),
     };

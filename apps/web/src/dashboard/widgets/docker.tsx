@@ -39,7 +39,7 @@ function mergeStacks(state: HostComposeStacks): StackRow[] {
             label: observed.project,
             status: observedStatus(observed),
             running: observed.running,
-            total: observed.containers,
+            total: observed.containers - observed.completed,
         });
     }
     for (const stack of state.stacks) {

@@ -2,7 +2,7 @@ import { cx } from "../utils";
 import styles from "./StatusFilter.module.css";
 
 /** "all" plus the row-status tokens shared with the table accent colors. */
-export type StatusToken = "all" | "ok" | "warn" | "err";
+export type StatusToken = "all" | "ok" | "warn" | "err" | "muted";
 
 export interface StatusOption {
     value: StatusToken;

@@ -12,6 +12,13 @@ feature may run longer; most don't earn it.
 
 ## Unreleased
 
+### Changed
+
+- **Finished one-shots aren't failures.** A container that exited 0 under `restart: no` /
+  `on-failure` (a migrations job) now reads "completed" and no longer degrades its stack or host.
+- Fleet attention strip: wider rows, so host names and details no longer truncate or wrap.
+- Host card: a stack with some containers down says "1 stack degraded" instead of "0/1 stacks".
+
 ## [0.12.1] - 2026-09-14
 
 ## [0.12.0] - 2026-09-14

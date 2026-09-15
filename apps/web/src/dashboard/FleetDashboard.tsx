@@ -88,7 +88,12 @@ function FleetTotals({ hosts, tasks, summaryKnown }: { hosts: HostView[]; tasks:
     const online = hosts.filter((h) => h.online);
     const down = hosts.length - online.length;
     const withDocker = online.filter((h) => h.summary?.docker);
-    const containers = withDocker.reduce((acc, h) => ({ running: acc.running + h.summary!.docker!.containersRunning, total: acc.total + h.summary!.docker!.containersTotal }), { running: 0, total: 0 });
+    const containers = withDocker.reduce(
+        (acc, h) => ({ running: acc.running + h.summary!.docker!.containersRunning, total: acc.total + h.summary!.docker!.containersTotal, completed: acc.completed + h.summary!.docker!.containersCompleted }),
+        { running: 0, total: 0, completed: 0 },
+    );
+    // Finished one-shots are in `total` but not "not running": nothing to bring back.
+    const containersDown = containers.total - containers.running - containers.completed;
     const stacks = withDocker.flatMap((h) => h.summary!.docker!.stacks);
     const stacksUp = stacks.filter((s) => s.status === "running").length;
     const stacksDegraded = stacks.filter((s) => s.status === "partial").length;
@@ -118,7 +123,7 @@ function FleetTotals({ hosts, tasks, summaryKnown }: { hosts: HostView[]; tasks:
             <Tile label="Hosts" value={<Ratio n={online.length} of={hosts.length} />}
                 detail={down > 0 ? `${down} not reachable` : "all online"} tone={down > 0 ? "err" : undefined} />
             <Tile label="Containers" value={pending ? "…" : <Ratio n={containers.running} of={containers.total} />}
-                detail={pending ? "" : containers.total - containers.running > 0 ? `${containers.total - containers.running} not running` : "all running"} />
+                detail={pending ? "" : [containersDown > 0 && `${containersDown} not running`, containers.completed > 0 && `${containers.completed} completed`].filter(Boolean).join(" · ") || "all running"} />
             <Tile label="Stacks" value={pending ? "…" : <Ratio n={stacksUp} of={stacks.length} />}
                 detail={pending ? "" : [stacksDegraded && `${stacksDegraded} degraded`, stacksStopped && `${stacksStopped} stopped`].filter(Boolean).join(" · ") || "all up"}
                 tone={!pending && stacksDegraded > 0 ? "warn" : undefined} />
@@ -206,11 +211,22 @@ function HostCard({ host, issues, onNavigate }: { host: HostView; issues: Issue[
                             <button className={styles.chip} onClick={() => go(tabRoute(host, "docker", { section: "containers" }))} title="Containers running / total">
                                 <span className={styles["chip-num"]}>{summary.docker.containersRunning}<span className={styles["chip-of"]}>/{summary.docker.containersTotal}</span></span> containers
                             </button>
-                            {stacks.length > 0 && (
-                                <button className={cx(styles.chip, stacksDegraded > 0 && styles["chip-warn"])} onClick={() => go(tabRoute(host, "docker", { section: "stacks" }))}>
-                                    <span className={styles["chip-num"]}>{stacksUp}<span className={styles["chip-of"]}>/{stacks.length}</span></span> stacks
-                                </button>
-                            )}
+                            {/* "Up" means every container running, so a degraded stack
+                                isn't up — but "0/1 stacks" for a stack with 8 of 9
+                                containers running reads as an outage. Name the
+                                degradation instead; the ratio is only shown when the
+                                non-up stacks are actually stopped. */}
+                            {stacksDegraded > 0
+                                ? (
+                                    <button className={cx(styles.chip, styles["chip-warn"])} onClick={() => go(tabRoute(host, "docker", { section: "stacks" }))} title="Stacks with only some containers running">
+                                        <span className={styles["chip-num"]}>{stacksDegraded}</span> stack{stacksDegraded === 1 ? "" : "s"} degraded
+                                    </button>
+                                )
+                                : stacks.length > 0 && (
+                                    <button className={styles.chip} onClick={() => go(tabRoute(host, "docker", { section: "stacks" }))} title="Stacks running / total">
+                                        <span className={styles["chip-num"]}>{stacksUp}<span className={styles["chip-of"]}>/{stacks.length}</span></span> stacks
+                                    </button>
+                                )}
                         </>
                     )}
                     {!!summary.failedUnits?.length && (

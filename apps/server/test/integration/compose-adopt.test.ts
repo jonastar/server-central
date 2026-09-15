@@ -13,7 +13,7 @@ import { Fleet } from "../../src/fleet";
 // every case below wants a known-empty registry.
 
 function observed(project: string, configFiles: string): DockerStack {
-    return { project, containers: 2, running: 2, configFiles, states: ["running"] };
+    return { project, containers: 2, running: 2, completed: 0, configFiles, states: ["running"] };
 }
 
 function newStore(): ComposeStackStore {

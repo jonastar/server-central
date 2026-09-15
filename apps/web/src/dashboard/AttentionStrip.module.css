@@ -52,8 +52,11 @@
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 2px 18px;
+    /* Wide enough that a host name, its detail and the host tag sit on one
+       line — at 340px the subject was cut to "homeproj…" and the detail wrapped
+       mid-phrase, which is the opposite of scannable. */
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr));
+    gap: 2px 24px;
 }
 
 .attention-item {
@@ -82,6 +85,16 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* The name is what identifies the problem: it gives way last. */
+    min-width: 12ch;
+}
+
+.attention-detail {
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
 }
 
 .attention-host {
