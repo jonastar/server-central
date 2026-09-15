@@ -1,6 +1,6 @@
 {
     "name": "@central/server",
-    "version": "0.12.2-dev",
+    "version": "0.12.2",
     "type": "module",
     "scripts": {
         "predev": "bun run ../../scripts/write-generated-stubs.ts",

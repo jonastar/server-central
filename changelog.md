@@ -12,6 +12,8 @@ feature may run longer; most don't earn it.
 
 ## Unreleased
 
+## [0.12.2] - 2026-09-15
+
 ### Changed
 
 - **Finished one-shots aren't failures.** A container that exited 0 under `restart: no` /
